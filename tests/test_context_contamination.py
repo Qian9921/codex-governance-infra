@@ -1,4 +1,4 @@
-import json,pathlib,sys,unittest
+import json,pathlib,re,subprocess,sys,unittest
 sys.path.insert(0,str(pathlib.Path(__file__).parents[1]/'codex'/'hooks'))
 from delegation_contract import ContractError,validate_packet,validate_result
 import session_context
@@ -9,7 +9,9 @@ class ContextContamination(unittest.TestCase):
   c=json.loads(subprocess.check_output([sys.executable,str(pathlib.Path(__file__).parents[1]/'codex/hooks/session_context.py')],input=json.dumps({'hook_event_name':'SubagentStart','model':FX['child_model']}).encode()))['hookSpecificOutput']['additionalContext']; self.assertIn('GPT-5.3 Codex Spark',c); self.assertIn('full tool capability',c)
  def test_plugins_informational(self): self.assertEqual(FX['plugin_inventory'],'informational')
  def test_valid_luna_spark_packet(self):
-  p=dict(FX['packet']); p['repo_root']=str(pathlib.Path(__file__).parents[1].resolve()); self.assertTrue(validate_packet(p))
+  root=pathlib.Path(__file__).parents[1].resolve(); q=subprocess.run(['git','rev-parse','HEAD'],cwd=root,capture_output=True,text=True,check=False)
+  self.assertEqual(q.returncode,0); self.assertRegex(q.stdout.strip(),r'^[0-9a-f]{40}$')
+  p=dict(FX['packet']); p['repo_root']=str(root); p['repo_snapshot']=q.stdout.strip(); self.assertTrue(validate_packet(p))
  def test_depth_gt_one_reject(self): p=dict(FX['packet']); p['depth']=2; self.assertRaises(ContractError,validate_packet,p)
  def test_unauthorized_git_reject(self): p=dict(FX['packet']); p['permissions']=['git']; self.assertRaises(ContractError,validate_packet,p)
  def test_unauthorized_github_reject(self): p=dict(FX['packet']); p['permissions']=['github']; self.assertRaises(ContractError,validate_packet,p)
