@@ -51,6 +51,8 @@ class GateRunner:
 
     def _write_log(self, gate_id: str, entry_id: str, suffix: str, data: bytes) -> tuple[str, int, int, str]:
         folder = self.artifact_dir / "logs" / gate_id
+        if folder.exists() and folder.is_symlink():
+            raise GateRunError("log directory symlink forbidden")
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{entry_id}.{suffix}.log"
         if path.exists() and path.is_symlink():
@@ -92,6 +94,10 @@ class GateRunner:
             except ValueError:
                 raise GateRunError("entrypoint cwd escapes repository")
             env = os.environ.copy(); env.update(entry.get("env", {})); env.update(env_overrides or {})
+            # Gate lanes are intentionally offline; inherited proxy settings
+            # must not turn a local checker into an implicit network action.
+            for proxy_key in ("ALL_PROXY", "HTTP_PROXY", "HTTPS_PROXY", "all_proxy", "http_proxy", "https_proxy"):
+                env.pop(proxy_key, None)
             env.setdefault("PYTHONUNBUFFERED", "1")
             entry_start = _utc(); timed_out = False
             try:
@@ -116,7 +122,7 @@ class GateRunner:
                 decision = "deny"
             else:
                 decision = "allow"
-            all_rows.append({"schema": "gate-row.v16", "gate_id": gate_id, "entrypoint_id": entry_id, "stage": gate["stage"], "decision": decision, "expected_head": expected_head, "actual_head": actual_head, "tree_sha": tree_sha, "dirty": dirty, "command": command, "cwd": entry["cwd"], "runtime": "python-stdlib", "config": "mission-plan", "started_at": entry_start, "ended_at": _utc(), "elapsed_sec": round(time.monotonic() - gate_start, 6), "exit_status": status, "counts": counts, "log_paths": [rel_out, rel_err], "log_shas": [out_sha, err_sha], "log_sizes": [out_size, err_size], "parse_error": parse_error})
+            all_rows.append({"schema": "gate-row.v16", "gate_id": gate_id, "entrypoint_id": entry_id, "stage": gate["stage"], "decision": decision, "expected_head": expected_head, "actual_head": actual_head, "tree_sha": tree_sha, "dirty": dirty, "command": command, "cwd": entry["cwd"], "runtime": "python-stdlib", "config": "mission-plan", "started_at": entry_start, "ended_at": _utc(), "elapsed_sec": round(time.monotonic() - gate_start, 6), "exit_status": status, "counts": counts, "log_paths": [rel_out, rel_err], "log_shas": [out_sha, err_sha], "log_sizes": [out_size, err_size], "log_modes": [out_mode, err_mode], "parse_error": parse_error})
             if decision != "allow":
                 break
         overall = "allow" if all(r["decision"] == "allow" for r in all_rows) and len(all_rows) == len(gate["entrypoint_ids"]) else "deny"
@@ -133,5 +139,33 @@ class GateRunner:
                 self.run_gate(gate_id, expected_head=expected_head, force=force)
             except GateRunError as exc:
                 self.results[gate_id] = {"schema": "gate-result.v16", "gate_id": gate_id, "decision": "deny", "reason": str(exc), "expected_head": expected_head, "actual_head": "", "tree_sha": ""}
+                # Preserve an explicit stop receipt for every dependent rather
+                # than silently omitting it from the machine envelope.
+                order = self.plan["gate_order"]
+                start = order.index(gate_id)
+                for dependent in order[start + 1:]:
+                    if dependent in selected and dependent not in self.results:
+                        self.results[dependent] = {"schema": "gate-result.v16", "gate_id": dependent, "decision": "skipped", "reason": "DEPENDENCY_RED", "expected_head": expected_head, "actual_head": "", "tree_sha": ""}
                 break
         return {"schema": "gate-run.v16", "expected_head": expected_head, "results": [self.results[g] for g in self.plan["gate_order"] if g in self.results]}
+
+
+def validate_gate_result(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Strict receipt validator for a single gate result."""
+    if not isinstance(value, Mapping):
+        raise GateRunError("gate result object required")
+    required = {"schema", "gate_id", "decision", "expected_head", "actual_head", "tree_sha"}
+    if not required <= set(value) or set(value) - (required | {"stage", "dirty", "started_at", "ended_at", "elapsed_sec", "rows", "reason"}):
+        raise GateRunError("missing/additional gate result fields")
+    if value["schema"] != "gate-result.v16" or value["decision"] not in {"allow", "deny", "reused", "skipped"}:
+        raise GateRunError("gate result schema/decision")
+    if not isinstance(value["gate_id"], str) or not value["gate_id"]:
+        raise GateRunError("gate ID")
+    for key in ("expected_head",):
+        if not isinstance(value[key], str) or len(value[key]) != 40:
+            raise GateRunError("exact expected head")
+    if value["actual_head"] and (not isinstance(value["actual_head"], str) or len(value["actual_head"]) != 40):
+        raise GateRunError("actual head")
+    if value["tree_sha"] and (not isinstance(value["tree_sha"], str) or len(value["tree_sha"]) != 40):
+        raise GateRunError("tree SHA")
+    return dict(value)

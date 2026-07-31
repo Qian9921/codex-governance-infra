@@ -20,6 +20,23 @@ FORBIDDEN_TEXT_RE = re.compile(
     re.I,
 )
 
+# A compact machine-readable registry accompanies the executable validators.
+# It deliberately records only contract identity/field names; validation
+# remains in Python so fresh Python 3.9 clones need no JSON-schema package.
+SCHEMA_REGISTRY = {
+    "mission.v16": "validate_mission",
+    "invariant.v16": "validate_invariant",
+    "counterexample.v16": "validate_counterexample",
+    "gate.v16": "validate_gate",
+    "acceptance.v16": "validate_acceptance",
+    "spark-audit-request.v16": "validate_spark_audit",
+    "compiled-plan.v16": "compiler.compile_mission",
+    "readiness-state.v16": "state.validate_state",
+    "evidence-envelope.v16": "evidence.validate_envelope",
+    "review-packet.v16": "trace.validate_review_packet",
+    "metrics.v16": "metrics.validate_metrics",
+}
+
 
 class ContractError(ValueError):
     """Raised when a contract violates its strict schema or invariants."""
@@ -400,5 +417,10 @@ def validate_schema_document(value: Any, expected_schema: str | None = None) -> 
         "spark-audit-request.v16": validate_spark_audit,
     }
     if schema in validators:
-        return validators[schema](value)
+        # Top-level schema documents carry their schema discriminator; nested
+        # mission records intentionally omit it. Validate the same strict field
+        # set in either representation and restore the discriminator in output.
+        body = dict(value); body.pop("schema", None)
+        normalized = validators[schema](body)
+        return {"schema": schema, **normalized}
     raise ContractError("unknown schema", "$.schema")

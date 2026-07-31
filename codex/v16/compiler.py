@@ -78,10 +78,15 @@ def compile_mission(mission: Mapping[str, Any]) -> dict[str, Any]:
         argv = entry["argv"]
         if not isinstance(argv, list) or not argv:
             raise CompileError("argv array required", f"$.entrypoints[{entry['id']}].argv")
+        shell_interpreters = {"sh", "bash", "dash", "zsh", "fish", "cmd", "powershell", "pwsh"}
+        if argv[0] in shell_interpreters and any(arg in {"-c", "/c", "-Command"} for arg in argv[1:]):
+            raise CompileError("shell interpreter execution forbidden", f"$.entrypoints[{entry['id']}].argv")
         for i, arg in enumerate(argv):
             if not isinstance(arg, str) or "\x00" in arg:
                 raise CompileError("unsafe argv item", f"$.entrypoints[{entry['id']}].argv[{i}]")
-        if len(argv) == 1 and any(x in argv[0] for x in (";", "&&", "||", "|", ">", "<", "`", "$()")):
+            if any(x in arg for x in (";", "&&", "||", "|", ">", "<", "`", "$(", "\n", "\r")):
+                raise CompileError("shell metacharacter execution forbidden", f"$.entrypoints[{entry['id']}].argv[{i}]")
+        if len(argv) == 1 and any(ch.isspace() for ch in argv[0]):
             raise CompileError("shell-string execution forbidden", f"$.entrypoints[{entry['id']}].argv")
         if entry["cwd"] == ".." or entry["cwd"].startswith("../"):
             raise CompileError("cwd traversal forbidden", f"$.entrypoints[{entry['id']}].cwd")

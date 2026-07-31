@@ -102,3 +102,16 @@ def dashboard(metrics: Mapping[str, Any], targets: Mapping[str, Any] | None = No
         if key not in checked:
             raise MetricsError("missing metric", f"$.{key}")
     return {"schema": "metrics-dashboard.v16", "policy_targets": policy, "observed": {k: checked[k] for k in METRIC_NAMES}, "interpretation": "Targets are policy thresholds, not claimed results.", "source_hash": checked.get("source_hash", "")}
+
+
+def validate_metrics(metrics: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(metrics, Mapping) or metrics.get("schema") != "metrics.v16":
+        raise MetricsError("metrics.v16 schema required")
+    for name in METRIC_NAMES:
+        if name not in metrics:
+            raise MetricsError("missing metric: " + name)
+    if metrics.get("spark_audit_count") != 3:
+        raise MetricsError("Spark audit denominator must be exactly three")
+    if not isinstance(metrics.get("first_pass_approval"), bool):
+        raise MetricsError("first_pass_approval boolean required")
+    return dict(metrics)

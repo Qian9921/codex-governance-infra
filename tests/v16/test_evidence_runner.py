@@ -34,6 +34,10 @@ class EvidenceTests(unittest.TestCase):
             validate_counts({"total": True, "ran": 1, "passed": 1, "failed": 0, "skipped": 0})
         with self.assertRaises(EvidenceError):
             validate_counts({"total": 1, "ran": 1, "passed": 1, "failed": 0, "skipped": 0, "unknown": 1})
+        with self.assertRaises(EvidenceError):
+            validate_counts({"total": 1, "ran": 0, "passed": 0, "failed": 0, "skipped": 1, "xfail": 0, "unknown": 0})
+        with self.assertRaises(EvidenceError):
+            validate_counts({"total": 1, "ran": 1, "passed": 1, "failed": 0, "skipped": 0, "xfail": 1, "unknown": 0})
 
     def test_envelope_hash_and_stale_copy_privacy_guards(self):
         first = row()
@@ -56,6 +60,10 @@ class EvidenceTests(unittest.TestCase):
             missing = row(); missing["log_path"] = "missing.log"
             with self.assertRaises(EvidenceError):
                 validate_row(missing, log_root=pathlib.Path(tmp))
+            path = pathlib.Path(tmp) / "good.log"; path.write_bytes(b"x")
+            mismatched = row(); mismatched["log_path"] = "good.log"
+            with self.assertRaises(EvidenceError):
+                validate_row(mismatched, log_root=pathlib.Path(tmp))
 
     def test_runner_direct_argv_and_structured_checker(self):
         head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
@@ -68,6 +76,7 @@ class EvidenceTests(unittest.TestCase):
             result = GateRunner(ROOT, plan, tmp).run_plan(expected_head=head)
             self.assertEqual(result["results"][0]["decision"], "allow")
             self.assertTrue(result["results"][0]["rows"][0]["log_shas"])
+            self.assertEqual(result["results"][0]["rows"][0]["log_modes"], [0o600, 0o600])
 
     def test_runner_timeout_red_and_dependents_stop(self):
         head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()

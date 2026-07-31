@@ -28,6 +28,12 @@ class SparkTraceMetricsTests(unittest.TestCase):
         bad = copy.deepcopy(results); bad[0]["dispositions"] = {}
         with self.assertRaises(SparkAuditError):
             validate_bundle(requests, bad)
+        duplicate = copy.deepcopy(results); duplicate[1]["audit_id"] = duplicate[0]["audit_id"]
+        with self.assertRaises(SparkAuditError):
+            validate_bundle(requests, duplicate)
+        out_of_scope = copy.deepcopy(results); out_of_scope[0]["scope"] = "not-requested"
+        with self.assertRaises(SparkAuditError):
+            validate_bundle(requests, out_of_scope)
         too_many = copy.deepcopy(MISSION); too_many["spark_audits"].append(copy.deepcopy(too_many["spark_audits"][0])); too_many["spark_audits"][-1]["id"] = "SPARK-D"
         with self.assertRaises(SparkAuditError):
             audit_requests(too_many)

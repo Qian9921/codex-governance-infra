@@ -151,3 +151,7 @@ def validate_bundle(requests: Sequence[Mapping[str, Any]], results: Sequence[Map
     if {r["audit_id"] for r in checked_results} != set(by_id):
         raise SparkAuditError("missing Spark result")
     return checked_results
+
+
+validate_spark_request = validate_request
+validate_spark_result = validate_result

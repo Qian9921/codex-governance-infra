@@ -38,6 +38,15 @@ class CompilerStateTests(unittest.TestCase):
         with self.assertRaises((CompileError, ContractError)):
             compile_mission(mission)
 
+    def test_shell_forms_rejected(self):
+        mission = copy.deepcopy(self.mission)
+        mission["entrypoints"][0]["argv"] = ["sh", "-c", "echo unsafe"]
+        with self.assertRaises(CompileError):
+            compile_mission(mission)
+        mission["entrypoints"][0]["argv"] = ["echo unsafe"]
+        with self.assertRaises(CompileError):
+            compile_mission(mission)
+
     def test_readiness_no_jump_or_backdating(self):
         state = initial_state("V16-PRODUCTIVITY", BASE, TREE)
         frozen = transition(state, "COUNTEREXAMPLES_FROZEN", base_sha=BASE, head_sha=BASE, tree_sha=TREE, counterexample_ids=["CE-SCHEMA", "CE-GATE", "CE-EVIDENCE"], updated_at="9999-12-31T00:00:01Z")
@@ -55,6 +64,8 @@ class CompilerStateTests(unittest.TestCase):
             transition(implementing, "INNER_AUDIT_COMPLETE", base_sha=BASE, head_sha=CANDIDATE, spark_findings=["F1"], dispositions={}, updated_at="9999-12-31T00:00:04Z")
         audited = transition(implementing, "INNER_AUDIT_COMPLETE", base_sha=BASE, head_sha=CANDIDATE, spark_findings=["F1"], dispositions={"F1": "FIXED"}, evidence_ids=["E1"], updated_at="9999-12-31T00:00:04Z")
         self.assertEqual(audited["state"], "INNER_AUDIT_COMPLETE")
+        with self.assertRaises(ReadinessError):
+            transition(audited, "LOCAL_READY", base_sha=BASE, head_sha="fedcba9876543210fedcba9876543210fedcba98", evidence_ids=["E2"], updated_at="9999-12-31T00:00:05Z")
 
     def test_state_store_atomic_and_roundtrip(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -32,6 +32,10 @@ class V16ContractTests(unittest.TestCase):
         with self.assertRaises(ContractError):
             validate_schema_document(value)
 
+    def test_standalone_schema_discriminator_is_strict(self):
+        standalone = {"schema": "counterexample.v16", "id": "CE-1", "semantics": "standalone", "description": "x", "entrypoint_id": "EP-1", "gate_id": "G-1", "why_red": "x", "cost": "tiny", "denominator": 1, "expected": "GREEN"}
+        self.assertEqual(validate_schema_document(standalone)["schema"], "counterexample.v16")
+
     def test_cycle_and_linkage_red(self):
         value = json.loads((FIXTURES / "mission.invalid.cycle.json").read_text(encoding="utf-8"))
         with self.assertRaisesRegex(ContractError, "cyclic"):

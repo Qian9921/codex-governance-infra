@@ -151,6 +151,8 @@ def validate_row(value: Any, *, expected_head: str | None = None, log_root: path
     if decision == "deny" and exit_status == 0 and not value.get("expected_denied", False):
         raise EvidenceError("deny with exit 0 is ambiguous", "$.decision")
     if log_root is not None:
+        if log_root.exists() and log_root.is_symlink():
+            raise EvidenceError("symlink artifact root", "$.log_path")
         rel = value.get("log_path", "")
         if not isinstance(rel, str) or not rel or rel.startswith(("/", "~")) or ".." in pathlib.PurePosixPath(rel).parts:
             raise EvidenceError("missing/unsafe log path", "$.log_path")
@@ -227,3 +229,7 @@ def write_envelope(envelope: Mapping[str, Any], path: str | pathlib.Path) -> tup
     sidecar = destination.with_suffix(destination.suffix + ".sha256")
     sidecar.write_text(digest + "\n", encoding="ascii")
     return digest, str(sidecar)
+
+
+# Stable public names used by contract dispatchers and downstream checkers.
+validate_evidence_envelope = validate_envelope

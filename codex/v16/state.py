@@ -102,6 +102,11 @@ def transition(previous: Mapping[str, Any], target: str, *, base_sha: str, head_
         raise ReadinessError("baseline head drift", "$.base_sha")
     if not isinstance(head_sha, str) or len(head_sha) != 40:
         raise ReadinessError("candidate exact head required", "$.head_sha")
+    # A candidate head may be introduced exactly once when moving from the
+    # reproduced baseline into implementation. Every later state transition is
+    # bound to that same candidate; a mid-run head change invalidates evidence.
+    if prev["state"] != "BASELINE_REPRODUCED" and head_sha != prev["head_sha"]:
+        raise ReadinessError("candidate head drift", "$.head_sha")
     timestamp = updated_at or _now()
     _timestamp(timestamp, "$.updated_at"); _fresh_timestamp(prev["updated_at"], timestamp)
     result = dict(prev)
@@ -164,3 +169,6 @@ class StateStore:
         finally:
             if os.path.exists(tmp_name): os.unlink(tmp_name)
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+validate_readiness_state = validate_state
