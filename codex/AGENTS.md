@@ -11,3 +11,29 @@ Persistent parent remains accountable. Nested delegation defaults: `max_depth=1`
 
 ## Privacy and deployment
 Tracked files are sanitized and portable. Never commit sessions, prompts, transcripts, receipts, credentials, tokens, plugin/cache/connection state, model caches, or raw private paths. Installer is versioned, allowlisted, dry-run capable, atomic, backed up, hash/permission verified, and rollback-capable; never deploy live without a separate authorized lane. Qian9921 authors development; Liang9921 independently reviews/governs. Exact-head and review identity records are mandatory.
+
+## V16 productivity contract
+
+V16 is an independent productivity line; the paused v15 milestone is not edited.
+The Qian9921 lane has one persistent GPT-5.6 Luna writer/execution owner. Three
+bounded zero-context GPT-5.3 Spark high report-only audits are mandatory before
+source edits; a fresh zero-context GPT-5.6 Sol report-only reviewer is the sole
+final gate. These are task roles, not model capability bans.
+
+Use `python3 scripts/presubmit.py --repo .` as the single affected presubmit.
+Every mission acceptance maps an invariant/counterexample to an entrypoint and
+ordered targeted/full/fresh gate with explicit WHY-RED, cost, denominator, and
+red/green meaning. Gate commands are direct argv arrays (`shell=False`) in one
+foreground lane; no package/network/background execution. Evidence must prove
+`total=passed+failed+skipped`, `ran=passed+failed`, `unknown=total-ran-skipped`,
+with total>0 and failed/skipped/unknown/xfail=0 for green. Head/tree, clean state,
+UTC timestamps, runtime/config, and log SHA are current and machine-derived.
+
+Readiness is monotonic: `DRAFT` → `COUNTEREXAMPLES_FROZEN` →
+`BASELINE_REPRODUCED` → `IMPLEMENTING` → `INNER_AUDIT_COMPLETE` → `LOCAL_READY`
+→ `FRESH_READY` → `REVIEW_READY`. No backdating, head drift, skipped lower gate,
+manual evidence correction, or public prompt/token/session/path content is
+allowed. Renderers produce sanitized author/reviewer packets only; they do not
+call GitHub, approve, merge, or deploy. Productivity metrics are derived from
+mission/evidence/review artifacts and their thresholds are policy targets, not
+claimed results.
