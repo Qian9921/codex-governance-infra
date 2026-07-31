@@ -335,7 +335,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-001.txt",
-        "text": "session_id: ab+cdef=="
+        "descriptor": "b_b_001"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -351,7 +351,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-002.txt",
-        "text": "\"turn_id\":\"ab+cdef==\""
+        "descriptor": "b_b_002"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -367,7 +367,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-003.txt",
-        "text": "prompt_id='ab+cdef=='"
+        "descriptor": "b_b_003"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -383,7 +383,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-004.txt",
-        "text": "transcript_id: <user> /home/user/real"
+        "descriptor": "b_b_004"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -399,7 +399,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-005.txt",
-        "text": "receipt_id: synthetic-token /Users/user/real"
+        "descriptor": "b_b_005"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -415,7 +415,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-006.txt",
-        "text": "/home/user/private"
+        "descriptor": "b_b_006"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -431,7 +431,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-007.txt",
-        "text": "C:\\\\Users\\\\martin\\\\x"
+        "descriptor": "b_b_007"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -447,7 +447,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-008.txt",
-        "text": "\\\\/Users\\\\/user\\\\/x"
+        "descriptor": "b_b_008"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -463,7 +463,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-009.txt",
-        "text": "ghp_AAAAAAAAAAAAAAAAAAAAAAAA"
+        "descriptor": "b_b_009"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -479,7 +479,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-010.txt",
-        "text": "session_id: ab+cdef== case-B-010"
+        "descriptor": "b_b_010"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -495,7 +495,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-011.txt",
-        "text": "\"turn_id\":\"ab+cdef==\" case-B-011"
+        "descriptor": "b_b_011"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -511,7 +511,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-012.txt",
-        "text": "prompt_id='ab+cdef==' case-B-012"
+        "descriptor": "b_b_012"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -527,7 +527,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-013.txt",
-        "text": "transcript_id: <user> /home/user/real case-B-013"
+        "descriptor": "b_b_013"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -543,7 +543,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-014.txt",
-        "text": "receipt_id: synthetic-token /Users/user/real case-B-014"
+        "descriptor": "b_b_014"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -559,7 +559,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-015.txt",
-        "text": "/home/user/private case-B-015"
+        "descriptor": "b_b_015"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -575,7 +575,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-016.txt",
-        "text": "C:\\\\Users\\\\martin\\\\x case-B-016"
+        "descriptor": "b_b_016"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -591,7 +591,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-017.txt",
-        "text": "\\\\/Users\\\\/user\\\\/x case-B-017"
+        "descriptor": "b_b_017"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -607,7 +607,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-018.txt",
-        "text": "ghp_AAAAAAAAAAAAAAAAAAAAAAAA case-B-018"
+        "descriptor": "b_b_018"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -623,7 +623,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-019.txt",
-        "text": "session_id: ab+cdef== case-B-019"
+        "descriptor": "b_b_019"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -639,7 +639,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-020.txt",
-        "text": "\"turn_id\":\"ab+cdef==\" case-B-020"
+        "descriptor": "b_b_020"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -655,7 +655,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-021.txt",
-        "text": "prompt_id='ab+cdef==' case-B-021"
+        "descriptor": "b_b_021"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -671,7 +671,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-022.txt",
-        "text": "transcript_id: <user> /home/user/real case-B-022"
+        "descriptor": "b_b_022"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -687,7 +687,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-023.txt",
-        "text": "receipt_id: synthetic-token /Users/user/real case-B-023"
+        "descriptor": "b_b_023"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -703,7 +703,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-024.txt",
-        "text": "/home/user/private case-B-024"
+        "descriptor": "b_b_024"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -719,7 +719,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-025.txt",
-        "text": "C:\\\\Users\\\\martin\\\\x case-B-025"
+        "descriptor": "b_b_025"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -735,7 +735,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-026.txt",
-        "text": "\\\\/Users\\\\/user\\\\/x case-B-026"
+        "descriptor": "b_b_026"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -751,7 +751,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-027.txt",
-        "text": "ghp_AAAAAAAAAAAAAAAAAAAAAAAA case-B-027"
+        "descriptor": "b_b_027"
       },
       "production_entrypoint": "privacy_scan"
     },
@@ -767,7 +767,7 @@
       "fixture": {
         "operation": "scan_text",
         "path": "fixtures/B-028.txt",
-        "text": "session_id: ab+cdef== case-B-028"
+        "descriptor": "b_b_028"
       },
       "production_entrypoint": "privacy_scan"
     },

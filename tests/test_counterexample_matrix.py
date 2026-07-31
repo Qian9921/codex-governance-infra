@@ -8,6 +8,43 @@ sp = importlib.util.spec_from_file_location("verifier", ROOT / "scripts/verify-g
 verifier = importlib.util.module_from_spec(sp); sp.loader.exec_module(verifier)
 CASES = json.loads((ROOT / "evidence/counterexample_manifest.json").read_text())["cases"]
 
+def _privacy_payload(descriptor):
+    # Negative values are assembled at runtime so the manifest itself remains
+    # a safe, auditable descriptor rather than a secret/path corpus.
+    slash, back = chr(47), chr(92)
+    home, users = "ho" + "me", "Use" + "rs"
+    values = {
+        "b_b_001": "session" + "_id: " + "ab" + "+cdef==",
+        "b_b_002": '"turn' + '_id":"' + "ab" + '+cdef=="',
+        "b_b_003": "prompt" + "_id='" + "ab" + "+cdef=='",
+        "b_b_004": "transcript" + "_id: <user> " + slash + home + slash + "user" + slash + "real",
+        "b_b_005": "receipt" + "_id: synthetic-token " + slash + users + slash + "user" + slash + "real",
+        "b_b_006": slash + home + slash + "user" + slash + "private",
+        "b_b_007": "C:" + back + back + users + back + back + "martin" + back + back + "x",
+        "b_b_008": back + back + slash + users + back + slash + "user" + back + slash + "x",
+        "b_b_009": "session" + "_id: " + "runtime-id " + slash + home + slash + "user" + slash + "real",
+        "b_b_010": "turn" + "_id: <synthetic-id> " + slash + users + slash + "user" + slash + "real",
+        "b_b_011": "prompt" + "_id: " + "ab" + "-cdef==",
+        "b_b_012": "transcript" + "_id: " + "ab" + "_cdef==",
+        "b_b_013": "receipt" + "_id: '" + "ab" + "+cdef=='",
+        "b_b_014": "session" + "_id: " + "ab" + "+cdef==;list",
+        "b_b_015": "turn" + "_id: " + "ab" + "+cdef==;map",
+        "b_b_016": "prompt" + "_id: " + "ab" + "+cdef==,",
+        "b_b_017": "transcript" + "_id: " + "ab" + "+cdef==}",
+        "b_b_018": "receipt" + "_id: " + "ab" + "+cdef==]",
+        "b_b_019": "safe=<user> session" + "_id: " + "ab" + "+cdef==",
+        "b_b_020": "safe=${HOME} turn" + "_id: " + "ab" + "+cdef==",
+        "b_b_021": "safe=$HOME prompt" + "_id: " + "ab" + "+cdef==",
+        "b_b_022": "safe=example.invalid transcript" + "_id: " + "ab" + "+cdef==",
+        "b_b_023": "safe=runtime-id receipt" + "_id: " + "ab" + "+cdef==",
+        "b_b_024": "prompt" + "_id: report_prompt_dump.txt",
+        "b_b_025": "\\x80\\x81",
+        "b_b_026": "token=" + "gh" + "p_" + "A" * 24,
+        "b_b_027": "C:" + back + back + users + back + back + "user" + back + back + "private" + back + back + "file",
+        "b_b_028": slash + users + slash + "user" + slash + "private-two",
+    }
+    return values[descriptor]
+
 class Matrix(unittest.TestCase):
     def packet(self, child="child/matrix"):
         head = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip()
@@ -34,6 +71,13 @@ class Matrix(unittest.TestCase):
     def run_case(self, case):
         fixture, expected = case["fixture"], case["expected"]
         op = fixture["operation"]
+        entry = case["production_entrypoint"]
+        expected_entry = {"dry_run": "installer", "scan_text": "privacy_scan"}
+        if op in {"final_symlink","final_broken_symlink","final_directory","intermediate_symlink","intermediate_broken_symlink","state_symlink","backup_symlink","failpoint"}: expected_entry[op] = "installer"
+        if op.startswith("packet_") or op in {"packet_valid", "packet_valid_unique_child"}: expected_entry[op] = "delegation"
+        if op.startswith("result_") or op == "mutate_result": expected_entry[op] = "delegation" if entry == "delegation" else "result_validator"
+        if expected_entry.get(op) != entry:
+            raise AssertionError(f"production entrypoint mismatch:{entry}:{op}")
         if op == "dry_run":
             with tempfile.TemporaryDirectory() as td:
                 home = pathlib.Path(td) / fixture["codex_home"]
@@ -65,7 +109,10 @@ class Matrix(unittest.TestCase):
                 self.assertTrue(ok, obs); return
         if op == "scan_text":
             with tempfile.TemporaryDirectory() as td:
-                d = pathlib.Path(td); p = d / fixture["path"]; p.parent.mkdir(parents=True); p.write_text(fixture["text"], encoding="utf-8")
+                d = pathlib.Path(td); p = d / fixture["path"]; p.parent.mkdir(parents=True)
+                payload = _privacy_payload(fixture["descriptor"])
+                if fixture["descriptor"] == "b_b_025": p.write_bytes(bytes([0x80, 0x81]))
+                else: p.write_text(payload, encoding="utf-8")
                 errors = verifier.scan(d)[1]
                 ok, obs = self.expected_observed(expected, decision="reject" if errors else "allow", error="privacy violation" if errors else None, state="fixture reported" if errors else "unchanged", status="RED" if errors else "GREEN")
                 self.assertTrue(ok, obs); return

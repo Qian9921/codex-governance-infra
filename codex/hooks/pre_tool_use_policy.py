@@ -8,10 +8,12 @@ import os
 import re
 import sys
 import pathlib
+import stat
 from dataclasses import dataclass
 from typing import Any
 
 from hook_receipt import record_receipt
+import delegation_contract as _dc
 
 
 SIMPLE_READ_COMMANDS = {
@@ -89,6 +91,63 @@ def _deny(
         + "\n"
     )
     return 0
+
+
+def _tool_paths(tool_input: Any) -> list[str]:
+    """Extract path-bearing fields without accepting alternate conflicting forms."""
+    found: list[str] = []
+    keys = {"path", "file_path", "filePath", "paths", "files"}
+    def walk(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key in keys:
+                    if isinstance(item, str): found.append(item)
+                    elif isinstance(item, list) and all(isinstance(x, str) for x in item): found.extend(item)
+                    else: raise ValueError("invalid tool path field")
+                elif isinstance(item, (dict, list)):
+                    walk(item)
+        elif isinstance(value, list):
+            for item in value: walk(item)
+    walk(tool_input)
+    if len(set(found)) != len(found):
+        raise ValueError("duplicate tool path")
+    return found
+
+
+def _lease_path_allowed(root: pathlib.Path, leases: list[str], rel: str) -> bool:
+    if not isinstance(rel, str) or not rel or "\\" in rel or rel.startswith("/") or re.match(r"^[A-Za-z]:", rel): return False
+    parts = rel.split("/")
+    if any(p in {"", ".", ".."} for p in parts): return False
+    if not any(rel == lease or rel.startswith(lease + "/") for lease in leases): return False
+    cur = root
+    for i, part in enumerate(parts):
+        cur /= part
+        try: info = cur.lstat()
+        except FileNotFoundError:
+            if i != len(parts) - 1: return False
+            continue
+        if stat.S_ISLNK(info.st_mode) or (i != len(parts) - 1 and not stat.S_ISDIR(info.st_mode)): return False
+    return True
+
+
+def _delegation_tool_allowed(packet: dict[str, Any], payload: dict[str, Any], state: dict[str, Any], rec: dict[str, Any], tool_name: str) -> tuple[bool, str]:
+    if rec.get("phase") != "STARTED" or not any(x.get("key") == _dc.state_key(packet) for x in state.get("active", [])):
+        return False, "delegation packet is not active STARTED"
+    lowered = tool_name.lower()
+    forbidden = any(x in lowered for x in ("bash", "shell", "git", "github", "review", "approve", "merge"))
+    write = lowered in {"write", "edit", "apply_patch", "applypatch"} or "write" in lowered or lowered.endswith("edit")
+    read = lowered in {"read", "codegraph", "semble", "rg", "grep", "search", "inspect"} or lowered.startswith("mcp__codegraph") or lowered.startswith("mcp__semble")
+    if forbidden or not (read or write): return False, "delegation tool is forbidden or not classified"
+    paths = _tool_paths(payload.get("tool_input", {}))
+    leases = _dc._paths(packet.get("lease", {}).get("paths"))
+    root = pathlib.Path(packet["repo_root"])
+    if paths and not all(_lease_path_allowed(root, leases, p) for p in paths): return False, "tool path outside delegated lease"
+    if write:
+        if "write_paths" not in packet.get("permissions", []): return False, "write permission absent"
+        if not paths: return False, "write path required"
+    elif "read" not in packet.get("permissions", []):
+        return False, "read permission absent"
+    return True, ""
 
 
 def _tokenize_shell(command: str) -> list[Token] | None:
@@ -581,6 +640,7 @@ def main() -> int:
             if os.environ.get("CODEX_DELEGATION_PACKET_SHA256") != __import__("hashlib").sha256(packet_bytes).hexdigest():
                 return _deny("delegation packet self-hash mismatch", payload=payload, model=model, tool_name=tool_name, reason_code="delegation_identity")
             packet = json.loads(packet_bytes)
+            _dc.validate_packet(packet, verify_snapshot=True)
             payload_model = payload.get("model") if isinstance(payload.get("model"), str) else ""
             exposed_task = payload.get("task_id", payload.get("agent_id", payload.get("child_task_id", "")))
             if not payload_model or not isinstance(exposed_task, str) or not exposed_task:
@@ -591,12 +651,11 @@ def main() -> int:
                 return _deny("delegation payload task mismatch", payload=payload, model=model, tool_name=tool_name, reason_code="delegation_identity")
             state, _ = _dc._load(state_root)
             key = _dc.state_key(packet); rec = state.get("packets", {}).get(key, {})
-            if rec.get("phase") != "STARTED" or not any(x.get("key") == key for x in state.get("active", [])) or "read" not in packet.get("permissions", []):
-                return _deny("delegation packet is not active STARTED", payload=payload, model=model, tool_name=tool_name, reason_code="delegation_state")
-            lowered = tool_name.lower()
-            allowed_read = (lowered in {"read", "codegraph", "semble", "rg", "grep", "search", "inspect"} or lowered.startswith("mcp__codegraph") or lowered.startswith("mcp__semble"))
-            if not allowed_read:
-                return _deny("delegation permissions allow read-only observation only", payload=payload, model=model, tool_name=tool_name, reason_code="delegation_permission")
+            if rec.get("packet_sha256") != __import__("hashlib").sha256(packet_bytes).hexdigest() or rec.get("mission_hash") != _dc._mission_hash(packet):
+                return _deny("delegation packet ledger identity mismatch", payload=payload, model=model, tool_name=tool_name, reason_code="delegation_identity")
+            ok, reason = _delegation_tool_allowed(packet, payload, state, rec, tool_name)
+            if not ok:
+                return _deny(reason, payload=payload, model=model, tool_name=tool_name, reason_code="delegation_permission")
         except Exception:
             return _deny("invalid active delegation context", payload=payload, model=model, tool_name=tool_name, reason_code="delegation_context")
     # Tool capability is no longer model-gated here.  Role selection and any

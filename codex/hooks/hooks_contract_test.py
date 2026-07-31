@@ -300,12 +300,11 @@ class HookContractTest(unittest.TestCase):
         self.assertFalse((TEST_RECEIPT_DIR / "2999-12-30.jsonl").exists())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 class V15HookContractTest(unittest.TestCase):
     def _packet(self):
-        return {"schema":"delegation.v1","repo_root":str(ROOT.parent.parent.resolve()),"repo_snapshot":"0"*40,"parent_task_id":"parent/1","child_task_id":"child/1","assigned_model":"gpt-5.3-codex-spark","role":"specialist","max_depth":1,"depth":1,"permissions":["read","write_paths"],"forbidden_permissions":["approve","approver","bash","shell","git","git_push","github","github_api","merge","merger","review","reviewer"],"lease":{"paths":["tests"]},"retry_budget":{"semantic_contamination":1},"active_mission_lock":True,"plugin_inventory":"informational","result_schema":"delegation-result.v1"}
+        repo = ROOT.parent.parent.resolve()
+        head = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+        return {"schema":"delegation.v1","repo_root":str(repo),"repo_snapshot":head,"parent_task_id":"parent/1","child_task_id":"child/1","assigned_model":"gpt-5.3-codex-spark","role":"specialist","max_depth":1,"depth":1,"permissions":["read","write_paths"],"forbidden_permissions":["approve","approver","bash","shell","git","git_push","github","github_api","merge","merger","review","reviewer"],"lease":{"paths":["tests"]},"retry_budget":{"semantic_contamination":1},"active_mission_lock":True,"plugin_inventory":"informational","result_schema":"delegation-result.v1"}
     def _result(self, **kw):
         r={"schema":"delegation-result.v1","parent_task_id":"parent/1","child_task_id":"child/1","assigned_model":"gpt-5.3-codex-spark","task_id":"child/1","depth":1,"changed_paths":["tests/x.py"],"counts":{"total":1,"ran":1,"passed":1,"failed":0,"skipped":0,"unknown":0},"retry_used":0,"contamination":False,"status":"complete","artifact_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","evidence_id":"fixture-evidence","attempt_id":"attempt/1","retry_transcript":[]}; r.update(kw); return r
     def test_spark_identity(self):
@@ -327,3 +326,7 @@ class V15HookContractTest(unittest.TestCase):
             p=self._packet(); p["permissions"]=[perm]; self.assertRaises(ContractError,validate_packet,p)
     def test_contaminated_result_rejected(self):
         from delegation_contract import validate_result,ContractError; self.assertRaises(ContractError,validate_result,self._result(contamination=True),self._packet())
+
+
+if __name__ == "__main__":
+    unittest.main()

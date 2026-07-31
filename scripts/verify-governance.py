@@ -99,8 +99,6 @@ def scan(root: pathlib.Path, manifest: dict | None = None) -> tuple[list[str], l
         for item in forbidden:
             if item.lower() in path_tokens:
                 errors.append("forbidden path:" + rel); break
-        if rel == "evidence/counterexample_manifest.json":
-            continue  # structured negative fixtures are inspected by the matrix runner, not package privacy content
         try:
             raw = (root / rel).read_bytes(); text = raw.decode("utf-8")
         except UnicodeDecodeError: errors.append("non-utf8:" + rel); continue

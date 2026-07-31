@@ -6,6 +6,54 @@ from typing import Iterable
 
 FORBIDDEN = ("sessions", "hook-receipts", "plugins", "connections", "models_cache.json", ".env")
 SCHEMA = "install-transaction.v2"
+STATE_KEYS = {"schema", "destination", "managed", "created_dirs", "backup"}
+RECORD_KEYS = {"path", "exists", "sha256", "mode", "type", "source_sha256", "installed_sha256", "installed_mode"}
+
+
+def normalize_rel(value: str) -> str:
+    if not isinstance(value, str) or not value or "\\" in value or value.startswith("/") or re.match(r"^[A-Za-z]:", value):
+        raise RuntimeError("noncanonical managed path")
+    parts = value.split("/")
+    if any(x in {"", ".", ".."} for x in parts): raise RuntimeError("noncanonical managed path")
+    return "/".join(parts)
+
+
+def _valid_hash(value, *, nullable=False):
+    return value is None if nullable else False if not isinstance(value, str) else bool(re.fullmatch(r"[0-9a-f]{64}", value))
+
+
+def validate_transaction(record: dict, dest: pathlib.Path, backup: pathlib.Path, *, allow_uninstalled: bool = False) -> None:
+    if not isinstance(record, dict) or set(record) != STATE_KEYS or record.get("schema") != SCHEMA:
+        raise RuntimeError("invalid transaction state schema")
+    if record.get("destination") != str(dest) or record.get("backup") != str(backup):
+        raise RuntimeError("transaction destination mismatch")
+    managed = record.get("managed"); created = record.get("created_dirs")
+    if not isinstance(managed, list) or not managed or not isinstance(created, list): raise RuntimeError("invalid transaction ledger")
+    paths = []
+    for rel in created:
+        if rel != "": normalize_rel(rel)
+        if not isinstance(rel, str): raise RuntimeError("invalid created directory")
+    if len(set(created)) != len(created): raise RuntimeError("duplicate created directory")
+    for rec in managed:
+        if not isinstance(rec, dict) or set(rec) != RECORD_KEYS: raise RuntimeError("invalid managed record schema")
+        rel = normalize_rel(rec["path"]); paths.append(rel)
+        if not isinstance(rec["exists"], bool) or rec["type"] not in {"file", "missing"}: raise RuntimeError("invalid managed record type")
+        if rec["exists"]:
+            if rec["type"] != "file" or not _valid_hash(rec["sha256"]) or not isinstance(rec["mode"], int) or isinstance(rec["mode"], bool) or not 0 <= rec["mode"] <= 0o7777: raise RuntimeError("invalid prior object")
+        else:
+            if rec["type"] != "missing" or rec["sha256"] is not None or rec["mode"] is not None: raise RuntimeError("invalid missing object")
+        if not _valid_hash(rec["source_sha256"]): raise RuntimeError("invalid source object")
+        if allow_uninstalled and rec["installed_sha256"] is None and rec["installed_mode"] is None:
+            pass
+        elif not _valid_hash(rec["installed_sha256"]) or not isinstance(rec["installed_mode"], int) or isinstance(rec["installed_mode"], bool) or not 0 <= rec["installed_mode"] <= 0o7777: raise RuntimeError("invalid installed object")
+    if len(paths) != len(set(paths)): raise RuntimeError("duplicate managed path")
+    if set(paths) & {x for x in created if x}: raise RuntimeError("managed/created path overlap")
+    for rel in created:
+        if rel and not any(p.startswith(rel + "/") for p in paths):
+            raise RuntimeError("undeclared created directory")
+    for rel in paths:
+        if not (dest / rel).resolve().is_relative_to(dest.resolve()): raise RuntimeError("managed path escape")
+        if not (backup / rel).resolve().is_relative_to(backup.resolve()): raise RuntimeError("backup path escape")
 
 
 def digest(path: pathlib.Path) -> str:
@@ -170,7 +218,7 @@ def transformed_bytes(source: pathlib.Path, target: str, dest: pathlib.Path) -> 
 def _object_record(path: pathlib.Path, root: pathlib.Path) -> dict:
     info = lstat_or_none(path)
     if info is None:
-        return {"path": path.relative_to(root).as_posix(), "exists": False}
+        return {"path": path.relative_to(root).as_posix(), "exists": False, "sha256": None, "mode": None, "type": "missing"}
     if stat.S_ISLNK(info.st_mode):
         raise RuntimeError(f"managed symlink refused: {path}")
     if not stat.S_ISREG(info.st_mode):
@@ -189,6 +237,7 @@ def _remove_empty_dirs(paths: Iterable[pathlib.Path]) -> None:
 
 def _rollback_records(dest: pathlib.Path, backup: pathlib.Path, records: list[dict], created_dirs: list[str], *, require_current: bool = False) -> None:
     """Validate the complete restore plan before mutation, then recover on restore failure."""
+    validate_transaction({"schema": SCHEMA, "destination": str(dest), "managed": records, "created_dirs": created_dirs, "backup": str(backup)}, dest, backup, allow_uninstalled=True)
     plan=[]
     check_chain(dest)
     for rel in created_dirs:
@@ -262,8 +311,7 @@ def main() -> int:
         if stat.S_ISLNK(os.lstat(state).st_mode) or stat.S_ISLNK(os.lstat(backup).st_mode):
             raise SystemExit("unsafe state/backup")
         record = json.loads(state.read_text())
-        if record.get("schema") != SCHEMA:
-            raise SystemExit("invalid transaction state")
+        validate_transaction(record, dest, backup)
         _rollback_records(dest, backup, record.get("managed", []), record.get("created_dirs", []), require_current=True)
         shutil.rmtree(backup); state.unlink(); _fsync_dir(dest)
         print(json.dumps({"status": "ROLLED_BACK", "files": len(record.get("managed", []))}, sort_keys=True)); return 0
@@ -285,6 +333,18 @@ def main() -> int:
     print(json.dumps({"status": "DRY_RUN" if args.dry_run else "READY", "files": len(entries),
                       "destination": "$CODEX_HOME" if args.dry_run else str(dest), "hashes": hashes}, sort_keys=True))
     if args.dry_run: return 0
+
+    # Freeze and validate the entire ledger before creating a backup or
+    # touching a managed target.  Every ancestor and current object is checked
+    # with lstat so a late symlink cannot redirect the transaction.
+    validate_transaction({"schema": SCHEMA, "destination": str(dest), "managed": records,
+                          "created_dirs": [], "backup": str(backup)}, dest, backup,
+                         allow_uninstalled=True)
+    for rec in records:
+        target = dest / rec["path"]; check_chain(target.parent)
+        info = lstat_or_none(target)
+        if info is not None and (stat.S_ISLNK(info.st_mode) or stat.S_ISDIR(info.st_mode) or not stat.S_ISREG(info.st_mode)):
+            raise SystemExit("unsafe pre-existing managed object:" + rec["path"])
 
     counter = [0]; created_dirs: list[str] = []
     try:
@@ -310,6 +370,7 @@ def main() -> int:
             rec["installed_sha256"] = digest(target); rec["installed_mode"] = stat.S_IMODE(os.lstat(target).st_mode)
         state_record = {"schema": SCHEMA, "destination": str(dest), "managed": records,
                         "created_dirs": created_dirs, "backup": str(backup)}
+        validate_transaction(state_record, dest, backup)
         _write_bytes(state, json.dumps(state_record, sort_keys=True, indent=2).encode() + b"\n", 0o600, counter, "state-write")
     except Exception:
         try:

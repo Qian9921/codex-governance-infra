@@ -14,6 +14,11 @@ SAFE_PERMISSIONS = {"read","write_paths","test","inspect","evidence"}
 FORBIDDEN_CANONICAL = {"git","github","review","approve","merge","shell","bash","git_push","github_api","reviewer","approver","merger"}
 STATUSES = {"complete","blocked","failed","rejected"}
 STATE_SCHEMA = "delegation-state.v2"
+STATE_KEYS = {"schema", "delegations", "packets", "active"}
+PACKET_RECORD_KEYS = {"packet_sha256", "mission_hash", "phase", "child_task_id", "assigned_model", "depth", "lease", "attempts", "attempt_id"}
+LEDGER_KEYS = {"attempts", "phase"}
+ACTIVE_KEYS = {"task_id", "lease", "key"}
+PHASES = {"REGISTERED", "STARTED", "CONTAMINATED_RECORDED", "RETRY_AVAILABLE", "ACCEPTED", "TERMINAL_REJECTED"}
 
 
 def _id(v): return isinstance(v, str) and bool(re.fullmatch(r"[A-Za-z0-9_.:/-]+", v))
@@ -61,6 +66,58 @@ def _paths(paths):
         for b in out[i+1:]:
             if a == b or a.startswith(b + "/") or b.startswith(a + "/"): raise ContractError("overlapping lease")
     return out
+
+
+def _exact_dict(value, keys, label):
+    if not isinstance(value, dict) or set(value) != set(keys):
+        raise ContractError(label)
+    return value
+
+
+def _mission_hash(packet):
+    return hashlib.sha256(json.dumps(packet, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _validate_state_shape(state):
+    if not isinstance(state, dict) or set(state) != STATE_KEYS or state.get("schema") != STATE_SCHEMA:
+        raise ContractError("state schema")
+    if not isinstance(state["delegations"], dict) or not isinstance(state["packets"], dict) or not isinstance(state["active"], list):
+        raise ContractError("state containers")
+    for key, rec in state["packets"].items():
+        if not _sha256(key) or not isinstance(rec, dict) or set(rec) != PACKET_RECORD_KEYS:
+            raise ContractError("packet state schema")
+        if not _sha256(rec["packet_sha256"]) or not _sha256(rec["mission_hash"]): raise ContractError("packet state hashes")
+        if rec["phase"] not in PHASES or not _id(rec["child_task_id"]) or rec["assigned_model"] not in {"gpt-5.6-luna", "gpt-5.3-codex-spark"} or rec["depth"] != 1:
+            raise ContractError("packet state identity")
+        if not isinstance(rec["attempts"], list) or any(not _id(x) for x in rec["attempts"]) or len(set(rec["attempts"])) != len(rec["attempts"]): raise ContractError("packet state attempts")
+        if rec["attempt_id"] is not None and not _id(rec["attempt_id"]): raise ContractError("packet state attempt")
+        _paths(rec["lease"])
+    for key, rec in state["delegations"].items():
+        if not _sha256(key) or not isinstance(rec, dict) or set(rec) != LEDGER_KEYS or rec["phase"] not in PHASES or not isinstance(rec["attempts"], list) or any(not _id(x) for x in rec["attempts"]):
+            raise ContractError("delegation state schema")
+        if key not in state["packets"]:
+            raise ContractError("orphan delegation ledger")
+        if len(set(rec["attempts"])) != len(rec["attempts"]):
+            raise ContractError("duplicate ledger attempt")
+    for rec in state["active"]:
+        if not isinstance(rec, dict) or set(rec) != ACTIVE_KEYS or not _id(rec["task_id"]) or not _sha256(rec["key"]): raise ContractError("active lease schema")
+        _paths(rec["lease"])
+        packet = state["packets"].get(rec["key"])
+        if packet is None or rec["task_id"] != packet["child_task_id"] or rec["lease"] != packet["lease"]:
+            raise ContractError("active lease identity")
+    for key, rec in state["packets"].items():
+        if key not in state["delegations"]:
+            raise ContractError("packet ledger missing")
+        led = state["delegations"][key]
+        if led["attempts"] != rec["attempts"]:
+            raise ContractError("packet ledger attempts mismatch")
+        if led["phase"] != rec["phase"]:
+            raise ContractError("packet ledger phase mismatch")
+    packet_keys = {x["key"] for x in state["active"]}
+    if len(packet_keys) != len(state["active"]):
+        raise ContractError("duplicate active lease")
+    if not packet_keys.issubset(state["packets"]):
+        raise ContractError("active packet missing")
 
 
 def _validate_repo_and_lease(packet, verify_snapshot=False):
@@ -156,16 +213,29 @@ def validate_result(result, packet, state=None, *, allow_contamination=False, re
     if result["retry_used"] != len(transcript): raise ContractError("retry consistency")
     if not isinstance(result.get("evidence_id"), str) or not _id(result["evidence_id"]): raise ContractError("evidence id")
     if not _sha256(result.get("artifact_sha256")): raise ContractError("artifact sha256")
+    # A producer that marks a complete result contaminated is still recorded
+    # as the first retry event before being rejected; this preserves replay
+    # protection while the stricter terminal status contract remains visible.
+    if result["contamination"] is True and status == "complete" and state is not None:
+        rec = state.setdefault("delegations", {}).setdefault(state_key(packet), {"attempts": [], "phase": "STARTED"})
+        if result["attempt_id"] in rec["attempts"] or len(rec["attempts"]) >= 1: raise ContractError("contamination terminal")
+        rec["attempts"].append(result["attempt_id"]); rec["phase"] = "RETRY_AVAILABLE"
+        if state_key(packet) in state.get("packets", {}):
+            state["packets"][state_key(packet)]["attempts"] = list(rec["attempts"])
+        raise ContractError("contaminated result; retry available")
     if status == "complete":
-        if counts["total"] <= 0 or counts["failed"] != 0 or counts["skipped"] != 0 or counts["unknown"] != 0: raise ContractError("incomplete evidence")
+        if counts["total"] <= 0 or counts["passed"] != counts["total"] or counts["failed"] != 0 or counts["skipped"] != 0 or counts["unknown"] != 0 or result["contamination"]: raise ContractError("incomplete evidence")
     else:
-        if counts["passed"] != 0 or result["contamination"] is False and result["retry_used"] != 0: raise ContractError("transport counts")
+        if counts["passed"] != 0 or (result["contamination"] is False and result["retry_used"] != 0): raise ContractError("transport counts")
     if result["contamination"] is True:
+        if status != "rejected" or counts["total"] <= 0 or counts["failed"] <= 0: raise ContractError("contamination status")
         if state is not None:
             rec = state.setdefault("delegations", {}).setdefault(state_key(packet), {"attempts": [], "phase": "STARTED"})
             if result["attempt_id"] in rec["attempts"] or len(rec["attempts"]) >= 1:
                 raise ContractError("contamination terminal")
             rec["attempts"].append(result["attempt_id"]); rec["phase"] = "RETRY_AVAILABLE"
+            if state_key(packet) in state.get("packets", {}):
+                state["packets"][state_key(packet)]["attempts"] = list(rec["attempts"])
         if not allow_contamination: raise ContractError("contaminated result; retry available")
         return True
     if state is not None and record_state:
@@ -191,11 +261,22 @@ def _state_paths(root):
 def _load(root):
     root, path, _ = _state_paths(root); info = _lstat(path)
     if info is not None and (stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode)): raise ContractError("unsafe state file")
-    if info is None: return {"schema": STATE_SCHEMA, "delegations": {}, "packets": {}, "active": []}, path
-    os.chmod(path, 0o600); return json.loads(path.read_text()), path
+    if info is None:
+        state = {"schema": STATE_SCHEMA, "delegations": {}, "packets": {}, "active": []}
+        _validate_state_shape(state)
+        return state, path
+    os.chmod(path, 0o600)
+    state = json.loads(path.read_text())
+    _validate_state_shape(state)
+    return state, path
 
 
 def _save(state, path):
+    _validate_state_shape(state)
+    _chain_no_symlink(path.parent, allow_missing_leaf=False)
+    info = _lstat(path)
+    if info is not None and (stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode)):
+        raise ContractError("unsafe state file")
     root = path.parent; fd, name = tempfile.mkstemp(prefix=".delegation-state.", dir=root); tmp = pathlib.Path(name)
     try:
         os.fchmod(fd, 0o600)
@@ -212,7 +293,8 @@ def _save(state, path):
 def state_lock(root):
     root, _, lock = _state_paths(root); info = _lstat(lock)
     if info is not None and (stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode)): raise ContractError("unsafe lock file")
-    fh = open(lock, "a+"); os.chmod(lock, 0o600)
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(lock, flags, 0o600); fh = os.fdopen(fd, "a+"); os.chmod(lock, 0o600)
     try:
         fcntl.flock(fh.fileno(), fcntl.LOCK_EX); yield
     finally:
@@ -220,6 +302,15 @@ def state_lock(root):
 
 
 def _active_phase(rec): return rec.get("phase", "REGISTERED")
+
+
+def _verify_registered(packet, packet_path, expected, rec, state):
+    if not isinstance(rec, dict) or rec.get("packet_sha256") != expected:
+        raise ContractError("packet identity mismatch")
+    if rec.get("mission_hash") != _mission_hash(packet):
+        raise ContractError("mission hash mismatch")
+    validate_packet(packet, verify_snapshot=True)
+    _validate_state_shape(state)
 
 
 def cli():
@@ -233,16 +324,18 @@ def cli():
             validate_packet(packet, active_leases=[x.get("lease", []) for x in state.get("active", [])], verify_snapshot=True)
             if key in state.get("packets", {}): raise ContractError("packet already registered")
             mission = hashlib.sha256(json.dumps(packet, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-            rec = {"packet_sha256": expected, "mission_hash": mission, "phase": "REGISTERED", "child_task_id": packet["child_task_id"], "assigned_model": packet["assigned_model"], "depth": packet["depth"], "lease": packet["lease"]["paths"], "attempts": []}
+            rec = {"packet_sha256": expected, "mission_hash": mission, "phase": "REGISTERED", "child_task_id": packet["child_task_id"], "assigned_model": packet["assigned_model"], "depth": packet["depth"], "lease": packet["lease"]["paths"], "attempts": [], "attempt_id": None}
             state.setdefault("packets", {})[key] = rec; state.setdefault("delegations", {})[key] = {"attempts": [], "phase": "REGISTERED"}; state.setdefault("active", []).append({"task_id": packet["child_task_id"], "lease": packet["lease"]["paths"], "key": key}); _save(state, state_file); print(json.dumps({"decision": "allow", "mission_hash": mission})); return 0
         rec = state.get("packets", {}).get(key)
         if args.cmd == "subagent-start":
             event = os.environ.get("CODEX_DELEGATION_EVENT")
             model = os.environ.get("CODEX_DELEGATION_MODEL"); task = os.environ.get("CODEX_DELEGATION_TASK_ID")
             if event != "SubagentStart" or model != packet["assigned_model"] or task != packet["child_task_id"] or os.environ.get("CODEX_DELEGATION_PACKET_SHA256") != expected or not rec or rec.get("packet_sha256") != expected or rec.get("phase") != "REGISTERED": raise ContractError("missing, wrong, unregistered, duplicate, or mismatched SubagentStart")
-            validate_packet(packet, verify_snapshot=True); rec["phase"] = "STARTED"; state["delegations"][key]["phase"] = "STARTED"; _save(state, state_file); print(json.dumps({"decision": "allow", "packet_sha256": expected, "mission_hash": rec["mission_hash"]})); return 0
+            _verify_registered(packet, packet_path, expected, rec, state)
+            rec["phase"] = "STARTED"; state["delegations"][key]["phase"] = "STARTED"; _save(state, state_file); print(json.dumps({"decision": "allow", "packet_sha256": expected, "mission_hash": rec["mission_hash"]})); return 0
         if not args.result or not rec or rec.get("phase") not in {"STARTED", "CONTAMINATED_RECORDED", "RETRY_AVAILABLE"}:
             raise ContractError("result without active started record")
+        _verify_registered(packet, packet_path, expected, rec, state)
         result = json.loads(pathlib.Path(args.result).read_text())
         ledger = state["delegations"][key]
         # Require the persisted state to agree with retry use before validating payload.
@@ -260,13 +353,13 @@ def cli():
                 ledger["phase"] = "TERMINAL_REJECTED"; rec["phase"] = "TERMINAL_REJECTED"
                 state["active"] = [x for x in state.get("active", []) if x.get("key") != key]; _save(state, state_file)
                 raise
-            rec["phase"] = "CONTAMINATED_RECORDED"; ledger["phase"] = "CONTAMINATED_RECORDED"; _save(state, state_file)
+            rec["attempts"] = list(ledger["attempts"]); rec["phase"] = "CONTAMINATED_RECORDED"; ledger["phase"] = "CONTAMINATED_RECORDED"; _save(state, state_file)
             raise ContractError("contaminated result; retry available")
         validate_result(result, packet, state)
         if result["attempt_id"] in ledger.get("attempts", []): raise ContractError("attempt replay")
         ledger["attempts"].append(result["attempt_id"])
         ledger["phase"] = "ACCEPTED" if result["status"] == "complete" else "TERMINAL_REJECTED"
-        rec["phase"] = ledger["phase"]; rec["attempt_id"] = result["attempt_id"]
+        rec["attempts"] = list(ledger["attempts"]); rec["phase"] = ledger["phase"]; rec["attempt_id"] = result["attempt_id"]
         state["active"] = [x for x in state.get("active", []) if x.get("key") != key]
         _save(state, state_file); print(json.dumps({"decision": "accept" if result["status"] == "complete" else "reject", "attempt_id": result["attempt_id"]})); return 0
 

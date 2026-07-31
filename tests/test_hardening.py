@@ -52,6 +52,20 @@ class Hardening(unittest.TestCase):
    env['CODEX_DELEGATION_REQUIRED']='1'; env['CODEX_DELEGATION_PACKET']=str(p); env['CODEX_DELEGATION_STATE_ROOT']=str(state)
    self.assertNotEqual(subprocess.run([sys.executable,str(ROOT/'codex/hooks/session_context.py')],input=json.dumps({'hook_event_name':'SubagentStart','model':'gpt-5.3-codex-spark'}),text=True,env=env).returncode,0)
 
+ def test_actual_pretool_lease_boundary(self):
+  with tempfile.TemporaryDirectory() as td:
+   t=pathlib.Path(td); pfile=t/'packet.json'; p=self.packet(); pfile.write_text(json.dumps(p)); state=t/'state'; env=os.environ.copy(); env.update(CODEX_DELEGATION_REQUIRED='1',CODEX_DELEGATION_PACKET=str(pfile),CODEX_DELEGATION_STATE_ROOT=str(state),CODEX_DELEGATION_PACKET_SHA256=hashlib.sha256(pfile.read_bytes()).hexdigest())
+   self.assertEqual(subprocess.run([sys.executable,str(ROOT/'codex/hooks/delegation_contract.py'),'pre-dispatch','--packet',str(pfile),'--state-root',str(state)],env=env).returncode,0)
+   env.update(CODEX_DELEGATION_EVENT='SubagentStart',CODEX_DELEGATION_MODEL=p['assigned_model'],CODEX_DELEGATION_TASK_ID=p['child_task_id'])
+   self.assertEqual(subprocess.run([sys.executable,str(ROOT/'codex/hooks/session_context.py')],input=json.dumps({'hook_event_name':'SubagentStart','model':p['assigned_model'],'task_id':p['child_task_id']}),text=True,env=env).returncode,0)
+   def call(name, tool_input):
+    return subprocess.run([sys.executable,str(ROOT/'codex/hooks/pre_tool_use_policy.py')],input=json.dumps({'model':p['assigned_model'],'task_id':p['child_task_id'],'tool_name':name,'tool_input':tool_input}),text=True,env=env,capture_output=True)
+   self.assertEqual(call('Read',{'path':'tests/test_installer.py'}).returncode,0)
+   self.assertIn('permissionDecision": "deny"',call('Read',{'path':'docs/outside.py'}).stdout)
+   self.assertEqual(call('Write',{'path':'tests/new.py'}).returncode,0)
+   self.assertIn('permissionDecision": "deny"',call('Write',{'path':'README.md'}).stdout)
+   self.assertIn('permissionDecision": "deny"',call('Bash',{'command':'pwd'}).stdout)
+
  def test_manifest_mutations_red(self):
   with tempfile.TemporaryDirectory() as td:
    t=pathlib.Path(td)/"r"; shutil.copytree(ROOT,t,ignore=shutil.ignore_patterns('.git','__pycache__','*.pyc'))
