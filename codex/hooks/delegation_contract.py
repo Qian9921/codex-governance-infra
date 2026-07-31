@@ -20,6 +20,8 @@ def validate_packet(packet, parent_task_id=None):
     if not packet["active_mission_lock"] or packet["plugin_inventory"] != "informational": raise ContractError("mission lock")
     if any(p in packet["permissions"] for p in ("git","github","review","merge")): raise ContractError("forbidden child permission")
     if not isinstance(packet["lease"],dict) or not packet["lease"].get("paths"): raise ContractError("lease")
+    paths=packet["lease"]["paths"]
+    if len(set(paths)) != len(paths) or any(a != b and (a.startswith(b.rstrip("/")+"/") or b.startswith(a.rstrip("/")+"/")) for i,a in enumerate(paths) for b in paths[i+1:]): raise ContractError("overlapping lease")
     if packet["retry_budget"].get("semantic_contamination") != 1: raise ContractError("retry budget")
     return True
 
@@ -31,6 +33,8 @@ def validate_result(result, packet):
     if result["assigned_model"] != packet["assigned_model"] or result["task_id"] != packet["child_task_id"]: raise ContractError("child model/task mismatch")
     if result["depth"] != packet["depth"]: raise ContractError("result depth")
     if result["retry_used"] not in (0,1): raise ContractError("retry overflow")
+    transcript=result.get("retry_transcript", [])
+    if not isinstance(transcript,list) or len(transcript) > packet["retry_budget"]["semantic_contamination"]: raise ContractError("retry transcript overflow")
     c=result["counts"]
     if not isinstance(c,dict) or any(not isinstance(c.get(k),int) or c[k] < 0 for k in ("passed","failed","skipped")): raise ContractError("counts")
     if c.get("total") != c["passed"]+c["failed"]+c["skipped"] or c.get("ran") != c["passed"]+c["failed"]: raise ContractError("count arithmetic")

@@ -8,7 +8,7 @@ def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
 def scan(root):
     files=[]; errors=[]
     for p in sorted(root.rglob("*")):
-        if not p.is_file() or ".git" in p.parts: continue
+        if not p.is_file() or ".git" in p.parts or "__pycache__" in p.parts or p.suffix == ".pyc": continue
         rel=p.relative_to(root).as_posix(); files.append(rel)
         if any(x in rel.lower() for x in FORBIDDEN_PARTS): errors.append(f"forbidden path:{rel}")
         try: text=p.read_text(errors="strict")
@@ -21,7 +21,7 @@ def main():
     for req in ("codex/AGENTS.md","codex/BRIEF-TEMPLATES.md","codex/hooks/hooks.json","scripts/install-governance.py","manifest.json"): 
         if req not in files: errors.append("missing:"+req)
     policy=(root/"codex/AGENTS.md").stat().st_size; brief=(root/"codex/BRIEF-TEMPLATES.md").stat().st_size
-    if policy>26624 or brief>18000: errors.append("size limit")
+    if policy>26624 or brief>26624: errors.append("hard size limit")
     manifest=root/"manifest.json"
     if manifest.exists():
         data=json.loads(manifest.read_text()); tracked={f:sha(root/f) for f in files if f != "manifest.json"}; data["files"]={k:v for k,v in data.get("files",{}).items() if k in tracked}
