@@ -4,14 +4,14 @@
       "artifact": "/tmp/v15-hooks-final2.out",
       "command": "PYTHONPATH=codex/hooks python3 -m unittest hooks_contract_test",
       "cost": "~2.9s",
-      "end_utc": "2026-07-31T06:10:10Z",
+      "end_utc": "2026-07-31T06:11:03Z",
       "exit_status": 0,
       "failed": 0,
       "name": "v14-plus-v15-hook-suite",
       "passed": 22,
       "ran": 22,
       "skipped": 0,
-      "start_utc": "2026-07-31T06:10:07Z",
+      "start_utc": "2026-07-31T06:11:00Z",
       "total": 22,
       "why_red": "regression in 13 live v14 behaviors or V15 Spark/delegation behavior"
     },
@@ -19,14 +19,14 @@
       "artifact": "/tmp/v15-tests-final2.out",
       "command": "python3 -m unittest discover -s tests",
       "cost": "~0.2s",
-      "end_utc": "2026-07-31T06:10:11Z",
+      "end_utc": "2026-07-31T06:11:03Z",
       "exit_status": 0,
       "failed": 0,
       "name": "general-tests",
       "passed": 18,
       "ran": 18,
       "skipped": 0,
-      "start_utc": "2026-07-31T06:10:10Z",
+      "start_utc": "2026-07-31T06:11:03Z",
       "total": 18,
       "why_red": "contract/privacy/installer/policy regression"
     },
@@ -34,7 +34,7 @@
       "artifact": "/tmp/v15-verify-final2.out",
       "command": "python3 scripts/verify-governance.py --repo .",
       "cost": "<1s",
-      "end_utc": "2026-07-31T06:10:11Z",
+      "end_utc": "2026-07-31T06:11:03Z",
       "exit_status": 0,
       "failed": 0,
       "files_scanned": 35,
@@ -42,7 +42,7 @@
       "passed": 35,
       "ran": 35,
       "skipped": 0,
-      "start_utc": "2026-07-31T06:10:11Z",
+      "start_utc": "2026-07-31T06:11:03Z",
       "total": 35,
       "why_red": "forbidden artifact or stale hash"
     }
@@ -54,7 +54,7 @@
   "schema": "presubmit-evidence.v2",
   "snapshot": {
     "base_sha": "e18439c8dfe01d901895efd09b8b73b6842327a9",
-    "git_head": "423b31d6b97eb325645b117728d4c6e7c98bcf41",
+    "git_head": "95c6da58bb2f0635e55c7178b954530bd70c886a",
     "worktree": "clean-after-commit"
   },
   "spark_process_defect": {
