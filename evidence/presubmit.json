@@ -1,0 +1,12 @@
+{
+  "schema": "presubmit-evidence.v1",
+  "snapshot": {"git_head": "e18439c8dfe01d901895efd09b8b73b6842327a9", "worktree": "clean"},
+  "checks": [
+    {"name":"unit-tests","why_red":"contract or policy regression","command":"python3 -m unittest discover -s tests -v","total":18,"ran":18,"passed":18,"failed":0,"skipped":0,"exit_status":0,"cost":"<1s"},
+    {"name":"hook-contract-tests","why_red":"delegation identity/lease/count regression","command":"PYTHONPATH=codex/hooks python3 -m unittest codex/hooks/hooks_contract_test.py -v","total":5,"ran":5,"passed":5,"failed":0,"skipped":0,"exit_status":0,"cost":"<1s"},
+    {"name":"privacy-manifest","why_red":"forbidden artifact or stale hash","command":"python3 scripts/verify-governance.py --repo .","total":41,"ran":41,"passed":41,"failed":0,"skipped":0,"exit_status":0,"cost":"<1s"},
+    {"name":"fresh-clone-install-rollback","why_red":"nonportable install or failed rollback","command":"isolated clone verify + dry-run + install + rollback","total":4,"ran":4,"passed":4,"failed":0,"skipped":0,"exit_status":0,"cost":"~3s"}
+  ],
+  "privacy": {"live_codex_home_touched": false, "raw_logs_committed": false},
+  "writer_gate": "READY_FOR_INDEPENDENT_REVIEW"
+}
