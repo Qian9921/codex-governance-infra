@@ -37,7 +37,7 @@
     "docs/deployment.md": "35a56b55bb58ad1aa657fcf53d5ef904927fc9ddd341acd6b6fc4c8a41d0759c",
     "docs/privacy-threat-model.md": "6fdeb07f3c49961f713496236ec56d74fb082c4e554458727dde746759503b51",
     "docs/review-workflow.md": "bde753a1f2cc5a61dc0c76226499d27997d73f96196322d3652d41d1fe2cf22a",
-    "evidence/presubmit.json": "8d12347884a7e6d57e3f1c0df98e24b1c31daf85b668f1a894e8964a8988e11e",
+    "evidence/presubmit.json": "42fd2ae1139627a9969eb9abebbe370cdd0de9543b1a90f98fe435deb24d714d",
     "scripts/install-governance.py": "12ca2f37e5e702b9e58ba2431e40e127abb72395aca00182f30baf683bdfb106",
     "scripts/verify-governance.py": "abcc79bdd8c1dd10e0e1c897a588eb5b2e2e7ff3e9674e9499370244e648e6d2",
     "tests/fixtures_context.json": "c5d123c45449766e98ffa823896694c2d478143dba1cd67f1e20222de75d6c39",

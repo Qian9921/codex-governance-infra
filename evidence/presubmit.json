@@ -1,12 +1,74 @@
 {
-  "schema": "presubmit-evidence.v1",
-  "snapshot": {"git_head": "e18439c8dfe01d901895efd09b8b73b6842327a9", "worktree": "clean"},
   "checks": [
-    {"name":"unit-tests","why_red":"contract or policy regression","command":"python3 -m unittest discover -s tests -v","total":18,"ran":18,"passed":18,"failed":0,"skipped":0,"exit_status":0,"cost":"<1s"},
-    {"name":"hook-contract-tests","why_red":"delegation identity/lease/count regression","command":"PYTHONPATH=codex/hooks python3 -m unittest codex/hooks/hooks_contract_test.py -v","total":5,"ran":5,"passed":5,"failed":0,"skipped":0,"exit_status":0,"cost":"<1s"},
-    {"name":"privacy-manifest","why_red":"forbidden artifact or stale hash","command":"python3 scripts/verify-governance.py --repo .","total":41,"ran":41,"passed":41,"failed":0,"skipped":0,"exit_status":0,"cost":"<1s"},
-    {"name":"fresh-clone-install-rollback","why_red":"nonportable install or failed rollback","command":"isolated clone verify + dry-run + install + rollback","total":4,"ran":4,"passed":4,"failed":0,"skipped":0,"exit_status":0,"cost":"~3s"}
+    {
+      "artifact": "/tmp/v15-hooks-final2.out",
+      "command": "PYTHONPATH=codex/hooks python3 -m unittest hooks_contract_test",
+      "cost": "~2.9s",
+      "end_utc": "2026-07-31T06:10:10Z",
+      "exit_status": 0,
+      "failed": 0,
+      "name": "v14-plus-v15-hook-suite",
+      "passed": 22,
+      "ran": 22,
+      "skipped": 0,
+      "start_utc": "2026-07-31T06:10:07Z",
+      "total": 22,
+      "why_red": "regression in 13 live v14 behaviors or V15 Spark/delegation behavior"
+    },
+    {
+      "artifact": "/tmp/v15-tests-final2.out",
+      "command": "python3 -m unittest discover -s tests",
+      "cost": "~0.2s",
+      "end_utc": "2026-07-31T06:10:11Z",
+      "exit_status": 0,
+      "failed": 0,
+      "name": "general-tests",
+      "passed": 18,
+      "ran": 18,
+      "skipped": 0,
+      "start_utc": "2026-07-31T06:10:10Z",
+      "total": 18,
+      "why_red": "contract/privacy/installer/policy regression"
+    },
+    {
+      "artifact": "/tmp/v15-verify-final2.out",
+      "command": "python3 scripts/verify-governance.py --repo .",
+      "cost": "<1s",
+      "end_utc": "2026-07-31T06:10:11Z",
+      "exit_status": 0,
+      "failed": 0,
+      "files_scanned": 35,
+      "name": "privacy-manifest",
+      "passed": 35,
+      "ran": 35,
+      "skipped": 0,
+      "start_utc": "2026-07-31T06:10:11Z",
+      "total": 35,
+      "why_red": "forbidden artifact or stale hash"
+    }
   ],
-  "privacy": {"live_codex_home_touched": false, "raw_logs_committed": false},
+  "privacy": {
+    "live_codex_home_touched": false,
+    "raw_logs_committed": false
+  },
+  "schema": "presubmit-evidence.v2",
+  "snapshot": {
+    "base_sha": "e18439c8dfe01d901895efd09b8b73b6842327a9",
+    "git_head": "423b31d6b97eb325645b117728d4c6e7c98bcf41",
+    "worktree": "clean-after-commit"
+  },
+  "spark_process_defect": {
+    "action": "interrupted immediately; no writes/Git/external actions",
+    "child": "spark_contracts",
+    "enforcement": "parent pre-dispatch + SubagentStart lock + post-result validator + dispatch transcript",
+    "issue": "attempted extra nested subtree despite max_depth=1"
+  },
+  "whole_repo_scope": [
+    "all tracked files",
+    "manifest",
+    "direct dependencies",
+    "installer/verifier",
+    "tests"
+  ],
   "writer_gate": "READY_FOR_INDEPENDENT_REVIEW"
 }
