@@ -5,6 +5,9 @@ from __future__ import annotations
 
 import json
 import sys
+import os
+import subprocess
+from pathlib import Path
 
 from hook_receipt import record_receipt
 
@@ -46,6 +49,14 @@ def main() -> int:
     if not isinstance(payload, dict):
         payload = {}
     event = payload.get("hook_event_name", "SessionStart")
+    if os.environ.get("CODEX_DELEGATION_REQUIRED") == "1":
+        packet=os.environ.get("CODEX_DELEGATION_PACKET"); state_root=os.environ.get("CODEX_DELEGATION_STATE_ROOT")
+        if not packet or not state_root:
+            return 2
+        bridge=Path(__file__).with_name("delegation_contract.py")
+        proc=subprocess.run([sys.executable,str(bridge),"subagent-start","--packet",packet,"--state-root",state_root],capture_output=True,text=True)
+        if proc.returncode != 0:
+            return 2
     record_receipt(
         str(event),
         payload,

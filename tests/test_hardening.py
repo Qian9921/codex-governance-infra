@@ -49,6 +49,8 @@ class Hardening(unittest.TestCase):
    t=pathlib.Path(td); p=t/'p.json'; p.write_text(json.dumps(self.packet())); state=t/'state'; env=os.environ.copy(); env['CODEX_DELEGATION_PACKET_SHA256']=hashlib.sha256(p.read_bytes()).hexdigest()
    self.assertEqual(subprocess.run([sys.executable,str(ROOT/'codex/hooks/delegation_contract.py'),'pre-dispatch','--packet',str(p),'--state-root',str(state)]).returncode,0)
    self.assertEqual(subprocess.run([sys.executable,str(ROOT/'codex/hooks/delegation_contract.py'),'subagent-start','--packet',str(p),'--state-root',str(state)],env=env).returncode,0)
+   env['CODEX_DELEGATION_REQUIRED']='1'; env['CODEX_DELEGATION_PACKET']=str(p); env['CODEX_DELEGATION_STATE_ROOT']=str(state)
+   self.assertNotEqual(subprocess.run([sys.executable,str(ROOT/'codex/hooks/session_context.py')],input=json.dumps({'hook_event_name':'SubagentStart','model':'gpt-5.3-codex-spark'}),text=True,env=env).returncode,0)
 
  def test_manifest_mutations_red(self):
   with tempfile.TemporaryDirectory() as td:

@@ -3,8 +3,9 @@ from __future__ import annotations
 import argparse, hashlib, json, pathlib, re, stat, sys
 FORBIDDEN_PARTS=("sessions","hook-receipts","plugins","connections","models_cache.json",".env")
 TOKEN_RE=re.compile(r"gh[pso]_[A-Za-z0-9]{20,}")
-PRIVATE_PATHS=(re.compile(r"/"+"home/[A-Za-z0-9._-]+/"),re.compile(r"/"+"Users/[A-Za-z0-9._-]+/"),re.compile(r"[A-Za-z]:\\\\Users\\\\[A-Za-z0-9._-]+\\\\"))
-SAFE_DOC_TERMS=("credential patterns","tokens","sessions","private paths","do not include")
+RAW_ID_RE=re.compile(r"(?:session_id|turn_id|prompt_id|transcript_id|receipt_id)\s*[=:]\s*[A-Za-z0-9._-]{6,}",re.I)
+PRIVATE_PATHS=(re.compile(r"/"+"home/[A-Za-z0-9._-]+/"),re.compile(r"/"+"Users/[A-Za-z0-9._-]+/"),re.compile(r"[A-Za-z]:\\\\Users\\[A-Za-z0-9._-]+\\"),re.compile(r"\\?/home\\/[A-Za-z0-9._-]+\\/"),re.compile(r"\\?/Users\\/[A-Za-z0-9._-]+\\/"))
+SAFE_PLACEHOLDERS=("<user>","$HOME","$CODEX_HOME","example.invalid")
 ROOT_ALLOW={"README.md","SECURITY.md","PRIVACY.md","LICENSE","AGENTS.md","manifest.json"}
 def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
 def tracked(root):
@@ -27,8 +28,11 @@ def scan(root):
   try: raw=p.read_bytes(); text=raw.decode('utf-8')
   except UnicodeDecodeError: errors.append('non-utf8:'+rel); continue
   if TOKEN_RE.search(text): errors.append('credential token:'+rel)
+  if RAW_ID_RE.search(text): errors.append('raw runtime identifier:'+rel)
   for pat in PRIVATE_PATHS:
-   if pat.search(text) and not any(term in text.lower() for term in SAFE_DOC_TERMS): errors.append('private path:'+rel)
+   for m in pat.finditer(text):
+    snippet=m.group(0)
+    if not any(x in snippet for x in SAFE_PLACEHOLDERS): errors.append('private path:'+rel)
  return files,errors
 def main():
  ap=argparse.ArgumentParser(); ap.add_argument('--repo',default='.'); a=ap.parse_args(); root=pathlib.Path(a.repo).resolve(); files,errors=scan(root)

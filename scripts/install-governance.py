@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, hashlib, json, os, pathlib, shutil, tempfile
+import argparse, hashlib, json, os, pathlib, shutil, tempfile, stat
 from typing import List, Dict
 FORBIDDEN=("sessions","hook-receipts","plugins","connections","models_cache.json",".env")
 
@@ -24,6 +24,15 @@ def safe_entries(src: pathlib.Path):
     return out
 
 def state_path(dest): return dest/'.codex-governance-v15-state.json'
+def transformed_source(source, target, dest):
+    if target != 'hooks.json': return source
+    data=json.loads(source.read_text())
+    for groups in data.get('hooks',{}).values():
+        for matcher in groups:
+            for hook in matcher.get('hooks',[]):
+                cmd=hook.get('command','').replace('$CODEX_HOME',str(dest))
+                hook['command']=cmd
+    tmp=pathlib.Path(tempfile.mktemp(prefix='codex-v15-hooks-')); tmp.write_text(json.dumps(data,sort_keys=True)); return tmp
 def backup_path(dest): return dest.parent/(dest.name+'.v15-managed-backup')
 def failpoint(n):
     raw=os.environ.get('CODEX_INSTALL_FAIL_AFTER','')
@@ -42,7 +51,7 @@ def main():
         for item in rec['managed']:
             target=dest/item['path']
             if item['previous_exists']:
-                srcb=backup/item['path']; target.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(srcb,target)
+                srcb=backup/item['path']; target.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(srcb,target); os.chmod(target,item.get('previous_mode') or 0o644)
             elif target.exists(): target.unlink()
         if backup.exists(): shutil.rmtree(backup)
         state.unlink(); print(json.dumps({'status':'ROLLED_BACK','files':len(rec['managed'])},sort_keys=True)); return 0
@@ -51,7 +60,10 @@ def main():
     managed=[]
     for target,p in entries:
         q=dest/target
-        managed.append({'path':target,'source_sha256':digest(p),'previous_exists':q.exists(),'previous_sha256':digest(q) if q.exists() else None})
+        if q.lexists() if hasattr(q,'lexists') else os.path.lexists(q):
+            info=os.lstat(q)
+            if stat.S_ISLNK(info.st_mode) or stat.S_ISDIR(info.st_mode): raise SystemExit('unsafe pre-existing managed object:'+target)
+        managed.append({'path':target,'source_sha256':digest(p),'previous_exists':q.exists(),'previous_sha256':digest(q) if q.exists() else None,'previous_mode':stat.S_IMODE(os.lstat(q).st_mode) if q.exists() else None})
     plan={'schema':'install-transaction.v1','managed':managed}
     print(json.dumps({'status':'DRY_RUN' if a.dry_run else 'READY','files':len(entries),'destination':'$CODEX_HOME' if a.dry_run else str(dest),'hashes':{x[0]:digest(x[1]) for x in entries}},sort_keys=True))
     if a.dry_run: return 0
@@ -62,12 +74,13 @@ def main():
             if item['previous_exists']:
                 b=backup/item['path']; b.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(target,b)
             if failpoint(i): raise RuntimeError('injected failure after backup/mutation')
-            source=dict(entries)[item['path']]; tmp=target.with_name(target.name+'.v15tmp'); shutil.copy2(source,tmp); os.replace(tmp,target); item['installed_sha256']=digest(target)
+            source=dict(entries)[item['path']]; generated=transformed_source(source,item['path'],dest); tmp=target.with_name(target.name+'.v15tmp'); shutil.copy2(generated,tmp); os.chmod(tmp,0o600 if str(target).endswith('.json') else 0o644); os.replace(tmp,target); item['installed_sha256']=digest(target); item['installed_mode']=stat.S_IMODE(os.lstat(target).st_mode);
+            if generated != source: generated.unlink(missing_ok=True)
         state.write_text(json.dumps(plan,sort_keys=True)); os.chmod(state,0o600)
     except Exception:
         for item in reversed(managed):
             target=dest/item['path']
-            if item['previous_exists'] and (backup/item['path']).exists(): shutil.copy2(backup/item['path'],target)
+            if item['previous_exists'] and (backup/item['path']).exists(): shutil.copy2(backup/item['path'],target); os.chmod(target,item.get('previous_mode') or 0o644)
             elif not item['previous_exists'] and target.exists(): target.unlink()
         if backup.exists(): shutil.rmtree(backup)
         raise

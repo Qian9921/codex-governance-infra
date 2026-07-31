@@ -1,6 +1,10 @@
 """Typed v15 delegation contract and parent-owned state bridge (stdlib only)."""
 from __future__ import annotations
-import argparse, hashlib, json, os, pathlib, re, sys, tempfile
+import argparse, hashlib, json, os, pathlib, re, sys, tempfile, contextlib
+try:
+ import fcntl
+except ImportError:
+ fcntl=None
 class ContractError(ValueError): pass
 REQUIRED_PACKET={"schema","parent_task_id","child_task_id","assigned_model","role","max_depth","depth","permissions","forbidden_permissions","lease","retry_budget","active_mission_lock","plugin_inventory","result_schema"}
 REQUIRED_RESULT={"schema","parent_task_id","child_task_id","assigned_model","task_id","depth","changed_paths","counts","retry_used","contamination","status"}
@@ -89,18 +93,35 @@ def _load(root):
  return {'schema':'delegation-state.v1','delegations':{}},f
 def _save(state,f):
  tmp=f.with_suffix('.tmp'); tmp.write_text(json.dumps(state,sort_keys=True)); os.chmod(tmp,0o600); os.replace(tmp,f)
+@contextlib.contextmanager
+def state_lock(root):
+ p=pathlib.Path(root); p.mkdir(mode=0o700,parents=True,exist_ok=True); lf=p/'.delegation.lock'; fh=open(lf,'a+')
+ try:
+  if fcntl: fcntl.flock(fh.fileno(),fcntl.LOCK_EX)
+  yield
+ finally:
+  if fcntl: fcntl.flock(fh.fileno(),fcntl.LOCK_UN)
+  fh.close()
+
 def cli():
- ap=argparse.ArgumentParser(); sub=ap.add_subparsers(dest='cmd',required=True); 
+ ap=argparse.ArgumentParser(); sub=ap.add_subparsers(dest='cmd',required=True)
  for name in ('pre-dispatch','subagent-start','ingest-result'):
   q=sub.add_parser(name); q.add_argument('--packet',required=True); q.add_argument('--state-root',required=True); q.add_argument('--result')
- a=ap.parse_args(); state,f=_load(a.state_root); packet=json.loads(pathlib.Path(a.packet).read_text());
- if a.cmd=='pre-dispatch': validate_packet(packet,active_leases=[x.get('lease',[]) for x in state.get('active',[])]); state.setdefault('active',[]).append({'task_id':packet['child_task_id'],'lease':packet['lease']['paths']}); state['mission_hash']=hashlib.sha256(json.dumps(packet,sort_keys=True).encode()).hexdigest(); _save(state,f); print(json.dumps({'decision':'allow','mission_hash':state['mission_hash']})); return 0
- if a.cmd=='subagent-start':
-  env=os.environ.get('CODEX_DELEGATION_PACKET_SHA256'); expected=hashlib.sha256(pathlib.Path(a.packet).read_bytes()).hexdigest();
-  if env!=expected: raise ContractError('missing or wrong packet identity')
-  validate_packet(packet); print(json.dumps({'decision':'allow','packet_sha256':expected})); return 0
- if not a.result: raise ContractError('result required')
- result=json.loads(pathlib.Path(a.result).read_text()); validate_result(result,packet,state); rec=state.setdefault('delegations',{}).setdefault(state_key(packet),{'attempts':[],'accepted':False}); rec['attempts'].append(result['attempt_id']); rec['accepted']=result['status']=='complete'; _save(state,f); print(json.dumps({'decision':'accept' if rec['accepted'] else 'reject','attempt_id':result['attempt_id']})); return 0
+ a=ap.parse_args(); packet=json.loads(pathlib.Path(a.packet).read_text()); expected=hashlib.sha256(pathlib.Path(a.packet).read_bytes()).hexdigest()
+ with state_lock(a.state_root):
+  state,f=_load(a.state_root)
+  key=state_key(packet)
+  if a.cmd=='pre-dispatch':
+   validate_packet(packet,active_leases=[x.get('lease',[]) for x in state.get('active',[])])
+   if key in state.get('packets',{}): raise ContractError('packet already registered')
+   mission=hashlib.sha256(json.dumps(packet,sort_keys=True).encode()).hexdigest(); state.setdefault('packets',{})[key]={'packet_sha256':expected,'mission_hash':mission,'started':False,'terminal':False,'child_task_id':packet['child_task_id'],'assigned_model':packet['assigned_model'],'depth':packet['depth'],'lease':packet['lease']['paths']}; state.setdefault('active',[]).append({'task_id':packet['child_task_id'],'lease':packet['lease']['paths'],'key':key}); _save(state,f); print(json.dumps({'decision':'allow','mission_hash':mission})); return 0
+  rec=state.get('packets',{}).get(key)
+  if a.cmd=='subagent-start':
+   if os.environ.get('CODEX_DELEGATION_PACKET_SHA256')!=expected or not rec or rec.get('packet_sha256')!=expected or rec.get('started') or rec.get('terminal'): raise ContractError('missing, wrong, unregistered, or duplicate packet')
+   validate_packet(packet); rec['started']=True; _save(state,f); print(json.dumps({'decision':'allow','packet_sha256':expected})); return 0
+  if not a.result: raise ContractError('result required')
+  if not rec or not rec.get('started') or rec.get('terminal'): raise ContractError('result without active started record')
+  result=json.loads(pathlib.Path(a.result).read_text()); validate_result(result,packet,state); rec['terminal']=True; rec['decision']='accept' if result['status']=='complete' else 'reject'; rec['attempt_id']=result['attempt_id']; state['active']=[x for x in state.get('active',[]) if x.get('key')!=key]; _save(state,f); print(json.dumps({'decision':rec['decision'],'attempt_id':result['attempt_id']})); return 0
 if __name__=='__main__':
  try: raise SystemExit(cli())
  except ContractError as e: print(json.dumps({'decision':'reject','reason':str(e)})); raise SystemExit(2)
