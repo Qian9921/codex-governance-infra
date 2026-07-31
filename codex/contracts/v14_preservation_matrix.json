@@ -1,16 +1,61 @@
 {
-  "schema":"v14-preservation-matrix.v1",
-  "source":"live v14 AGENTS.md, BRIEF-TEMPLATES.md, hooks_contract_test.py",
   "clauses": [
-    {"id":"EVID-PARITY","coverage":"codex/AGENTS.md + codex/BRIEF-TEMPLATES.md","tests":"hooks_contract_test.py:test_session_context_contains_routing_and_parity_contract"},
-    {"id":"PROCESS-GIT-EXTERNAL","coverage":"codex/AGENTS.md + codex/hooks/pre_tool_use_policy.py","tests":"HookContractTest:test_policy_does_not_emit_external_authorization"},
-    {"id":"QIAN-LIANG","coverage":"codex/AGENTS.md + docs/review-workflow.md","tests":"tests/test_policy.py"},
-    {"id":"SOL-LINEAGE","coverage":"codex/BRIEF-TEMPLATES.md + contracts/review_packet.example.json","tests":"tests/test_contract_fixtures.py"},
-    {"id":"COVERAGE-ADMISSION-CLOSURE","coverage":"codex/AGENTS.md + evidence/presubmit.json","tests":"tests/test_policy.py"},
-    {"id":"PR-TRACE","coverage":"docs/review-workflow.md + PR body","tests":"evidence/presubmit.json"},
-    {"id":"RECEIPT-PRIVACY","coverage":"codex/hooks/hook_receipt.py","tests":"hooks_contract_test.py:test_receipt_privacy_snapshot_and_identifier_hashes"},
-    {"id":"DONE-1","coverage":"codex/AGENTS.md","tests":"tests/test_policy.py"},
-    {"id":"MODEL-UNRESTRICTED","coverage":"codex/hooks/session_context.py + pre_tool_use_policy.py","tests":"22-test hook suite"},
-    {"id":"V15-DELEGATION","coverage":"codex/contracts/delegation_*.json + delegation_contract.py","tests":"V15HookContractTest"}
-  ]
+    {
+      "coverage": "codex/AGENTS.md + codex/BRIEF-TEMPLATES.md",
+      "id": "EVID-PARITY",
+      "tests": "hooks_contract_test.py:test_session_context_contains_routing_and_parity_contract"
+    },
+    {
+      "coverage": "codex/AGENTS.md + codex/hooks/pre_tool_use_policy.py",
+      "id": "PROCESS-GIT-EXTERNAL",
+      "tests": "HookContractTest:test_policy_does_not_emit_external_authorization"
+    },
+    {
+      "coverage": "codex/AGENTS.md + docs/review-workflow.md",
+      "id": "QIAN-LIANG",
+      "tests": "tests/test_policy.py"
+    },
+    {
+      "coverage": "codex/BRIEF-TEMPLATES.md + contracts/review_packet.example.json",
+      "id": "SOL-LINEAGE",
+      "tests": "tests/test_contract_fixtures.py"
+    },
+    {
+      "coverage": "codex/AGENTS.md + evidence/presubmit.json",
+      "id": "COVERAGE-ADMISSION-CLOSURE",
+      "tests": "tests/test_policy.py"
+    },
+    {
+      "coverage": "docs/review-workflow.md + PR body",
+      "id": "PR-TRACE",
+      "tests": "evidence/presubmit.json"
+    },
+    {
+      "coverage": "codex/hooks/hook_receipt.py",
+      "id": "RECEIPT-PRIVACY",
+      "tests": "hooks_contract_test.py:test_receipt_privacy_snapshot_and_identifier_hashes"
+    },
+    {
+      "coverage": "codex/AGENTS.md",
+      "id": "DONE-1",
+      "tests": "tests/test_policy.py"
+    },
+    {
+      "coverage": "codex/hooks/session_context.py + pre_tool_use_policy.py",
+      "id": "MODEL-UNRESTRICTED",
+      "tests": "22-test hook suite"
+    },
+    {
+      "coverage": "codex/contracts/delegation_*.json + delegation_contract.py",
+      "id": "V15-DELEGATION",
+      "tests": "V15HookContractTest"
+    },
+    {
+      "coverage": "codex/AGENTS.md + docs/architecture.md",
+      "id": "EXP-PROCESS-OWNERSHIP",
+      "tests": "tests/test_hardening.py:test_connected_cli_flow"
+    }
+  ],
+  "schema": "v14-preservation-matrix.v1",
+  "source": "live v14 AGENTS.md, BRIEF-TEMPLATES.md, hooks_contract_test.py"
 }

@@ -1,1 +1,14 @@
-{"schema":"review.v1","milestone":"HARDENING","base_sha":"0000000000000000000000000000000000000000","head_sha":"1111111111111111111111111111111111111111","coverage_status":"COMPLETE","unreviewed_scope":[],"review_status":"COMPLETE","verdict":"APPROVE","reviewer_model":"gpt-5.6-sol","fork_turns":"none","report_only":true,"findings":[]}
+{
+  "base_sha": "0000000000000000000000000000000000000000",
+  "coverage_status": "COMPLETE",
+  "findings": [],
+  "fork_turns": "none",
+  "head_sha": "1111111111111111111111111111111111111111",
+  "milestone": "HARDENING",
+  "report_only": true,
+  "review_status": "COMPLETE",
+  "reviewer_model": "gpt-5.6-sol",
+  "schema": "review.v1",
+  "unreviewed_scope": [],
+  "verdict": "APPROVE"
+}

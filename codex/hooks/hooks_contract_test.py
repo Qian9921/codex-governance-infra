@@ -62,7 +62,8 @@ class HookContractTest(unittest.TestCase):
             for matcher in group:
                 for handler in matcher["hooks"]:
                     command = handler["command"]
-                    path = Path(command.split()[-1])
+                    token = command.split()[-1].strip('"')
+                    path = Path(token.replace("$CODEX_HOME", str(ROOT.parent)))
                     self.assertTrue(path.exists(), path)
 
     def test_all_models_have_unrestricted_tool_capability(self) -> None:
@@ -304,9 +305,9 @@ if __name__ == "__main__":
 
 class V15HookContractTest(unittest.TestCase):
     def _packet(self):
-        return {"schema":"delegation.v1","parent_task_id":"parent/1","child_task_id":"child/1","assigned_model":"gpt-5.3-codex-spark","role":"specialist","max_depth":1,"depth":1,"permissions":["read","write_paths"],"forbidden_permissions":["git","github","review","merge"],"lease":{"paths":["tests/"]},"retry_budget":{"semantic_contamination":1},"active_mission_lock":True,"plugin_inventory":"informational","result_schema":"delegation-result.v1"}
+        return {"schema":"delegation.v1","parent_task_id":"parent/1","child_task_id":"child/1","assigned_model":"gpt-5.3-codex-spark","role":"specialist","max_depth":1,"depth":1,"permissions":["read","write_paths"],"forbidden_permissions":["approve","approver","bash","shell","git","git_push","github","github_api","merge","merger","review","reviewer"],"lease":{"paths":["tests"]},"retry_budget":{"semantic_contamination":1},"active_mission_lock":True,"plugin_inventory":"informational","result_schema":"delegation-result.v1"}
     def _result(self, **kw):
-        r={"schema":"delegation-result.v1","parent_task_id":"parent/1","child_task_id":"child/1","assigned_model":"gpt-5.3-codex-spark","task_id":"child/1","depth":1,"changed_paths":["tests/x.py"],"counts":{"total":1,"ran":1,"passed":1,"failed":0,"skipped":0},"retry_used":0,"contamination":False,"status":"complete"}; r.update(kw); return r
+        r={"schema":"delegation-result.v1","parent_task_id":"parent/1","child_task_id":"child/1","assigned_model":"gpt-5.3-codex-spark","task_id":"child/1","depth":1,"changed_paths":["tests/x.py"],"counts":{"total":1,"ran":1,"passed":1,"failed":0,"skipped":0,"unknown":0},"retry_used":0,"contamination":False,"status":"complete","artifact_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","evidence_id":"fixture-evidence","attempt_id":"attempt/1","retry_transcript":[]}; r.update(kw); return r
     def test_spark_identity(self):
         code,out,err=run_hook("session_context.py",{"hook_event_name":"SubagentStart","model":"gpt-5.3-codex-spark"}); self.assertEqual(code,0); self.assertIn("GPT-5.3 Codex Spark",out["hookSpecificOutput"]["additionalContext"])
     def test_spark_unrestricted(self): self.assertEqual(run_hook("pre_tool_use_policy.py",{"model":"gpt-5.3-codex-spark","tool_name":"Write","tool_input":{}}),(0,None,""))

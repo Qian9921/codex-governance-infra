@@ -1,8 +1,43 @@
 {
-  "parent_model": "gpt-5.6-luna",
   "child_model": "gpt-5.3-codex-spark",
-  "plugin_inventory": "informational",
   "packet": {
-    "schema":"delegation.v1","parent_task_id":"v15/spark/parent","child_task_id":"v15/spark/context","assigned_model":"gpt-5.3-codex-spark","role":"specialist","max_depth":1,"depth":1,"permissions":["read","write_paths"],"forbidden_permissions":["git","github","review","merge"],"lease":{"paths":["tests/"]},"retry_budget":{"semantic_contamination":1},"active_mission_lock":true,"plugin_inventory":"informational","result_schema":"delegation-result.v1"
-  }
+    "active_mission_lock": true,
+    "assigned_model": "gpt-5.3-codex-spark",
+    "child_task_id": "v15/spark/context",
+    "depth": 1,
+    "forbidden_permissions": [
+      "approve",
+      "approver",
+      "bash",
+      "git",
+      "git_push",
+      "github",
+      "github_api",
+      "merge",
+      "merger",
+      "review",
+      "reviewer",
+      "shell"
+    ],
+    "lease": {
+      "paths": [
+        "tests"
+      ]
+    },
+    "max_depth": 1,
+    "parent_task_id": "v15/spark/parent",
+    "permissions": [
+      "read",
+      "write_paths"
+    ],
+    "plugin_inventory": "informational",
+    "result_schema": "delegation-result.v1",
+    "retry_budget": {
+      "semantic_contamination": 1
+    },
+    "role": "specialist",
+    "schema": "delegation.v1"
+  },
+  "parent_model": "gpt-5.6-luna",
+  "plugin_inventory": "informational"
 }

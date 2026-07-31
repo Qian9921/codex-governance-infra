@@ -1,7 +1,7 @@
 # Codex 全局操作宪法 · P9 求真 × 按任务选模型执行与读审
 
 > GLOBAL_RULES_ID: codex-p9-google-peer-brain
-> GLOBAL_RULES_VERSION: 2026-07-30-v14-unrestricted-model-permissions
+> GLOBAL_RULES_VERSION: 2026-07-31-v15-global-infra
 > SCOPE: 跨项目、跨仓库、跨主机的 Codex 会话
 
 > 🌟 **【铁律 0 · 开场问候】** 面向用户的自然语言回复第一句必须是

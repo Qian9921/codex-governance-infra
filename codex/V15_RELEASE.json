@@ -1,0 +1,8 @@
+{
+  "version":"2026-07-31-v15-global-infra",
+  "v14_sources":{
+    "AGENTS.md":{"sha256":"e178b8da4422312fd1dddfb4c084dc54dfd652cd1395b0c3e6b1a50e9679c696","bytes":22194,"lines":263},
+    "BRIEF-TEMPLATES.md":{"sha256":"f0c6fbc92b4c9c276f282ee37db53718aaabe55a09b3ba8d4ebb2f0c8a45d322","bytes":22982,"lines":316},
+    "hooks_contract_test.py":{"sha256":"3ae00bf0ff662eb2895007ed4f692d3309684a0e9a8b93fb565c6bae8100a582","bytes":13479,"lines":303}
+  }
+}

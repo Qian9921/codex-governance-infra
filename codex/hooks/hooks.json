@@ -1,9 +1,9 @@
 {
-  "version": "15.0.0",
-  "session_start": "session_context.py",
+  "additional_context_limit": 1200,
   "pre_tool_use": "pre_tool_use_policy.py",
   "receipt": "hook_receipt.py",
-  "additional_context_limit": 1200,
+  "session_start": "session_context.py",
+  "spawn_enforcement": "parent-pre-dispatch+subagent-lock+post-result+dispatch-transcript",
   "spawn_observable": false,
-  "spawn_enforcement": "parent-pre-dispatch+subagent-lock+post-result+dispatch-transcript"
+  "version": "15.0.0"
 }
