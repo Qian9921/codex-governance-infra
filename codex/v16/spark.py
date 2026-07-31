@@ -236,7 +236,10 @@ def build_closure_binding_receipt(
             finding_id = _id(finding.get("id"), f"{path}.id")
             if finding_id in source_findings:
                 raise SparkAuditError("duplicate authoritative Spark finding", f"{path}.id")
-            _str(finding.get("counterexample"), f"{path}.counterexample", public=True)
+            _safe_text(
+                finding.get("counterexample"),
+                f"{path}.counterexample",
+            )
             source_findings[finding_id] = finding
     source_artifacts.sort(key=lambda item: item["audit_id"])
     if len({item["audit_id"] for item in source_artifacts}) != len(source_artifacts):

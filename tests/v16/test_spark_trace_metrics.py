@@ -463,7 +463,10 @@ class SparkTraceMetricsTests(unittest.TestCase):
             result["findings"] = [
                 dict(template) | {
                     "id": item["finding_id"],
-                    "counterexample": f"frozen counterexample for {item['finding_id']}",
+                    "counterexample": (
+                        "frozen token counterexample transcript for "
+                        f"{item['finding_id']}"
+                    ),
                 }
                 for item in plan_items
             ]
@@ -502,7 +505,8 @@ class SparkTraceMetricsTests(unittest.TestCase):
         self.assertEqual(
             binding["counterexample_sha256"],
             _counterexample_sha256(
-                f"frozen counterexample for {binding['finding_id']}"
+                "frozen token counterexample transcript for "
+                f"{binding['finding_id']}"
             ),
         )
         missing = copy.deepcopy(spark_results)
