@@ -1,1 +1,12 @@
-{"schema":"afm.v1","findings":[{"id":"AFM-1","severity":"BLOCKING","trigger":"privacy scanner red","counterexample":"forbidden token","closure":"scanner green"}]}
+{
+  "findings": [
+    {
+      "closure": "scanner green",
+      "counterexample": "forbidden token",
+      "id": "AFM-1",
+      "severity": "BLOCKING",
+      "trigger": "privacy scanner red"
+    }
+  ],
+  "schema": "afm.v1"
+}

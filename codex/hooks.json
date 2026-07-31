@@ -1,0 +1,42 @@
+{
+  "description": "Deterministic privacy-safe v15 governance hooks; model unrestricted, task role controlled.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "/usr/bin/python3 \"$CODEX_HOME/hooks/pre_tool_use_policy.py\"",
+            "statusMessage": "Checking model role and tool scope",
+            "type": "command"
+          }
+        ],
+        "matcher": "^(Read|Grep|Glob|Bash|apply_patch|Edit|Write|mcp__.*)$"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "additionalContextLimit": 1200,
+            "command": "/usr/bin/python3 \"$CODEX_HOME/hooks/session_context.py\"",
+            "statusMessage": "Loading governance routing context",
+            "type": "command"
+          }
+        ],
+        "matcher": "startup|resume|clear|compact"
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "additionalContextLimit": 1200,
+            "command": "/usr/bin/python3 \"$CODEX_HOME/hooks/session_context.py\"",
+            "statusMessage": "Loading subagent governance context",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}

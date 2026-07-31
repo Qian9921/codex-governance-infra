@@ -1,0 +1,1735 @@
+{
+  "cases": [
+    {
+      "case_id": "A-001",
+      "expected": {
+        "decision": "allow",
+        "error": null,
+        "state": "unchanged",
+        "status": "GREEN"
+      },
+      "finding_id": "V15-R1-001",
+      "fixture": {
+        "codex_home": "default",
+        "operation": "dry_run"
+      },
+      "production_entrypoint": "installer"
+    },
+    {
+      "case_id": "A-002",
+      "expected": {
+        "decision": "allow",
+        "error": null,
+        "state": "unchanged",
+        "status": "GREEN"
+      },
+      "finding_id": "V15-R1-001",
+      "fixture": {
+        "codex_home": "custom",
+        "operation": "dry_run"
+      },
+      "production_entrypoint": "installer"
+    },
+    {
+      "case_id": "A-003",
+      "expected": {
+        "decision": "allow",
+        "error": null,
+        "state": "unchanged",
+        "status": "GREEN"
+      },
+      "finding_id": "V15-R1-001",
+      "fixture": {
+        "codex_home": "space root",
+        "operation": "dry_run"
+      },
+      "production_entrypoint": "installer"
+    },
+    {
+      "case_id": "A-004",
+      "expected": {
+        "decision": "allow",
+        "error": null,
+        "state": "unchanged",
+        "status": "GREEN"
+      },
+      "finding_id": "V15-R1-001",
+      "fixture": {
+        "codex_home": "single'quote",
+        "operation": "dry_run"
+      },
+      "production_entrypoint": "installer"
+    },
+    {
+      "case_id": "A-005",
+      "expected": {
+        "decision": "allow",
+        "error": null,
+        "state": "unchanged",
+        "status": "GREEN"
+      },
+      "finding_id": "V15-R1-001",
+      "fixture": {
+        "codex_home": "double\"quote",
+        "operation": "dry_run"
+      },
+      "production_entrypoint": "installer"
+    },
+    {
+      "case_id": "A-006",
+      "expected": {
+        "decision": "allow",
+        "error": null,
+        "state": "unchanged",
+        "status": "GREEN"
+      },
+      "finding_id": "V15-R1-001",
+      "fixture": {
+        "codex_home": "dollar$()",
+        "operation": "dry_run"
+      },
+      "production_entrypoint": "installer"
+    },
+    {
+      "case_id": "A-007",
+      "expected": {
+        "decision": "allow",
+        "error": null,
+        "state": "unchanged",
+        "status": "GREEN"
+      },
+      "finding_id": "V15-R1-001",
+      "fixture": {
+        "codex_home": "backtick`x",
+        "operation": "dry_run"
+      },
+      "production_entrypoint": "installer"
+    },
+    {
+      "case_id": "A-008",
+      "expected": {
+        "decision": "allow",
+        "error": null,
+        "state": "unchanged",
+        "status": "GREEN"
+      },
+      "finding_id": "V15-R1-001",
+      "fixture": {
+        "codex_home": "env$VAR",
+        "operation": "dry_run"
+      },
+      "production_entrypoint": "installer"
+    },
+    {
+      "case_id": "A-009",
+      "expected": {
+        "decision": "allow",
+        "error": null,
+        "state": "unchanged",
+        "status": "GREEN"
+      },
+      "finding_id": "V15-R1-001",
+      "fixture": {
+        "codex_home": "backslash\\x",
+        "operation": "dry_run"
+      },
+      "production_entrypoint": "installer"
+    },
+    {
+      "case_id": "A-010",
+      "expected": {
+        "decision": "reject",
+        "error": "unsafe or injected failure",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-001",
+      "fixture": {
+        "operation": "final_symlink"
+      },
+      "production_entrypoint": "installer"
+    },
+    {
+      "case_id": "A-011",
+      "expected": {
+        "decision": "reject",
+        "error": "unsafe or injected failure",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-001",
+      "fixture": {
+        "operation": "final_broken_symlink"
+      },
+      "production_entrypoint": "installer"
+    },
+    {
+      "case_id": "A-012",
+      "expected": {
+        "decision": "reject",
+        "error": "unsafe or injected failure",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-001",
+      "fixture": {
+        "operation": "final_directory"
+      },
+      "production_entrypoint": "installer"
+    },
+    {
+      "case_id": "A-013",
+      "expected": {
+        "decision": "reject",
+        "error": "unsafe or injected failure",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-001",
+      "fixture": {
+        "operation": "intermediate_symlink"
+      },
+      "production_entrypoint": "installer"
+    },
+    {
+      "case_id": "A-014",
+      "expected": {
+        "decision": "reject",
+        "error": "unsafe or injected failure",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-001",
+      "fixture": {
+        "operation": "intermediate_broken_symlink"
+      },
+      "production_entrypoint": "installer"
+    },
+    {
+      "case_id": "A-015",
+      "expected": {
+        "decision": "reject",
+        "error": "unsafe or injected failure",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-001",
+      "fixture": {
+        "operation": "state_symlink"
+      },
+      "production_entrypoint": "installer"
+    },
+    {
+      "case_id": "A-016",
+      "expected": {
+        "decision": "reject",
+        "error": "unsafe or injected failure",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-001",
+      "fixture": {
+        "operation": "backup_symlink"
+      },
+      "production_entrypoint": "installer"
+    },
+    {
+      "case_id": "A-017",
+      "expected": {
+        "decision": "reject",
+        "error": "unsafe or injected failure",
+        "state": "rolled_back",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-001",
+      "fixture": {
+        "fail_after": 1,
+        "operation": "failpoint"
+      },
+      "production_entrypoint": "installer"
+    },
+    {
+      "case_id": "A-018",
+      "expected": {
+        "decision": "reject",
+        "error": "unsafe or injected failure",
+        "state": "rolled_back",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-001",
+      "fixture": {
+        "fail_after": 2,
+        "operation": "failpoint"
+      },
+      "production_entrypoint": "installer"
+    },
+    {
+      "case_id": "A-019",
+      "expected": {
+        "decision": "reject",
+        "error": "unsafe or injected failure",
+        "state": "rolled_back",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-001",
+      "fixture": {
+        "fail_after": 3,
+        "operation": "failpoint"
+      },
+      "production_entrypoint": "installer"
+    },
+    {
+      "case_id": "A-020",
+      "expected": {
+        "decision": "reject",
+        "error": "unsafe or injected failure",
+        "state": "rolled_back",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-001",
+      "fixture": {
+        "fail_after": 4,
+        "operation": "failpoint"
+      },
+      "production_entrypoint": "installer"
+    },
+    {
+      "case_id": "A-021",
+      "expected": {
+        "decision": "reject",
+        "error": "unsafe or injected failure",
+        "state": "rolled_back",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-001",
+      "fixture": {
+        "fail_after": 5,
+        "operation": "failpoint"
+      },
+      "production_entrypoint": "installer"
+    },
+    {
+      "case_id": "A-022",
+      "expected": {
+        "decision": "reject",
+        "error": "unsafe or injected failure",
+        "state": "rolled_back",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-001",
+      "fixture": {
+        "fail_after": 6,
+        "operation": "failpoint"
+      },
+      "production_entrypoint": "installer"
+    },
+    {
+      "case_id": "B-001",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-001.txt",
+        "descriptor": "b_b_001"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-002",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-002.txt",
+        "descriptor": "b_b_002"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-003",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-003.txt",
+        "descriptor": "b_b_003"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-004",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-004.txt",
+        "descriptor": "b_b_004"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-005",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-005.txt",
+        "descriptor": "b_b_005"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-006",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-006.txt",
+        "descriptor": "b_b_006"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-007",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-007.txt",
+        "descriptor": "b_b_007"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-008",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-008.txt",
+        "descriptor": "b_b_008"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-009",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-009.txt",
+        "descriptor": "b_b_009"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-010",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-010.txt",
+        "descriptor": "b_b_010"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-011",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-011.txt",
+        "descriptor": "b_b_011"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-012",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-012.txt",
+        "descriptor": "b_b_012"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-013",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-013.txt",
+        "descriptor": "b_b_013"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-014",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-014.txt",
+        "descriptor": "b_b_014"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-015",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-015.txt",
+        "descriptor": "b_b_015"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-016",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-016.txt",
+        "descriptor": "b_b_016"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-017",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-017.txt",
+        "descriptor": "b_b_017"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-018",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-018.txt",
+        "descriptor": "b_b_018"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-019",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-019.txt",
+        "descriptor": "b_b_019"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-020",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-020.txt",
+        "descriptor": "b_b_020"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-021",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-021.txt",
+        "descriptor": "b_b_021"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-022",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-022.txt",
+        "descriptor": "b_b_022"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-023",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-023.txt",
+        "descriptor": "b_b_023"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-024",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-024.txt",
+        "descriptor": "b_b_024"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-025",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-025.txt",
+        "descriptor": "b_b_025"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-026",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-026.txt",
+        "descriptor": "b_b_026"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-027",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-027.txt",
+        "descriptor": "b_b_027"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "B-028",
+      "expected": {
+        "decision": "reject",
+        "error": "privacy violation",
+        "state": "fixture reported",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-003",
+      "fixture": {
+        "operation": "scan_text",
+        "path": "fixtures/B-028.txt",
+        "descriptor": "b_b_028"
+      },
+      "production_entrypoint": "privacy_scan"
+    },
+    {
+      "case_id": "C-001",
+      "expected": {
+        "decision": "allow",
+        "error": null,
+        "state": "validated",
+        "status": "GREEN"
+      },
+      "finding_id": "V15-R1-004",
+      "fixture": {
+        "operation": "packet_valid"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-002",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-004",
+      "fixture": {
+        "operation": "packet_bool_depth"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-003",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-004",
+      "fixture": {
+        "operation": "packet_git_permission"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-004",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-004",
+      "fixture": {
+        "operation": "packet_overlapping_lease"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-005",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-004",
+      "fixture": {
+        "operation": "packet_missing_repo"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-006",
+      "expected": {
+        "decision": "allow",
+        "error": null,
+        "state": "validated",
+        "status": "GREEN"
+      },
+      "finding_id": "V15-R1-004",
+      "fixture": {
+        "operation": "packet_valid_unique_child"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-007",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-004",
+      "fixture": {
+        "operation": "result_contamination"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-008",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-004",
+      "fixture": {
+        "operation": "result_outside_lease"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-009",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-004",
+      "fixture": {
+        "operation": "result_unknown_count"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-010",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-006",
+      "fixture": {
+        "operation": "result_bool_retry"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-011",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-006",
+      "fixture": {
+        "operation": "packet_noncanonical_lease"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-012",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-006",
+      "fixture": {
+        "operation": "result_bad_attempt"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-013",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-006",
+      "fixture": {
+        "operation": "result_model_mismatch"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-014",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-006",
+      "fixture": {
+        "operation": "packet_mission_off"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-015",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-006",
+      "fixture": {
+        "operation": "packet_forbidden_empty"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-016",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-006",
+      "fixture": {
+        "operation": "packet_wrong_head"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-017",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-006",
+      "fixture": {
+        "operation": "packet_depth_two"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-018",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-006",
+      "fixture": {
+        "operation": "packet_role_bad"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-019",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-007",
+      "fixture": {
+        "operation": "packet_plugin_bad"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-020",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-007",
+      "fixture": {
+        "operation": "packet_retry_budget_bad"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-021",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-007",
+      "fixture": {
+        "operation": "packet_parent_bad"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-022",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-007",
+      "fixture": {
+        "operation": "packet_backslash_lease"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-023",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-007",
+      "fixture": {
+        "operation": "result_duplicate_path"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-024",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-007",
+      "fixture": {
+        "operation": "result_bad_transcript"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-025",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-007",
+      "fixture": {
+        "operation": "result_upper_sha"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "C-026",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-007",
+      "fixture": {
+        "operation": "result_bad_evidence"
+      },
+      "production_entrypoint": "delegation"
+    },
+    {
+      "case_id": "D-001",
+      "expected": {
+        "decision": "allow",
+        "error": null,
+        "state": "validated",
+        "status": "GREEN"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "valid",
+        "operation": "mutate_result",
+        "value": null
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-002",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "artifact_sha256",
+        "operation": "mutate_result",
+        "value": "bad"
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-003",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "artifact_sha256",
+        "operation": "mutate_result",
+        "value": true
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-004",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "artifact_sha256",
+        "operation": "mutate_result",
+        "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-005",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "artifact_sha256",
+        "operation": "mutate_result",
+        "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-006",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "evidence_id",
+        "operation": "mutate_result",
+        "value": 1
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-007",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "evidence_id",
+        "operation": "mutate_result",
+        "value": ""
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-008",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "changed_paths",
+        "operation": "mutate_result",
+        "value": {
+          "__tuple__": [
+            "tests/x.py"
+          ]
+        }
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-009",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "changed_paths",
+        "operation": "mutate_result",
+        "value": [
+          "tests/x.py",
+          "tests/x.py"
+        ]
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-010",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "changed_paths",
+        "operation": "mutate_result",
+        "value": [
+          "docs/x.py"
+        ]
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-011",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "retry_used",
+        "operation": "mutate_result",
+        "value": true
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-012",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "depth",
+        "operation": "mutate_result",
+        "value": true
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-013",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "counts",
+        "operation": "mutate_result",
+        "value": {
+          "failed": 0,
+          "passed": 1,
+          "ran": 1,
+          "skipped": 0,
+          "total": true,
+          "unknown": 0
+        }
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-014",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "counts",
+        "operation": "mutate_result",
+        "value": {
+          "failed": 0,
+          "passed": 1,
+          "ran": 1,
+          "skipped": 0,
+          "total": 2,
+          "unknown": 0
+        }
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-015",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "counts",
+        "operation": "mutate_result",
+        "value": {
+          "failed": 1,
+          "passed": 0,
+          "ran": 1,
+          "skipped": 0,
+          "total": 1,
+          "unknown": 0
+        }
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-016",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "counts",
+        "operation": "mutate_result",
+        "value": {
+          "failed": 0,
+          "passed": 1,
+          "ran": 1,
+          "skipped": 0,
+          "total": 1,
+          "unknown": 1
+        }
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-017",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "attempt_id",
+        "operation": "mutate_result",
+        "value": "bad attempt!"
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-018",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "status",
+        "operation": "mutate_result",
+        "value": "unknown"
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-019",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "retry_transcript",
+        "operation": "mutate_result",
+        "value": {
+          "attempt_id": "x"
+        }
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-020",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "retry_transcript",
+        "operation": "mutate_result",
+        "value": [
+          {
+            "attempt_id": "x",
+            "reason": "x",
+            "status": "bad"
+          }
+        ]
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-021",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "contamination",
+        "operation": "mutate_result",
+        "value": 1
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-022",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "schema",
+        "operation": "mutate_result",
+        "value": "wrong"
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-023",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "result_schema",
+        "operation": "mutate_result",
+        "value": "wrong"
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-024",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "parent_task_id",
+        "operation": "mutate_result",
+        "value": "other"
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-025",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "task_id",
+        "operation": "mutate_result",
+        "value": "other"
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-026",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "assigned_model",
+        "operation": "mutate_result",
+        "value": "gpt-5.6-luna"
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-027",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "changed_paths",
+        "operation": "mutate_result",
+        "value": [
+          "tests//x.py"
+        ]
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-028",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "changed_paths",
+        "operation": "mutate_result",
+        "value": [
+          "tests/./x.py"
+        ]
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-029",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "changed_paths",
+        "operation": "mutate_result",
+        "value": [
+          "tests/../x.py"
+        ]
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-030",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "counts",
+        "operation": "mutate_result",
+        "value": {}
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-031",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "retry_used",
+        "operation": "mutate_result",
+        "value": 2
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-032",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "retry_used",
+        "operation": "mutate_result",
+        "value": -1
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-033",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "artifact_sha256",
+        "operation": "mutate_result",
+        "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "production_entrypoint": "result_validator"
+    },
+    {
+      "case_id": "D-034",
+      "expected": {
+        "decision": "reject",
+        "error": "contract error",
+        "state": "unchanged",
+        "status": "RED"
+      },
+      "finding_id": "V15-R1-008",
+      "fixture": {
+        "field": "evidence_id",
+        "operation": "mutate_result",
+        "value": "bad evidence!"
+      },
+      "production_entrypoint": "result_validator"
+    }
+  ],
+  "schema": "counterexample-manifest.v2"
+}

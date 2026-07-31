@@ -1,1 +1,35 @@
-{"schema":"mission.v1","milestone":"HARDENING","objective":"portable governance","owner":"parent/1","assigned_model":"gpt-5.6-luna","role":"execution","permissions":["read","write","test"],"scope":{"paths":["codex/","scripts/"]},"reviewer_separation":{"independent":"gpt-5.6-sol","fork_turns":"none","report_only":true},"operating_domain":"Codex hooks","invariants":["no capability bans"],"non_goals":["live deployment"],"evidence_budget":{"checks":[]},"rollback":"backup restore"}
+{
+  "assigned_model": "gpt-5.6-luna",
+  "evidence_budget": {
+    "checks": []
+  },
+  "invariants": [
+    "no capability bans"
+  ],
+  "milestone": "HARDENING",
+  "non_goals": [
+    "live deployment"
+  ],
+  "objective": "portable governance",
+  "operating_domain": "Codex hooks",
+  "owner": "parent/1",
+  "permissions": [
+    "read",
+    "write",
+    "test"
+  ],
+  "reviewer_separation": {
+    "fork_turns": "none",
+    "independent": "gpt-5.6-sol",
+    "report_only": true
+  },
+  "role": "execution",
+  "rollback": "backup restore",
+  "schema": "mission.v1",
+  "scope": {
+    "paths": [
+      "codex/",
+      "scripts/"
+    ]
+  }
+}

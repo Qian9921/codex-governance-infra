@@ -1,15 +1,17 @@
 {
   "allowlist": [
-    "codex/",
-    "scripts/",
-    "docs/",
-    "tests/",
+    ".gitignore",
+    "AGENTS.md",
+    "LICENSE",
+    "PRIVACY.md",
     "README.md",
     "SECURITY.md",
-    "PRIVACY.md",
-    "LICENSE",
-    "AGENTS.md",
-    "manifest.json"
+    "codex/",
+    "docs/",
+    "evidence/",
+    "manifest.json",
+    "scripts/",
+    "tests/"
   ],
   "files": {
     ".gitignore": "f1bb8745e827993437963d477a5ee256ca6a098946da514125ce8c0373fc0b51",
@@ -18,39 +20,38 @@
     "PRIVACY.md": "7060bff58feba0238713f30449adbccedb73b0434da65c9d0f9b8a4faeaf4421",
     "README.md": "e1a909d3ef21707c1154cd67914cc862ec40ae52e66d7430e9f3496081b18383",
     "SECURITY.md": "501a43f15ac2018d95774ae636715ccf32e2aa6bb1d38250da99db534b5c85a8",
-    "codex/AGENTS.md": "1e69fe4fc874ae4c6a8da9275313b90ee219d6d6c7a9e3769cd79860a4c31c53",
-    "codex/BRIEF-TEMPLATES.md": "e7e83e735156b961575e5ef5f1471f7ba531b799e29884d119ea3697cfc115d1",
-    "codex/contracts/anticipated_finding_matrix.example.json": "d343aadfdd1d97aef0b56278de37b30d3a1c78b9f10702d070bc262153ff2653",
-    "codex/contracts/delegation_packet.example.json": "3c6a16b6e78b4e7ad579ce1ed5d1466fc4d7a4325f989606a6a193249b533c9e",
-    "codex/contracts/delegation_result.example.json": "bdd48d2d77666ed8f07b6545ef385e42c3bd9b42f021e835d0d44094af030403",
-    "codex/contracts/mission_packet.example.json": "fa56ed1b10f93ef4555cda225eaa1431f725cb00b238434584e1be8b431b2ff3",
-    "codex/contracts/review_packet.example.json": "afab6cec689c9e4cff2708fad803b5b9148bbc0e9f427bc6ee69e98c024826ae",
-    "codex/hooks/__pycache__/delegation_contract.cpython-39.pyc": "d101c9122acd7ae3ac1058308e0961bdc9f1d113e4b2a1ef1e8f042d68c5f58e",
-    "codex/hooks/__pycache__/hooks_contract_test.cpython-39.pyc": "99afaf672bc10cceaf55d6f2306248442d3857022600160cf8b43cf542f3679d",
-    "codex/hooks/__pycache__/session_context.cpython-39.pyc": "c937ff139ff65ae7893a89fac18c079b03a2541eb20af0641a7a4a5ce71536d8",
-    "codex/hooks/delegation_contract.py": "448b992821a81025db5c1e7172200f758a6e5c0d17a909422fc6c43963029c42",
-    "codex/hooks/hook_receipt.py": "f91f2e21260909c829122ee069651f136df064bf29db27e6cf214aea832ec4df",
-    "codex/hooks/hooks.json": "6e0cefd46630045f5aab70a5764bf0bfd5d49422e55f3030a40922841c2f2d12",
-    "codex/hooks/hooks_contract_test.py": "6277a996e5e11eab9c2683f0385aa627d155a42458f38edb02254d6bb1ad6954",
-    "codex/hooks/pre_tool_use_policy.py": "57f18d3b456643bdf91df76a96fe8110fa5d3fce17ff3b4b3ccb3e5d04159522",
-    "codex/hooks/session_context.py": "160fe80217dbb7b9d962cc5679c583b9a7b7dac04c694306c6ae33a883cea85e",
-    "docs/architecture.md": "ed40d87c1348e13a3b6bdb68a488cab8f426bd10840b69d5013c07e202e3efeb",
-    "docs/deployment.md": "35a56b55bb58ad1aa657fcf53d5ef904927fc9ddd341acd6b6fc4c8a41d0759c",
-    "docs/privacy-threat-model.md": "6fdeb07f3c49961f713496236ec56d74fb082c4e554458727dde746759503b51",
+    "codex/AGENTS.md": "bf5418ad997d248ca051544d654ad0a084c41539742be2baa0047dafccaf0bfd",
+    "codex/BRIEF-TEMPLATES.md": "0258e5472c02e4c15a943ea5fc86fdb10910204cd135d46cf0fbc03b0a354393",
+    "codex/V15_RELEASE.json": "86525015000a5e01e7b3acf0802dc7c68fab62f6236521cc5086db96d46adfb2",
+    "codex/contracts/anticipated_finding_matrix.example.json": "f749adf024b5ca4179d2209c7423ed9e551023f9ef6c4e8ffaa3efaa3ac5eec6",
+    "codex/contracts/delegation_packet.example.json": "fccfab7efe8c375b104d93e637c011855a6df54082b0aefe671740b8d4c4f8ad",
+    "codex/contracts/delegation_result.example.json": "9378f8133dd2700037b30d38a0fd2e92d5130dfc80ba4e12c13df63a393e6730",
+    "codex/contracts/mission_packet.example.json": "ebcb89a92a6723fdfc849f24dbd15075dd06f54dc70f4ac818ef56b6129ff3bb",
+    "codex/contracts/review_packet.example.json": "5e20b7f945f5d32a2d032256460a8290cead75ada6f7ae16782f36eb33677878",
+    "codex/contracts/v14_preservation_matrix.json": "2163a087afd5397b13cc854fdc0cfb6099c3d3c68252a4b7fbd250f8bd520f7f",
+    "codex/hooks.json": "9f1504339136c31485c2c5bf2b9263bcac848e61e52bc58decbac1cbe0db7933",
+    "codex/hooks/delegation_contract.py": "0dffb172669cbb7e653b4883ea335a9f2736b368378bba79841355cb9b5fd701",
+    "codex/hooks/hook_receipt.py": "a69963bc9ba1e209858726ef488247790e4749dcbb3b54b7fc484e03b8ec2716",
+    "codex/hooks/hooks.json": "33221824d219251243be1edda9bb462f2ac4d606718033d04565687391047925",
+    "codex/hooks/hooks_contract_test.py": "a17c384acaf6fc895d87e613c6ade385273872fcb6db198adf83f0f269c3ee93",
+    "codex/hooks/pre_tool_use_policy.py": "5c493ac575af0fd5b1079b420b56caedced6154815900b99c3be678373a5602c",
+    "codex/hooks/session_context.py": "b3c07ab72b9002adce6fdbbb67e754c9bed6c9f1db2cd220f9f43ad335291646",
+    "docs/architecture.md": "f4d3b8f709b6733192f7a3a442d2b4829cbdc3a6aa68fa71fa0d3b3f5784f068",
+    "docs/deployment.md": "891c7ca1cd96017f8d87d395898900eea5d8c92b17f0d473258f6308ca5638f3",
+    "docs/privacy-threat-model.md": "d72d989d0a08223e2ba22f3be251f5ce5456b19a39adeadfb92e27cac13de1a0",
     "docs/review-workflow.md": "bde753a1f2cc5a61dc0c76226499d27997d73f96196322d3652d41d1fe2cf22a",
-    "scripts/__pycache__/verify-governance.cpython-39.pyc": "ad67fcb4ee59328a26b1fc5099c9dcfd48ca0961624e0d91b250e75d9d08a037",
-    "scripts/install-governance.py": "12ca2f37e5e702b9e58ba2431e40e127abb72395aca00182f30baf683bdfb106",
-    "scripts/verify-governance.py": "170a0a8af2b8c6635a7f92ee9f7ddb6b6cce030b0c519aa96765dfd82ba8427b",
-    "tests/__pycache__/test_context_contamination.cpython-39.pyc": "2d5f9388d52df24abcb77e2f264e6dc7758710faafe8d6d77f61daafa4595dd4",
-    "tests/__pycache__/test_contract_fixtures.cpython-39.pyc": "b7ede4497a799b5e7f67c45b5d0adafb72599c8f99fe5dc54c3ba392fdae76f1",
-    "tests/__pycache__/test_installer.cpython-39.pyc": "d954127b74fb665d7b9a046ea94b985bbc58ecd00fdab7533c412f75d9103e03",
-    "tests/__pycache__/test_policy.cpython-39.pyc": "355e28276787b431b7931f790e02d5777b00419f5100870779e53368c02cde55",
-    "tests/__pycache__/test_privacy.cpython-39.pyc": "81ef0b4fb2bec4e02f068b28a45457e8146452d082d40edc0a6a3c08223ce56d",
-    "tests/fixtures_context.json": "c5d123c45449766e98ffa823896694c2d478143dba1cd67f1e20222de75d6c39",
-    "tests/test_context_contamination.py": "c3735a47a33248bd6b02858fe8399824a89e8621835fe91cbf4ce6777554b026",
-    "tests/test_contract_fixtures.py": "44859e38114e2a8e58af693e3d6eb1410c1284b021e9567aca022c6a35cedae5",
-    "tests/test_installer.py": "111db2a74e06fc89c29ce3d9d3d088f6aab3f9416c4448cd2bb4e005dfab801f",
-    "tests/test_policy.py": "e0e25a77860986db84ff525dfb800fdea372484855b8344944f4e8b410426bcc",
+    "evidence/counterexample_manifest.json": "cfcd4f0b2c4038eab941c5ef170f09af069b8606689ba10a7f3f60e60956854e",
+    "evidence/presubmit.json": "8ecd63b1c3cdaafc910ee0dbbb0bc2a60035604907a910d93d026534cd0ff127",
+    "scripts/counterexample-matrix.py": "08f33ee14913aea6d063fdad25738fcc405e11cf4a5c6dba7c0da9a0bac11c27",
+    "scripts/install-governance.py": "ed3e6ff013a925811f7d7635b69479d976bbb871355031223a4eb1be4bc8141b",
+    "scripts/verify-governance.py": "913d672f3db944bf24ad6f2d2919a756abf3f844727981888e781339ed8a6f5e",
+    "tests/fixtures_context.json": "2fa587121522a7a01b9f883c7fd25eb31828f9099d16778b7a2a74784a11e89e",
+    "tests/test_context_contamination.py": "6947c64b3fe56663b1b93431d509479b6f8c5f941a259dd51019fcabe41f7eda",
+    "tests/test_contract_fixtures.py": "75f69cac45344117e4dcfb7c78d617316a040564806c5f2a5d01541149bf2a97",
+    "tests/test_counterexample_matrix.py": "c87de3d99668e9643979cbb31a10ccbb6ff43292201d88cf0b6a3be5e149acd8",
+    "tests/test_hardening.py": "84ae0241f7ca2faae1565f0413a117284b74bf6ab230ff2ef2350f5197e24eeb",
+    "tests/test_installer.py": "5d6a3f9eeb79570176019c8dcbad7c394374b5e8d6bf5a3c760161ae83333e6e",
+    "tests/test_policy.py": "c719b519107f57d2bf1b4d39be29d31a1920980265817dc138b155ebeabf674a",
     "tests/test_privacy.py": "ed053579922bc5b033ee9ee9150557c94ca36c939240aea6141d686ea3de9bfd"
   },
   "forbidden": [
@@ -66,6 +67,131 @@
     "transcript"
   ],
   "package": "codex-governance-infra",
+  "privacy": {
+    "allowed_placeholders": [
+      {
+        "id": "user",
+        "scope": "exact-value",
+        "value": "<user>"
+      },
+      {
+        "id": "isolated-temp",
+        "scope": "exact-value",
+        "value": "<isolated-temp>"
+      },
+      {
+        "id": "home",
+        "scope": "exact-value",
+        "value": "${HOME}"
+      },
+      {
+        "id": "home-short",
+        "scope": "exact-value",
+        "value": "$HOME"
+      },
+      {
+        "id": "codex-home",
+        "scope": "exact-value",
+        "value": "${CODEX_HOME}"
+      },
+      {
+        "id": "codex-home-short",
+        "scope": "exact-value",
+        "value": "$CODEX_HOME"
+      },
+      {
+        "id": "domain",
+        "scope": "exact-value",
+        "value": "example.invalid"
+      },
+      {
+        "id": "synthetic-token",
+        "scope": "exact-value",
+        "value": "synthetic-token"
+      },
+      {
+        "id": "synthetic-id",
+        "scope": "exact-value",
+        "value": "<synthetic-id>"
+      },
+      {
+        "id": "session-example",
+        "scope": "exact-value",
+        "value": "session-secret-123"
+      },
+      {
+        "id": "turn-example",
+        "scope": "exact-value",
+        "value": "turn-secret-456"
+      },
+      {
+        "id": "runtime-example",
+        "scope": "exact-value",
+        "value": "runtime-id"
+      }
+    ],
+    "rule_ids": [
+      "credential-value",
+      "forbidden-filename",
+      "non-utf8",
+      "private-path",
+      "runtime-identifier",
+      "symlink",
+      "temp-artifact"
+    ],
+    "rules": [
+      {
+        "class": "credential",
+        "id": "credential-value",
+        "mandatory": true,
+        "pattern": "(?i)\\b(?:assigned[_ -]?credential|credential|token|secret|password)\\s*[:=]\\s*[\\\"\\']?[^\\s,}\\\"\\']+",
+        "semantics": "literal-assignment-value"
+      },
+      {
+        "class": "runtime-id",
+        "id": "runtime-identifier",
+        "mandatory": true,
+        "pattern": "(?i)\\b(?:session_id|turn_id|prompt_id|transcript_id|receipt_id)\\b\\s*[:=]\\s*[^\\n]+",
+        "semantics": "literal-json-yaml-or-unquoted-value"
+      },
+      {
+        "class": "path",
+        "id": "private-path",
+        "mandatory": true,
+        "pattern": "(?:\\\\x2f|/)(?:home|Users|private|var[/\\\\]tmp)(?:\\\\x2f|/)[A-Za-z0-9._~-]+",
+        "semantics": "portable-linux-macos-windows-raw-or-escaped"
+      },
+      {
+        "class": "filename",
+        "id": "forbidden-filename",
+        "mandatory": true,
+        "pattern": "decorated-session-receipt-prompt-transcript-credential-token-secret-password",
+        "semantics": "path-token-boundary"
+      },
+      {
+        "class": "encoding",
+        "id": "non-utf8",
+        "mandatory": true,
+        "pattern": "utf-8",
+        "semantics": "decode-strict"
+      },
+      {
+        "class": "filesystem",
+        "id": "symlink",
+        "mandatory": true,
+        "pattern": "symlink",
+        "semantics": "lstat-no-follow"
+      },
+      {
+        "class": "path",
+        "id": "temp-artifact",
+        "mandatory": true,
+        "pattern": "(?:\\\\x2f|/)tmp(?:\\\\x2f|/)",
+        "semantics": "tracked-temporary-artifact-path"
+      }
+    ],
+    "schema": "privacy-rules.v1"
+  },
   "schema_version": "1",
   "version": "15.0.0"
 }

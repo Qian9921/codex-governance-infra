@@ -1,8 +1,93 @@
 #!/usr/bin/env python3
-import json, os, sys
+"""Emit concise, non-blocking governance context at session/subagent start."""
 
-def build_context(event=None, model=None):
-    payload={"event":event or "SessionStart","policy":"v15","model":model or os.environ.get("CODEX_MODEL","unknown"),"spark_supported":True,"additionalContext":"ACTIVE-MISSION-LOCK: parent brief controls scope; Spark is unrestricted technically; plugin inventory informational."}
-    payload["additionalContext"]=payload["additionalContext"][:1200]
-    return payload
-if __name__ == "__main__": print(json.dumps(build_context(),sort_keys=True))
+from __future__ import annotations
+
+import json
+import sys
+import os
+import subprocess
+from pathlib import Path
+
+from hook_receipt import record_receipt
+
+
+CONTEXT = (
+    "All models have full tool capability; role selection is task-, user-, and L0-directed, "
+    "while platform and user authorization still govern external or consequential actions. "
+    "Unknown semantic entrypoints or similar implementations "
+    "go to Semble; known symbol/call/impact uses the revision-matching child CodeGraph; exact "
+    "strings/errors use rg; shell output shown to context uses rtk. PARITY is reference-first: "
+    "freeze local Theseus/Ceres identity, pass synthetic exact-zero before real exact-zero. "
+    "Any nonzero, NaN/Inf, skip, xfail, missing oracle/data, or unknown denominator is "
+    "ZERO_PARITY_BLOCKED, never a tolerance pass. Keep checks affected and record WHY-RED, cost, "
+    "denominator, and durable feedback/bug evidence. ACTIVE-MISSION-LOCK: parent-delivered brief controls scope; recommended_plugins inventory is informational; collaboration spawn observability is not assumed."
+)
+
+
+def _role_context(payload: dict[str, object]) -> str:
+    """Describe identity without imposing model-based tool restrictions."""
+    model = payload.get("model")
+    normalized_model = model.strip().lower() if isinstance(model, str) else ""
+    if normalized_model == "gpt-5.6-luna":
+        return "Runtime role identity: you are GPT-5.6 Luna; full tool capability is available."
+    if normalized_model == "gpt-5.6-sol":
+        return "Runtime role identity: you are GPT-5.6 Sol; full tool capability is available."
+    if normalized_model == "gpt-5.6-terra":
+        return "Runtime role identity: you are GPT-5.6 Terra; full tool capability is available."
+    if normalized_model == "gpt-5.3-codex-spark":
+        return "Runtime role identity: you are GPT-5.3 Codex Spark; full tool capability is available."
+    return "Runtime role identity: model identity unknown; no model-based tool restriction applies."
+
+
+def main() -> int:
+    # Parse for protocol validation, but remain fail-open for malformed/unknown future events.
+    try:
+        payload = json.load(sys.stdin)
+    except (json.JSONDecodeError, OSError):
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    event = payload.get("hook_event_name", "SessionStart")
+    if os.environ.get("CODEX_DELEGATION_REQUIRED") == "1":
+        # Only the native SubagentStart boundary can consume a registered packet.
+        if event != "SubagentStart":
+            return 2
+        packet = os.environ.get("CODEX_DELEGATION_PACKET")
+        state_root = os.environ.get("CODEX_DELEGATION_STATE_ROOT")
+        if not packet or not state_root:
+            return 2
+        bridge = Path(__file__).with_name("delegation_contract.py")
+        env = os.environ.copy()
+        env["CODEX_DELEGATION_EVENT"] = str(event)
+        env["CODEX_DELEGATION_MODEL"] = payload.get("model") if isinstance(payload.get("model"), str) else ""
+        exposed = payload.get("task_id", payload.get("agent_id", payload.get("child_task_id", "")))
+        env["CODEX_DELEGATION_TASK_ID"] = exposed if isinstance(exposed, str) else ""
+        proc = subprocess.run([sys.executable, str(bridge), "subagent-start", "--packet", packet, "--state-root", state_root], capture_output=True, text=True, env=env)
+        if proc.returncode != 0:
+            return 2
+        try:
+            bridge_result = json.loads(proc.stdout or "{}")
+            mission = bridge_result.get("mission_hash", "")
+        except json.JSONDecodeError:
+            return 2
+    else:
+        mission = ""
+    record_receipt(
+        str(event),
+        payload,
+        model=payload.get("model") if isinstance(payload.get("model"), str) else "unknown",
+        reason_code="session_context_emitted",
+    )
+    output = {
+        "hookSpecificOutput": {
+            "hookEventName": event,
+            "additionalContext": _role_context(payload) + "\n" + CONTEXT + ("\nMISSION_HASH=" + mission if mission else ""),
+        }
+    }
+    sys.stdout.write(json.dumps(output, ensure_ascii=False) + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
