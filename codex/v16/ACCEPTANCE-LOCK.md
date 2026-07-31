@@ -2,16 +2,18 @@
 
 This lock is the immutable starting contract for the V16 productivity milestone.
 It is intentionally separate from the paused `codex/v15-milestone-spark-infra`
-line. A changed base/head/tree, scope, denominator, or operating domain requires
-a new lock and a fresh Independent Sol review.
+line. A changed base/head/tree, scope, denominator, operating domain, or review
+policy requires a new lock and an `escalated_fresh` Independent review.
 
-- **Objective:** maximize engineering throughput and first-pass correctness while
-  preserving Google-grade evidence and identity separation.
+- **Objective:** preserve correctness/evidence validity as hard gates, minimize
+  time to a correct decision/merge, then minimize token/call cost.
 - **Owner/writer:** Qian9921 author lane; one persistent GPT-5.6 Luna writer with
   the permissions in the mission packet.
-- **Reviewer:** one fresh zero-context GPT-5.6 Sol, `fork_turns=none`,
-  report-only; Sol is architecture/final-review only and never an iterative
-  debugger.
+- **Review risk:** `high`, trigger `hook_reviewer_model_routing`; required
+  evidence stages `targeted`, `full`, `fresh`.
+- **Reviewer:** one fresh GPT-5.6 Sol xhigh `independent_clean_room` task,
+  `fork_turns=none`, report-only, with a curated hash-bound packet; Sol is never
+  an iterative debugger.
 - **Inner audit:** exactly three bounded zero-context GPT-5.3 Spark high
   report-only audits (DAG/state, evidence/privacy/identity, metrics/PR trace).
   Their sanitized identities, findings, and dispositions are recorded in
@@ -33,6 +35,7 @@ a new lock and a fresh Independent Sol review.
 - **Rollback:** remove only V16 files/docs and restore the pre-V16 manifest;
   never alter the paused PR#1 branch or live user state.
 
-The lock is a source artifact, not a claim of implementation completion. A final
-`APPROVE`/`GO` decision is impossible until the exact current head, evidence
-bundle, and fresh Independent Sol review satisfy the contract.
+The lock is a source artifact, not a claim of implementation completion. A
+final `APPROVE`/`GO` decision is impossible until the exact current identity,
+evidence bundle, packet-bound findings, and risk-routed Independent review
+satisfy the contract.

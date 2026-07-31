@@ -8,6 +8,8 @@ class ContractFixtures(unittest.TestCase):
  def test_missing_required(self): q=copy.deepcopy(P); q.pop('lease'); self.assertRaises(ContractError,validate_packet,q)
  def test_count_arithmetic(self): q=copy.deepcopy(R); q['counts']['total']=3; self.assertRaises(ContractError,validate_result,q,P)
  def test_model_task_mismatch(self): q=copy.deepcopy(R); q['assigned_model']='gpt-5.6-luna'; self.assertRaises(ContractError,validate_result,q,P)
+ def test_any_safe_assigned_model(self): q=copy.deepcopy(P); q['assigned_model']='gpt-5.6-terra'; self.assertTrue(validate_packet(q))
+ def test_empty_assigned_model_rejected(self): q=copy.deepcopy(P); q['assigned_model']=''; self.assertRaises(ContractError,validate_packet,q)
  def test_changed_path_outside_lease(self): q=copy.deepcopy(R); q['changed_paths']=['docs/x']; self.assertRaises(ContractError,validate_result,q,P)
  def test_retry_overflow(self): q=copy.deepcopy(R); q['retry_used']=2; self.assertRaises(ContractError,validate_result,q,P)
 if __name__=='__main__': unittest.main()

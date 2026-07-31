@@ -11,6 +11,8 @@ import math
 import re
 from typing import Any, Iterable, Mapping, Sequence
 
+from .review_policy import DEFAULT_REVIEWER, ReviewPolicyError, validate_review_policy
+
 SCHEMA_VERSION = "16"
 ID_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.:/-]{1,127}\Z")
 SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
@@ -20,21 +22,169 @@ FORBIDDEN_TEXT_RE = re.compile(
     re.I,
 )
 
-# A compact machine-readable registry accompanies the executable validators.
-# It deliberately records only contract identity/field names; validation
-# remains in Python so fresh Python 3.9 clones need no JSON-schema package.
+# A compact machine-readable inventory accompanies the executable validators.
+# ``validation_mode`` is deliberately explicit: a source/caller-bound
+# validator cannot be truthfully advertised as a standalone JSON validator.
+# The JSON copy lives under ``contracts/schema_registry.v16.json`` and is
+# checked for parity by the focused registry tests.  Validation itself remains
+# in Python so fresh Python 3.9 clones need no JSON-schema package.
 SCHEMA_REGISTRY = {
-    "mission.v16": "validate_mission",
-    "invariant.v16": "validate_invariant",
-    "counterexample.v16": "validate_counterexample",
-    "gate.v16": "validate_gate",
-    "acceptance.v16": "validate_acceptance",
-    "spark-audit-request.v16": "validate_spark_audit",
-    "compiled-plan.v16": "compiler.compile_mission",
-    "readiness-state.v16": "state.validate_state",
-    "evidence-envelope.v16": "evidence.validate_envelope",
-    "review-packet.v16": "trace.validate_review_packet",
-    "metrics.v16": "metrics.validate_metrics",
+    "mission.v16": {
+        "validator": "contracts.validate_mission",
+        "validation_mode": "standalone",
+        "required": ["schema", "mission_id", "milestone", "objective", "owner", "assigned_model", "role", "permissions", "scope", "reviewer_separation", "operating_domain", "invariants", "counterexamples", "entrypoints", "gates", "acceptance", "non_goals", "evidence_budget", "rollback", "stop_conditions", "spark_audits"],
+        "optional": ["review_policy"],
+    },
+    "review-policy.v16": {
+        "validator": "review_policy.validate_review_policy",
+        "validation_mode": "standalone",
+        "required": ["review_risk"],
+        "optional": ["reasons", "classifier", "classifier_identity", "high_risk_triggers", "required_stages", "reviewer_model", "reasoning_effort", "context_mode", "fork_turns", "report_only"],
+        "conditional_required": {"low_or_medium": ["reasons", "classifier_identity"], "high": ["high_risk_triggers"]},
+    },
+    "invariant.v16": {
+        "validator": "contracts.validate_invariant",
+        "validation_mode": "standalone",
+        "required": ["id", "description", "blocking", "counterexample_ids"],
+        "optional": [],
+    },
+    "counterexample.v16": {
+        "validator": "contracts.validate_counterexample",
+        "validation_mode": "standalone",
+        "required": ["id", "semantics", "description", "entrypoint_id", "gate_id", "why_red", "cost", "denominator", "expected"],
+        "optional": [],
+    },
+    "gate.v16": {
+        "validator": "contracts.validate_gate",
+        "validation_mode": "standalone",
+        "required": ["id", "stage", "depends_on", "entrypoint_ids", "blocking", "reusable"],
+        "optional": ["read_only"],
+    },
+    "acceptance.v16": {
+        "validator": "contracts.validate_acceptance",
+        "validation_mode": "standalone",
+        "required": ["id", "invariant_id", "counterexample_id", "entrypoint_id", "gate_id", "blocking", "why_red", "cost", "denominator", "red_meaning", "green_meaning"],
+        "optional": [],
+    },
+    "spark-audit-request.v16": {
+        "validator": "spark.validate_request",
+        "validation_mode": "standalone",
+        "required": ["schema", "audit_id", "mission_id", "domain", "scope", "max_findings", "assigned_model", "role", "permissions", "fork_turns", "context_mode", "report_only", "spawn_index"],
+        "optional": [],
+    },
+    "spark-audit-result.v16": {
+        "validator": "spark.validate_result",
+        "validation_mode": "caller-bound",
+        "required": ["schema", "audit_id", "mission_id", "task_id", "assigned_model", "reasoning_effort", "fork_turns", "context_mode", "report_only", "scope", "findings", "dispositions", "started_at", "ended_at", "elapsed_sec"],
+        "optional": ["artifact_sha256"],
+        "external_inputs": ["request"],
+    },
+    "compiled-plan.v16": {
+        "validator": "compiler.compile_mission",
+        "validation_mode": "caller-bound",
+        "required": ["schema", "mission_id", "mission_sha256", "base_sha", "tree_sha", "gate_order", "gates", "entrypoints", "acceptance", "counterexample_ids", "spark_audit_ids", "review_policy", "execution"],
+        "optional": [],
+        "external_inputs": ["mission.v16"],
+    },
+    "gate-result.v16": {
+        "validator": "runner.validate_gate_result",
+        "validation_mode": "caller-bound",
+        "required": ["schema", "gate_id", "stage", "decision", "expected_head", "actual_head", "tree_sha", "dirty", "snapshot_mode", "snapshot_sha256", "started_at", "ended_at", "elapsed_sec", "rows"],
+        "optional": ["reason", "closure_binding_receipt_sha256", "closure_binding_sha256s"],
+        "external_inputs": ["expected_head", "expected_tree", "expected_snapshot", "artifact_root", "compiled-plan.v16", "closure-binding-receipt.v16"],
+    },
+    "closure-binding-receipt.v16": {
+        "validator": "contracts.validate_closure_binding_receipt",
+        "validation_mode": "caller-bound",
+        "required": ["schema", "mission_id", "compiled_plan_sha256", "closure_plan_sha256", "closure_plan_file_sha256", "dispatch_transcript_file_sha256", "normalized_source_artifacts", "finding_count", "bindings", "receipt_sha256"],
+        "optional": [],
+        "external_inputs": ["expected_compiled_plan_sha256", "expected_closure_plan_sha256", "expected_closure_plan_file_sha256", "expected_dispatch_transcript_file_sha256", "expected_receipt_sha256"],
+    },
+    "pre-execution-closure-authority.v16": {
+        "validator": "contracts.validate_pre_execution_closure_authority",
+        "validation_mode": "caller-bound",
+        "required": ["schema", "mission_id", "closure_binding_receipt_sha256", "compiled_plan_sha256", "closure_plan_sha256", "closure_plan_file_sha256", "dispatch_transcript_file_sha256", "normalized_source_artifacts", "finding_count", "bindings_sha256", "authority_sha256"],
+        "optional": [],
+        "external_inputs": ["closure-binding-receipt.v16", "expected_authority_sha256"],
+    },
+    "readiness-state.v16": {
+        "validator": "state.validate_state",
+        "validation_mode": "caller-bound",
+        "required": ["schema", "mission_id", "state", "revision", "created_at", "updated_at", "base_sha", "head_sha", "tree_sha", "identity_mode", "snapshot_sha256", "prior_snapshot_sha256", "delta_sha256", "counterexample_ids", "red_counterexamples", "green_counterexamples", "spark_findings", "spark_audit_count", "dispositions", "gate_ids", "evidence_ids", "receipt_artifacts", "author_closure_sha256", "review_ready", "required_stages", "reviewer_model", "reasoning_effort", "review_risk", "reviewer_route", "classifier_identity", "high_risk_triggers", "review_policy_sha256", "approved_review_artifact_sha256", "approved_review_packet_sha256"],
+        "optional": [],
+        "approval_required": ["approved_review_artifact_sha256", "approved_review_packet_sha256"],
+        "policy_binding": ["required_stages", "reviewer_model", "reasoning_effort", "review_risk", "reviewer_route", "classifier_identity", "high_risk_triggers", "review_policy_sha256", "identity_mode", "snapshot_sha256", "prior_snapshot_sha256", "delta_sha256"],
+        "external_inputs": ["validated review packet", "validated independent-review.v16 artifact", "dispatch lineage"],
+    },
+    "evidence-envelope.v16": {
+        "validator": "evidence.validate_envelope",
+        "validation_mode": "caller-bound",
+        "required": ["schema", "mission_id", "head_sha", "tree_sha", "identity_mode", "snapshot_sha256", "clean", "generated_at", "rows", "envelope_sha256"],
+        "optional": ["dispatch_transcript_sha256", "closure_binding_receipt_sha256", "closure_plan_sha256"],
+        "external_inputs": ["expected_head", "expected_tree", "expected_identity_mode", "expected_snapshot_sha256", "log_root", "transcript_path", "compiled-plan.v16", "closure-binding-receipt.v16", "expected_closure_binding_receipt_sha256", "expected_closure_plan_sha256"],
+    },
+    "review-packet.v16": {
+        "validator": "trace.validate_review_packet",
+        "validation_mode": "standalone",
+        "required": ["schema", "mission_id", "author_login", "reviewer_login", "base_sha", "head_sha", "tree_sha", "lineage_mode", "coverage_status", "reviewed_scope", "unreviewed_scope", "checks", "findings", "closures", "verdict", "round", "body_sha256"],
+        "optional": ["independent_artifact_sha256", "expected_scope", "incident", "decision_basis", "identity_mode", "snapshot_sha256", "prior_snapshot_sha256", "prior_head_sha", "delta_sha256"],
+        "approval_required": ["decision_basis", "independent_artifact_sha256"],
+        "decision_basis_required": ["acceptance_envelope_sha256", "diff_sha256", "reviewed_dependency_scope_sha256", "evidence_bundle_sha256", "evidence_denominator", "review_risk", "reviewer_route", "reviewer_model", "reasoning_effort", "required_stages", "classifier_identity", "high_risk_triggers", "review_policy_sha256", "reference_identity_sha256", "operating_domain_sha256", "acceptance_thresholds_sha256", "invariants_sha256", "non_goals_sha256", "identity_mode", "snapshot_sha256", "prior_snapshot_sha256"],
+        "decision_basis_optional": ["prior_head_sha", "delta_sha256", "closure_authority"],
+        "decision_basis_conditional_required": {"closure_authority": ["schema", "mission_id", "closure_binding_receipt_sha256", "compiled_plan_sha256", "closure_plan_sha256", "closure_plan_file_sha256", "dispatch_transcript_file_sha256", "normalized_source_artifacts", "finding_count", "bindings_sha256", "authority_sha256"]},
+    },
+    "independent-review.v16": {
+        "validator": "trace.validate_independent_artifact",
+        "validation_mode": "caller-bound",
+        "required": ["schema", "reviewer_login", "reviewer_model", "reasoning_effort", "reviewer_route", "review_risk", "fork_turns", "context_mode", "report_only", "reviewer_is_writer", "base_sha", "head_sha", "tree_sha", "identity_mode", "snapshot_sha256", "prior_snapshot_sha256", "diff_sha256", "coverage_status", "reviewed_scope", "unreviewed_scope", "review_packet_sha256", "acceptance_envelope_sha256", "reviewed_dependency_scope_sha256", "evidence_bundle_sha256", "evidence_denominator", "required_stages", "classifier_identity", "high_risk_triggers", "review_policy_sha256", "reference_identity_sha256", "operating_domain_sha256", "acceptance_thresholds_sha256", "invariants_sha256", "non_goals_sha256", "prior_review_artifact_sha256", "prior_head_sha", "delta_sha256", "reviewer_continuity_id", "run_id", "escalation_trigger", "escalation_evidence_ref", "findings", "findings_sha256", "closures", "closures_sha256", "closure_matrix", "closure_matrix_sha256", "known_limitations", "dispatch_lineage", "verdict", "artifact_sha256"],
+        "optional": [],
+        "external_inputs": ["decision_basis", "expected_head", "expected_tree", "expected_reviewed_scope", "expected_dispatch_transcript_sha256", "expected_task_id", "expected_parent_task_id", "expected_sender", "expected_coverage_status", "expected_unreviewed_scope", "expected_base_sha", "expected_review_packet_sha256", "expected_acceptance_envelope_sha256", "expected_diff_sha256", "expected_reviewed_dependency_scope_sha256", "expected_evidence_bundle_sha256", "expected_evidence_denominator", "expected_review_risk", "expected_reviewer_route", "expected_reviewer_model", "expected_reasoning_effort", "expected_required_stages", "expected_classifier_identity", "expected_high_risk_triggers", "expected_review_policy_sha256", "expected_reference_identity_sha256", "expected_operating_domain_sha256", "expected_acceptance_thresholds_sha256", "expected_invariants_sha256", "expected_non_goals_sha256", "expected_identity_mode", "expected_snapshot_sha256", "expected_prior_snapshot_sha256", "expected_delta_sha256", "evidence_bundle", "closure_binding_receipt", "pre-execution-closure-authority.v16", "expected_closure_binding_receipt_sha256", "expected_closure_plan_sha256"],
+        "compatibility_only_inputs": ["expected_closure_binding_receipt_sha256", "expected_closure_plan_sha256"],
+    },
+    "metrics.v16": {
+        "validator": "metrics.validate_metrics",
+        "validation_mode": "source-bound",
+        "required": ["schema", "mission_id", "source_hash", "first_pass_approval", "pre_review_blocker_capture", "review_rounds", "full_runs_per_head", "fresh_runs_per_head", "evidence_corrections", "writer_handoffs", "spark_audit_count", "spark_audit_latency_sec", "gate_elapsed_sec", "new_blocker_admissions"],
+        "optional": [],
+        "external_inputs": ["source_bundle"],
+    },
+    "review-efficiency.v16": {
+        "validator": "metrics.validate_review_efficiency_metrics",
+        "validation_mode": "source-bound",
+        "required": ["schema", "source_hash", "time_to_first_actionable_finding_sec", "time_to_verdict_sec", "time_to_correct_verdict_sec", "time_to_correct_merge_sec", "review_round_count", "false_blocker_rate", "scope_reopened_count", "p1_miss_count", "original_scope_missed_p1_count", "evidence_reuse_rate", "model_calls", "input_tokens", "output_tokens", "total_tokens", "token_count_basis"],
+        "optional": [],
+        "external_inputs": ["source_bundle"],
+    },
+    "dispatch-transcript.v16": {
+        "validator": "spark.validate_dispatch_transcript",
+        "validation_mode": "caller-bound",
+        "required": ["schema", "transcript_version", "lineage_mode", "mission_id", "base_sha", "base_tree", "mission_scope_sha256", "compiled_plan_sha256", "reviewed_head_sha", "reviewed_tree_sha", "snapshot", "audited_input_snapshot", "candidate_binding", "historical_original_audits", "accepted_current_audits", "finding_dispositions", "ordering", "historical_spawn_count", "accepted_current_spawn_count", "transcript_sha256"],
+        "optional": [],
+        "external_inputs": ["expected_head", "expected_tree", "root"],
+    },
+    "negative-matrix.v16": {
+        "validator": "r1.run_negative_matrix",
+        "validation_mode": "source-bound",
+        "required": ["schema", "total", "ran", "passed", "failed", "skipped", "xfail", "unknown", "rows", "matrix_sha256"],
+        "optional": [],
+        "external_inputs": ["mission", "plan", "candidate root"],
+    },
+    "tool-route-decision.v16": {
+        "validator": "tool_routing.validate_route_decision",
+        "validation_mode": "standalone",
+        "observation_mode": "injected-observation",
+        "required": ["schema", "intent", "declared", "preferred_tool", "selected_tool", "decision", "status", "fallback", "attempted_preferred", "reason_code", "evidence_ref"],
+        "optional": [],
+        "injected_inputs": ["observations"],
+    },
+    "tool-health.v16": {
+        "validator": "tool_routing.validate_health_report",
+        "validation_mode": "standalone",
+        "observation_mode": "injected-observation",
+        "required": ["schema", "status", "probe", "tools", "checks", "counts", "denominator", "denominator_known", "probe_sources", "mutations"],
+        "optional": [],
+        "injected_inputs": ["observations"],
+    },
 }
 
 
@@ -53,6 +203,288 @@ def canonical_json(value: Any) -> str:
 
 def canonical_sha256(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def counterexample_sha256(value: Any, path: str = "$.counterexample") -> str:
+    """Hash the exact frozen public counterexample text."""
+    text = _str(value, path, public=True)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _sha256_digest(value: Any, path: str) -> str:
+    value = _str(value, path, max_len=64, public=True)
+    if len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
+        raise ContractError("64-hex SHA-256 required", path)
+    return value
+
+
+def _normalized_closure_sources(value: Any, path: str) -> list[dict[str, str]]:
+    sources = _list(value, path, nonempty=True)
+    normalized: list[dict[str, str]] = []
+    for index, source in enumerate(sources):
+        source_path = f"{path}[{index}]"
+        source_obj = _obj(source, source_path)
+        fields = {"audit_id", "artifact_path", "artifact_sha256"}
+        _keys(source_obj, fields, fields, source_path)
+        normalized.append({
+            "audit_id": _id(source_obj["audit_id"], f"{source_path}.audit_id"),
+            "artifact_path": _relative_path(
+                source_obj["artifact_path"],
+                f"{source_path}.artifact_path",
+            ),
+            "artifact_sha256": _sha256_digest(
+                source_obj["artifact_sha256"],
+                f"{source_path}.artifact_sha256",
+            ),
+        })
+    if normalized != sorted(normalized, key=lambda item: item["audit_id"]):
+        raise ContractError(
+            "normalized source artifacts must be sorted by audit_id",
+            path,
+        )
+    _unique([item["audit_id"] for item in normalized], path)
+    return normalized
+
+
+def validate_closure_binding_receipt(
+    value: Any,
+    *,
+    expected_compiled_plan_sha256: str | None = None,
+    expected_closure_plan_sha256: str | None = None,
+    expected_closure_plan_file_sha256: str | None = None,
+    expected_dispatch_transcript_file_sha256: str | None = None,
+    expected_receipt_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Validate the runner's immutable pre-execution closure binding receipt."""
+    obj = _obj(value, "$")
+    fields = {
+        "schema", "mission_id", "compiled_plan_sha256", "closure_plan_sha256",
+        "closure_plan_file_sha256", "dispatch_transcript_file_sha256",
+        "normalized_source_artifacts", "finding_count", "bindings",
+        "receipt_sha256",
+    }
+    _keys(obj, fields, fields, "$")
+    if obj["schema"] != "closure-binding-receipt.v16":
+        raise ContractError("schema must be closure-binding-receipt.v16", "$.schema")
+    result: dict[str, Any] = {
+        "schema": "closure-binding-receipt.v16",
+        "mission_id": _id(obj["mission_id"], "$.mission_id"),
+        "compiled_plan_sha256": _sha256_digest(obj["compiled_plan_sha256"], "$.compiled_plan_sha256"),
+        "closure_plan_sha256": _sha256_digest(obj["closure_plan_sha256"], "$.closure_plan_sha256"),
+        "closure_plan_file_sha256": _sha256_digest(obj["closure_plan_file_sha256"], "$.closure_plan_file_sha256"),
+        "dispatch_transcript_file_sha256": _sha256_digest(
+            obj["dispatch_transcript_file_sha256"],
+            "$.dispatch_transcript_file_sha256",
+        ),
+    }
+    result["normalized_source_artifacts"] = _normalized_closure_sources(
+        obj["normalized_source_artifacts"],
+        "$.normalized_source_artifacts",
+    )
+
+    binding_fields = {
+        "finding_id", "counterexample_id", "executable_counterexample_id",
+        "counterexample_sha256", "gate_id", "stage", "evidence_row_id",
+        "entrypoint_id", "binding_sha256",
+    }
+    bindings = _list(obj["bindings"], "$.bindings", nonempty=True)
+    normalized_bindings: list[dict[str, str]] = []
+    for index, binding in enumerate(bindings):
+        path = f"$.bindings[{index}]"
+        binding_obj = _obj(binding, path)
+        _keys(binding_obj, binding_fields, binding_fields, path)
+        normalized = {
+            "finding_id": _id(binding_obj["finding_id"], f"{path}.finding_id"),
+            "counterexample_id": _id(binding_obj["counterexample_id"], f"{path}.counterexample_id"),
+            "executable_counterexample_id": _id(
+                binding_obj["executable_counterexample_id"],
+                f"{path}.executable_counterexample_id",
+            ),
+            "counterexample_sha256": _sha256_digest(
+                binding_obj["counterexample_sha256"],
+                f"{path}.counterexample_sha256",
+            ),
+            "gate_id": _id(binding_obj["gate_id"], f"{path}.gate_id"),
+            "stage": _str(binding_obj["stage"], f"{path}.stage", public=True),
+            "evidence_row_id": _id(binding_obj["evidence_row_id"], f"{path}.evidence_row_id"),
+            "entrypoint_id": _id(binding_obj["entrypoint_id"], f"{path}.entrypoint_id"),
+            "binding_sha256": _sha256_digest(binding_obj["binding_sha256"], f"{path}.binding_sha256"),
+        }
+        if normalized["stage"] not in {"targeted", "full", "fresh"}:
+            raise ContractError("closure binding stage", f"{path}.stage")
+        if normalized["evidence_row_id"] != f"EVID-{normalized['gate_id']}-{normalized['entrypoint_id']}":
+            raise ContractError("closure evidence row ID must bind gate/entrypoint", f"{path}.evidence_row_id")
+        unsigned = dict(normalized)
+        unsigned["binding_sha256"] = ""
+        if normalized["binding_sha256"] != canonical_sha256(unsigned):
+            raise ContractError("closure binding digest mismatch", f"{path}.binding_sha256")
+        normalized_bindings.append(normalized)
+    if normalized_bindings != sorted(normalized_bindings, key=lambda item: item["finding_id"]):
+        raise ContractError("closure bindings must be sorted by finding_id", "$.bindings")
+    _unique([item["finding_id"] for item in normalized_bindings], "$.bindings.finding_id")
+    _unique([item["binding_sha256"] for item in normalized_bindings], "$.bindings.binding_sha256")
+    finding_count = _int(obj["finding_count"], "$.finding_count", minimum=1)
+    if finding_count != len(normalized_bindings):
+        raise ContractError("closure binding denominator mismatch", "$.finding_count")
+    result["finding_count"] = finding_count
+    result["bindings"] = normalized_bindings
+    result["receipt_sha256"] = _sha256_digest(obj["receipt_sha256"], "$.receipt_sha256")
+    unsigned_receipt = dict(result)
+    unsigned_receipt["receipt_sha256"] = ""
+    if result["receipt_sha256"] != canonical_sha256(unsigned_receipt):
+        raise ContractError("closure binding receipt digest mismatch", "$.receipt_sha256")
+
+    expected = {
+        "compiled_plan_sha256": expected_compiled_plan_sha256,
+        "closure_plan_sha256": expected_closure_plan_sha256,
+        "closure_plan_file_sha256": expected_closure_plan_file_sha256,
+        "dispatch_transcript_file_sha256": expected_dispatch_transcript_file_sha256,
+        "receipt_sha256": expected_receipt_sha256,
+    }
+    for field, expected_value in expected.items():
+        if expected_value is not None:
+            _sha256_digest(expected_value, f"$.expected_{field}")
+            if result[field] != expected_value:
+                raise ContractError("caller-bound closure receipt identity mismatch", f"$.{field}")
+    return result
+
+
+def build_pre_execution_closure_authority(
+    closure_binding_receipt: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Freeze the validated receipt identities into the pre-run trust root."""
+    receipt = validate_closure_binding_receipt(closure_binding_receipt)
+    authority = {
+        "schema": "pre-execution-closure-authority.v16",
+        "mission_id": receipt["mission_id"],
+        "closure_binding_receipt_sha256": receipt["receipt_sha256"],
+        "compiled_plan_sha256": receipt["compiled_plan_sha256"],
+        "closure_plan_sha256": receipt["closure_plan_sha256"],
+        "closure_plan_file_sha256": receipt["closure_plan_file_sha256"],
+        "dispatch_transcript_file_sha256": receipt[
+            "dispatch_transcript_file_sha256"
+        ],
+        "normalized_source_artifacts": [
+            dict(source) for source in receipt["normalized_source_artifacts"]
+        ],
+        "finding_count": receipt["finding_count"],
+        "bindings_sha256": canonical_sha256(receipt["bindings"]),
+        "authority_sha256": "",
+    }
+    authority["authority_sha256"] = canonical_sha256(authority)
+    return validate_pre_execution_closure_authority(
+        authority,
+        closure_binding_receipt=receipt,
+    )
+
+
+def validate_pre_execution_closure_authority(
+    value: Any,
+    *,
+    closure_binding_receipt: Mapping[str, Any] | None = None,
+    expected_authority_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Validate the exact pre-run authority and optionally its source receipt."""
+    obj = _obj(value, "$")
+    fields = {
+        "schema", "mission_id", "closure_binding_receipt_sha256",
+        "compiled_plan_sha256", "closure_plan_sha256",
+        "closure_plan_file_sha256", "dispatch_transcript_file_sha256",
+        "normalized_source_artifacts", "finding_count", "bindings_sha256",
+        "authority_sha256",
+    }
+    _keys(obj, fields, fields, "$")
+    if obj["schema"] != "pre-execution-closure-authority.v16":
+        raise ContractError(
+            "schema must be pre-execution-closure-authority.v16",
+            "$.schema",
+        )
+    result = {
+        "schema": "pre-execution-closure-authority.v16",
+        "mission_id": _id(obj["mission_id"], "$.mission_id"),
+        "closure_binding_receipt_sha256": _sha256_digest(
+            obj["closure_binding_receipt_sha256"],
+            "$.closure_binding_receipt_sha256",
+        ),
+        "compiled_plan_sha256": _sha256_digest(
+            obj["compiled_plan_sha256"],
+            "$.compiled_plan_sha256",
+        ),
+        "closure_plan_sha256": _sha256_digest(
+            obj["closure_plan_sha256"],
+            "$.closure_plan_sha256",
+        ),
+        "closure_plan_file_sha256": _sha256_digest(
+            obj["closure_plan_file_sha256"],
+            "$.closure_plan_file_sha256",
+        ),
+        "dispatch_transcript_file_sha256": _sha256_digest(
+            obj["dispatch_transcript_file_sha256"],
+            "$.dispatch_transcript_file_sha256",
+        ),
+        "normalized_source_artifacts": _normalized_closure_sources(
+            obj["normalized_source_artifacts"],
+            "$.normalized_source_artifacts",
+        ),
+        "finding_count": _int(
+            obj["finding_count"],
+            "$.finding_count",
+            minimum=1,
+        ),
+        "bindings_sha256": _sha256_digest(
+            obj["bindings_sha256"],
+            "$.bindings_sha256",
+        ),
+        "authority_sha256": _sha256_digest(
+            obj["authority_sha256"],
+            "$.authority_sha256",
+        ),
+    }
+    unsigned = dict(result)
+    unsigned["authority_sha256"] = ""
+    if canonical_sha256(unsigned) != result["authority_sha256"]:
+        raise ContractError(
+            "pre-execution closure authority digest mismatch",
+            "$.authority_sha256",
+        )
+    if expected_authority_sha256 is not None:
+        expected = _sha256_digest(
+            expected_authority_sha256,
+            "$.expected_authority_sha256",
+        )
+        if result["authority_sha256"] != expected:
+            raise ContractError(
+                "caller-bound closure authority identity mismatch",
+                "$.authority_sha256",
+            )
+    if closure_binding_receipt is not None:
+        receipt = validate_closure_binding_receipt(
+            closure_binding_receipt,
+            expected_receipt_sha256=result[
+                "closure_binding_receipt_sha256"
+            ],
+            expected_compiled_plan_sha256=result["compiled_plan_sha256"],
+            expected_closure_plan_sha256=result["closure_plan_sha256"],
+            expected_closure_plan_file_sha256=result[
+                "closure_plan_file_sha256"
+            ],
+            expected_dispatch_transcript_file_sha256=result[
+                "dispatch_transcript_file_sha256"
+            ],
+        )
+        if (
+            receipt["mission_id"] != result["mission_id"]
+            or receipt["normalized_source_artifacts"]
+            != result["normalized_source_artifacts"]
+            or receipt["finding_count"] != result["finding_count"]
+            or canonical_sha256(receipt["bindings"])
+            != result["bindings_sha256"]
+        ):
+            raise ContractError(
+                "pre-execution closure authority/receipt mismatch",
+                "$",
+            )
+    return result
 
 
 def _obj(value: Any, path: str) -> Mapping[str, Any]:
@@ -183,13 +615,13 @@ def validate_scope(value: Any, path: str = "$.scope") -> dict[str, Any]:
     return result
 
 
-def validate_reviewer(value: Any, path: str = "$.reviewer_separation") -> dict[str, Any]:
+def validate_reviewer(value: Any, path: str = "$.reviewer_separation", *, expected_model: str = "gpt-5.6-sol") -> dict[str, Any]:
     obj = _obj(value, path)
     _keys(obj, ("independent_model", "fork_turns", "report_only"), ("independent_model", "fork_turns", "report_only"), path)
-    if _str(obj["independent_model"], f"{path}.independent_model", public=True) != "gpt-5.6-sol":
-        raise ContractError("Independent Sol reviewer required", f"{path}.independent_model")
+    if _str(obj["independent_model"], f"{path}.independent_model", public=True) != expected_model:
+        raise ContractError(f"reviewer model must be {expected_model}", f"{path}.independent_model")
     if _str(obj["fork_turns"], f"{path}.fork_turns", public=True) != "none":
-        raise ContractError("fresh zero-context fork_turns=none required", f"{path}.fork_turns")
+        raise ContractError("initial independent_clean_room fork_turns=none required", f"{path}.fork_turns")
     if _bool(obj["report_only"], f"{path}.report_only") is not True:
         raise ContractError("reviewer must be report-only", f"{path}.report_only")
     return dict(obj)
@@ -231,7 +663,7 @@ def validate_counterexample(value: Any, path: str = "$.counterexamples[]") -> di
 def validate_entrypoint(value: Any, path: str = "$.entrypoints[]") -> dict[str, Any]:
     obj = _obj(value, path)
     fields = ("id", "argv", "cwd", "env", "timeout_sec", "stop_conditions")
-    _keys(obj, fields, fields, path)
+    _keys(obj, fields, (*fields, "read_only"), path)
     argv = _list(obj["argv"], f"{path}.argv", nonempty=True)
     argv_result = []
     for i, arg in enumerate(argv):
@@ -243,19 +675,25 @@ def validate_entrypoint(value: Any, path: str = "$.entrypoints[]") -> dict[str, 
     env = _map_str_str(obj["env"], f"{path}.env")
     timeout = _number(obj["timeout_sec"], f"{path}.timeout_sec", minimum=0.001)
     stops = _strings(obj["stop_conditions"], f"{path}.stop_conditions", nonempty=True, public=True)
-    return {"id": _id(obj["id"], f"{path}.id"), "argv": argv_result, "cwd": cwd, "env": env, "timeout_sec": timeout, "stop_conditions": stops}
+    result = {"id": _id(obj["id"], f"{path}.id"), "argv": argv_result, "cwd": cwd, "env": env, "timeout_sec": timeout, "stop_conditions": stops}
+    if "read_only" in obj:
+        result["read_only"] = _bool(obj["read_only"], f"{path}.read_only")
+    return result
 
 
 def validate_gate(value: Any, path: str = "$.gates[]") -> dict[str, Any]:
     obj = _obj(value, path)
     fields = ("id", "stage", "depends_on", "entrypoint_ids", "blocking", "reusable")
-    _keys(obj, fields, fields, path)
+    _keys(obj, fields, (*fields, "read_only"), path)
     stage = _str(obj["stage"], f"{path}.stage", public=True)
     if stage not in {"targeted", "full", "fresh"}:
         raise ContractError("stage must be targeted/full/fresh", f"{path}.stage")
     depends = _strings(obj["depends_on"], f"{path}.depends_on", public=True)
     entrypoints = _strings(obj["entrypoint_ids"], f"{path}.entrypoint_ids", nonempty=True, public=True)
-    return {"id": _id(obj["id"], f"{path}.id"), "stage": stage, "depends_on": depends, "entrypoint_ids": entrypoints, "blocking": _bool(obj["blocking"], f"{path}.blocking"), "reusable": _bool(obj["reusable"], f"{path}.reusable")}
+    result = {"id": _id(obj["id"], f"{path}.id"), "stage": stage, "depends_on": depends, "entrypoint_ids": entrypoints, "blocking": _bool(obj["blocking"], f"{path}.blocking"), "reusable": _bool(obj["reusable"], f"{path}.reusable")}
+    if "read_only" in obj:
+        result["read_only"] = _bool(obj["read_only"], f"{path}.read_only")
+    return result
 
 
 def validate_acceptance(value: Any, path: str = "$.acceptance[]") -> dict[str, Any]:
@@ -311,12 +749,25 @@ def validate_mission(value: Any) -> dict[str, Any]:
     path = "$"
     obj = _obj(value, path)
     fields = ("schema", "mission_id", "milestone", "objective", "owner", "assigned_model", "role", "permissions", "scope", "reviewer_separation", "operating_domain", "invariants", "counterexamples", "entrypoints", "gates", "acceptance", "non_goals", "evidence_budget", "rollback", "stop_conditions", "spark_audits")
+    # ``review_policy`` is optional for backward compatibility.  Missing policy
+    # is intentionally handled as a legacy fail-closed high-risk route by the
+    # resolver; malformed explicit policy is still rejected here.
+    if "review_policy" in obj:
+        fields = (*fields, "review_policy")
     _keys(obj, fields, fields, path)
     if _str(obj["schema"], "$.schema", public=True) != "mission.v16":
         raise ContractError("schema must be mission.v16", "$.schema")
+    policy_normalized: dict[str, Any] | None = None
+    expected_reviewer_model = "gpt-5.6-sol"
+    if "review_policy" in obj:
+        try:
+            policy_normalized = validate_review_policy(obj["review_policy"])
+        except ReviewPolicyError as exc:
+            raise ContractError(str(exc), "$.review_policy") from exc
+        # The writer cannot spoof the model/effort selected by risk.  The
+        # reviewer separation field must describe the same route.
+        expected_reviewer_model = DEFAULT_REVIEWER[policy_normalized["review_risk"]][0]
     assigned = _str(obj["assigned_model"], "$.assigned_model", public=True)
-    if assigned != "gpt-5.6-luna":
-        raise ContractError("Luna is the sole writer/execution model", "$.assigned_model")
     role = _str(obj["role"], "$.role", public=True)
     if role != "writer":
         raise ContractError("mission role must be writer", "$.role")
@@ -330,7 +781,7 @@ def validate_mission(value: Any) -> dict[str, Any]:
         "role": role,
         "permissions": _strings(obj["permissions"], "$.permissions", nonempty=True, public=True),
         "scope": validate_scope(obj["scope"]),
-        "reviewer_separation": validate_reviewer(obj["reviewer_separation"]),
+        "reviewer_separation": validate_reviewer(obj["reviewer_separation"], expected_model=expected_reviewer_model),
         "operating_domain": _str(obj["operating_domain"], "$.operating_domain", public=True),
         "invariants": [validate_invariant(v, f"$.invariants[{i}]") for i, v in enumerate(_list(obj["invariants"], "$.invariants", nonempty=True))],
         "counterexamples": [validate_counterexample(v, f"$.counterexamples[{i}]") for i, v in enumerate(_list(obj["counterexamples"], "$.counterexamples", nonempty=True))],
@@ -341,8 +792,11 @@ def validate_mission(value: Any) -> dict[str, Any]:
         "evidence_budget": validate_evidence_budget(obj["evidence_budget"]),
         "rollback": _str(obj["rollback"], "$.rollback", public=True),
         "stop_conditions": _strings(obj["stop_conditions"], "$.stop_conditions", nonempty=True, public=True),
-        "spark_audits": [validate_spark_audit(v, f"$.spark_audits[{i}]") for i, v in enumerate(_list(obj["spark_audits"], "$.spark_audits", nonempty=True))],
+        "spark_audits": [validate_spark_audit(v, f"$.spark_audits[{i}]") for i, v in enumerate(_list(obj["spark_audits"], "$.spark_audits"))],
     }
+    if policy_normalized is not None:
+        policy_normalized["reviewer_model"], policy_normalized["reasoning_effort"] = DEFAULT_REVIEWER[policy_normalized["review_risk"]]
+        result["review_policy"] = policy_normalized
     for key in ("invariants", "counterexamples", "entrypoints", "gates", "acceptance", "spark_audits"):
         _unique([v["id"] for v in result[key]], f"$.{key}")
     _unique([v["semantics"] for v in result["counterexamples"]], "$.counterexamples.semantics")
@@ -373,6 +827,8 @@ def validate_counterexample_linkage(mission: Mapping[str, Any]) -> None:
             raise ContractError("acceptance references unknown invariant/counterexample", f"$.acceptance[{item['id']}]")
         if item["entrypoint_id"] not in ep or item["gate_id"] not in gates:
             raise ContractError("acceptance references unknown entrypoint/gate", f"$.acceptance[{item['id']}]")
+        if item["denominator"] != ce[item["counterexample_id"]]["denominator"]:
+            raise ContractError("acceptance denominator must match counterexample denominator", f"$.acceptance[{item['id']}].denominator")
         if item["blocking"] and not inv[item["invariant_id"]]["blocking"]:
             raise ContractError("blocking acceptance must map to blocking invariant", f"$.acceptance[{item['id']}]")
     covered = {a["counterexample_id"] for a in mission["acceptance"]}
@@ -433,6 +889,7 @@ def validate_schema_document(value: Any, expected_schema: str | None = None) -> 
         "gate.v16": validate_gate,
         "acceptance.v16": validate_acceptance,
         "spark-audit-request.v16": validate_spark_audit,
+        "review-policy.v16": validate_review_policy,
     }
     if schema in validators:
         # Top-level schema documents carry their schema discriminator; nested

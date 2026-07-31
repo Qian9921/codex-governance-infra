@@ -5,7 +5,7 @@ import session_context
 FX=json.loads((pathlib.Path(__file__).parent/'fixtures_context.json').read_text())
 class ContextContamination(unittest.TestCase):
  def test_spark_identity_unrestricted(self):
-  c=session_context.build_context('SubagentStart',FX['child_model']); self.assertTrue(c['spark_supported']); self.assertIn('Spark is unrestricted technically',c['additionalContext'])
+  c=session_context.build_context('SubagentStart',FX['child_model']); self.assertTrue(c['spark_supported']); self.assertIn('assigned models are unrestricted technically',c['additionalContext'])
  def test_plugins_informational(self): self.assertEqual(FX['plugin_inventory'],'informational')
  def test_valid_luna_spark_packet(self): self.assertTrue(validate_packet(FX['packet']))
  def test_depth_gt_one_reject(self): p=dict(FX['packet']); p['depth']=2; self.assertRaises(ContractError,validate_packet,p)

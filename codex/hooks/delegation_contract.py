@@ -15,7 +15,7 @@ def validate_packet(packet, parent_task_id=None):
     if packet["schema"] != "delegation.v1": raise ContractError("schema")
     if parent_task_id and packet["parent_task_id"] != parent_task_id: raise ContractError("parent mismatch")
     if not _id(packet["parent_task_id"]) or not _id(packet["child_task_id"]): raise ContractError("task identity")
-    if packet["assigned_model"] not in {"gpt-5.6-luna","gpt-5.3-codex-spark"}: raise ContractError("model")
+    if not _id(packet["assigned_model"]): raise ContractError("model")
     if packet["max_depth"] != 1 or packet["depth"] != 1: raise ContractError("depth")
     if not packet["active_mission_lock"] or packet["plugin_inventory"] != "informational": raise ContractError("mission lock")
     if any(p in packet["permissions"] for p in ("git","github","review","merge")): raise ContractError("forbidden child permission")

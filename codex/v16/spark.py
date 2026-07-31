@@ -10,7 +10,18 @@ import subprocess
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
-from .contracts import ContractError, _id, _int, _sha, _str, canonical_json, canonical_sha256
+from .contracts import (
+    ContractError,
+    _id,
+    _int,
+    _relative_path,
+    _sha,
+    _str,
+    canonical_json,
+    canonical_sha256,
+    counterexample_sha256,
+    validate_closure_binding_receipt,
+)
 
 MAX_SPARK_AUDITS = 3
 HEX64_RE = re.compile(r"[0-9a-f]{64}\Z")
@@ -149,6 +160,149 @@ def validate_author_closure_plan(value: Any, *, root: str | pathlib.Path | None 
     return dict(value)
 
 
+def build_closure_binding_receipt(
+    closure_plan: Mapping[str, Any],
+    *,
+    compiled_plan: Mapping[str, Any],
+    spark_requests: Sequence[Mapping[str, Any]],
+    spark_results: Sequence[Mapping[str, Any]],
+    closure_plan_file_sha256: str,
+    dispatch_transcript_file_sha256: str,
+    normalized_source_artifact_paths: Mapping[str, str],
+    root: str | pathlib.Path | None = None,
+) -> dict[str, Any]:
+    """Freeze finding-to-execution bindings before any closure-aware gate runs."""
+    plan = validate_author_closure_plan(dict(closure_plan), root=root)
+    if not isinstance(compiled_plan, Mapping) or compiled_plan.get("schema") != "compiled-plan.v16":
+        raise SparkAuditError("compiled mission plan required for closure binding receipt")
+    if compiled_plan.get("mission_id") != plan["mission_id"]:
+        raise SparkAuditError("closure/compiled mission mismatch")
+    compiled_plan_sha256 = canonical_sha256(compiled_plan)
+    for value, path in (
+        (closure_plan_file_sha256, "$.closure_plan_file_sha256"),
+        (dispatch_transcript_file_sha256, "$.dispatch_transcript_file_sha256"),
+    ):
+        _hash64(value, path)
+
+    gates = {
+        gate.get("id"): gate
+        for gate in compiled_plan.get("gates", [])
+        if isinstance(gate, Mapping) and isinstance(gate.get("id"), str)
+    }
+    entries = {
+        entry.get("id"): entry
+        for entry in compiled_plan.get("entrypoints", [])
+        if isinstance(entry, Mapping) and isinstance(entry.get("id"), str)
+    }
+    source_findings: dict[str, Mapping[str, Any]] = {}
+    source_artifacts: list[dict[str, str]] = []
+    if not isinstance(normalized_source_artifact_paths, Mapping):
+        raise SparkAuditError("normalized Spark source path mapping required")
+    checked_results = validate_bundle(spark_requests, spark_results)
+    seen_audit_ids: set[str] = set()
+    for result_index, result in enumerate(checked_results):
+        if result.get("mission_id") != plan["mission_id"]:
+            raise SparkAuditError("closure/Spark mission mismatch")
+        audit_id = _id(result.get("audit_id"), f"$.spark_results[{result_index}].audit_id")
+        artifact_sha256 = _hash64(
+            result.get("artifact_sha256"),
+            f"$.spark_results[{result_index}].artifact_sha256",
+        )
+        try:
+            artifact_path = _relative_path(
+                normalized_source_artifact_paths.get(audit_id),
+                f"$.normalized_source_artifact_paths.{audit_id}",
+            )
+        except ContractError as exc:
+            raise SparkAuditError(
+                "normalized Spark source artifact path required"
+            ) from exc
+        source_artifacts.append({
+            "audit_id": audit_id,
+            "artifact_path": artifact_path,
+            "artifact_sha256": artifact_sha256,
+        })
+        seen_audit_ids.add(audit_id)
+        findings = result.get("findings")
+        if not isinstance(findings, list):
+            raise SparkAuditError(
+                "Spark result findings array required",
+                f"$.spark_results[{result_index}].findings",
+            )
+        for finding_index, finding in enumerate(findings):
+            path = f"$.spark_results[{result_index}].findings[{finding_index}]"
+            if not isinstance(finding, Mapping):
+                raise SparkAuditError("Spark finding object required", path)
+            finding_id = _id(finding.get("id"), f"{path}.id")
+            if finding_id in source_findings:
+                raise SparkAuditError("duplicate authoritative Spark finding", f"{path}.id")
+            _str(finding.get("counterexample"), f"{path}.counterexample", public=True)
+            source_findings[finding_id] = finding
+    source_artifacts.sort(key=lambda item: item["audit_id"])
+    if len({item["audit_id"] for item in source_artifacts}) != len(source_artifacts):
+        raise SparkAuditError("duplicate authoritative Spark source artifact")
+    if set(normalized_source_artifact_paths) != seen_audit_ids:
+        raise SparkAuditError(
+            "normalized Spark source path set differs from validated results"
+        )
+
+    plan_finding_ids = {item["finding_id"] for item in plan["findings"]}
+    if set(source_findings) != plan_finding_ids:
+        raise SparkAuditError("closure plan and authoritative Spark finding sets differ")
+    bindings: list[dict[str, str]] = []
+    for item in plan["findings"]:
+        row_prefix = f"EVID-{item['gate_id']}-"
+        if not item["evidence_row_id"].startswith(row_prefix):
+            raise SparkAuditError("closure evidence row cannot resolve entrypoint")
+        entrypoint_id = item["evidence_row_id"][len(row_prefix):]
+        gate = gates.get(item["gate_id"])
+        if (
+            not entrypoint_id
+            or gate is None
+            or entrypoint_id not in entries
+            or gate.get("stage") != item["stage"]
+            or entrypoint_id not in gate.get("entrypoint_ids", [])
+        ):
+            raise SparkAuditError("closure binding is outside compiled mission plan")
+        binding = {
+            "finding_id": item["finding_id"],
+            "counterexample_id": item["counterexample_id"],
+            "executable_counterexample_id": item["executable_counterexample_id"],
+            "counterexample_sha256": counterexample_sha256(
+                source_findings[item["finding_id"]]["counterexample"],
+                f"$.spark_findings.{item['finding_id']}.counterexample",
+            ),
+            "gate_id": item["gate_id"],
+            "stage": item["stage"],
+            "evidence_row_id": item["evidence_row_id"],
+            "entrypoint_id": entrypoint_id,
+            "binding_sha256": "",
+        }
+        binding["binding_sha256"] = canonical_sha256(binding)
+        bindings.append(binding)
+    bindings.sort(key=lambda item: item["finding_id"])
+    receipt = {
+        "schema": "closure-binding-receipt.v16",
+        "mission_id": plan["mission_id"],
+        "compiled_plan_sha256": compiled_plan_sha256,
+        "closure_plan_sha256": plan["plan_sha256"],
+        "closure_plan_file_sha256": closure_plan_file_sha256,
+        "dispatch_transcript_file_sha256": dispatch_transcript_file_sha256,
+        "normalized_source_artifacts": source_artifacts,
+        "finding_count": len(bindings),
+        "bindings": bindings,
+        "receipt_sha256": "",
+    }
+    receipt["receipt_sha256"] = canonical_sha256(receipt)
+    return validate_closure_binding_receipt(
+        receipt,
+        expected_compiled_plan_sha256=compiled_plan_sha256,
+        expected_closure_plan_sha256=plan["plan_sha256"],
+        expected_closure_plan_file_sha256=closure_plan_file_sha256,
+        expected_dispatch_transcript_file_sha256=dispatch_transcript_file_sha256,
+    )
+
+
 def validate_author_closure(value: Any, *, root: str | pathlib.Path | None = None, evidence_rows: Sequence[Mapping[str, Any]] | None = None) -> dict[str, Any]:
     """Validate the separate author-side closure for all actual 18 findings.
 
@@ -271,8 +425,8 @@ def _timestamp(value: Any, path: str) -> str:
 
 def audit_requests(mission: Mapping[str, Any]) -> list[dict[str, Any]]:
     audits = mission.get("spark_audits")
-    if not isinstance(audits, list) or len(audits) != MAX_SPARK_AUDITS:
-        raise SparkAuditError("exactly three Spark audits required")
+    if not isinstance(audits, list) or len(audits) > MAX_SPARK_AUDITS:
+        raise SparkAuditError("zero to three Spark audits required")
     mission_id = _id(mission["mission_id"], "$.mission_id")
     requests: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -384,8 +538,10 @@ def validate_result(value: Any, request: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def validate_bundle(requests: Sequence[Mapping[str, Any]], results: Sequence[Mapping[str, Any]], *, budget: int = MAX_SPARK_AUDITS) -> list[dict[str, Any]]:
-    if budget != MAX_SPARK_AUDITS or len(requests) != MAX_SPARK_AUDITS or len(results) != MAX_SPARK_AUDITS:
-        raise SparkAuditError("Spark spawn budget is exactly three")
+    if type(budget) is not int or not 0 <= budget <= MAX_SPARK_AUDITS:
+        raise SparkAuditError("Spark spawn budget must be in [0,3]")
+    if len(requests) > budget or len(results) != len(requests):
+        raise SparkAuditError("Spark results must exactly match the bounded request set")
     checked_requests = [validate_request(r) for r in requests]
     if len({r["audit_id"] for r in checked_requests}) != len(checked_requests):
         raise SparkAuditError("duplicate Spark audit request")

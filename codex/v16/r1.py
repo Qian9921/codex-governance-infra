@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Mapping
 
 from .contracts import ContractError, canonical_json, canonical_sha256, validate_counterexample_linkage, validate_mission
+from .review_policy import resolve_review_policy
 
 
 class R1Error(ContractError):
@@ -52,6 +53,8 @@ NEGATIVE_FAMILIES: tuple[dict[str, Any], ...] = (
     {"case_id": "NF-018", "family": "independent-approval-fabrication", "mechanism": "author packet synthesizes APPROVE"},
     {"case_id": "NF-019", "family": "metrics-missing-or-nan", "mechanism": "missing source or non-finite metric is accepted"},
     {"case_id": "NF-020", "family": "manifest-row-deletion", "mechanism": "manifest omission is not exact-set RED"},
+    {"case_id": "NF-021", "family": "gate-missing-artifact", "mechanism": "gate receipt omits a required compiled entrypoint row"},
+    {"case_id": "NF-022", "family": "gate-duplicate-artifact", "mechanism": "gate receipt duplicates one entrypoint row and omits another"},
 )
 
 
@@ -107,6 +110,37 @@ def _gate_probe(command: list[str], *, timeout_sec: float = 2.0, inspect: Callab
         return result
 
 
+def _gate_entrypoint_denominator_probe(mutate: Callable[[dict[str, Any]], None]) -> bool:
+    """Reject a gate receipt whose rows do not match its compiled denominator."""
+    from .runner import GateRunner, validate_gate_result
+
+    with tempfile.TemporaryDirectory(prefix="v16-r1-denominator-root-") as root_tmp, tempfile.TemporaryDirectory(prefix="v16-r1-denominator-artifacts-") as artifact_tmp:
+        root = pathlib.Path(root_tmp)
+        (root / "probe.txt").write_text("probe\n", encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=str(root), check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(["git", "config", "user.email", "v16-r1@example.invalid"], cwd=str(root), check=True)
+        subprocess.run(["git", "config", "user.name", "V16 R1 Probe"], cwd=str(root), check=True)
+        subprocess.run(["git", "add", "probe.txt"], cwd=str(root), check=True)
+        subprocess.run(["git", "commit", "-qm", "r1 denominator probe"], cwd=str(root), check=True)
+        head, tree = _git_identity(root)
+        command = [
+            "python3", "-c",
+            "print('{\"total\":1,\"ran\":1,\"passed\":1,\"failed\":0,\"skipped\":0,\"xfail\":0,\"unknown\":0}')",
+        ]
+        plan = {
+            "schema": "compiled-plan.v16",
+            "gate_order": ["G-R1-DENOMINATOR"],
+            "gates": [{"id": "G-R1-DENOMINATOR", "stage": "targeted", "depends_on": [], "entrypoint_ids": ["EP-A", "EP-B"], "blocking": True, "reusable": False}],
+            "entrypoints": [
+                {"id": "EP-A", "argv": command, "cwd": ".", "env": {}, "timeout_sec": 2.0, "stop_conditions": ["timeout"]},
+                {"id": "EP-B", "argv": command, "cwd": ".", "env": {}, "timeout_sec": 2.0, "stop_conditions": ["timeout"]},
+            ],
+        }
+        result = GateRunner(root, plan, pathlib.Path(artifact_tmp)).run_gate("G-R1-DENOMINATOR", expected_head=head, expected_tree=tree, force=True)
+        mutate(result)
+        return _expect_reject(lambda: validate_gate_result(result, expected_head=head, expected_tree=tree, artifact_root=pathlib.Path(artifact_tmp), plan=plan))
+
+
 def _family_probe(root: pathlib.Path, family: Mapping[str, Any]) -> bool:
     """Execute one frozen negative through ordinary validators.
 
@@ -133,7 +167,22 @@ def _family_probe(root: pathlib.Path, family: Mapping[str, Any]) -> bool:
     if name == "gate-head-mutation":
         from .runner import validate_gate_result
         head, tree = _git_identity(root)
-        bad = {"schema": "gate-result.v16", "gate_id": "G-TARGETED", "stage": "targeted", "decision": "allow", "expected_head": head, "actual_head": "0" * 40, "tree_sha": tree, "dirty": False, "started_at": _utc(), "ended_at": _utc(), "elapsed_sec": 0.0, "rows": []}
+        bad = {
+            "schema": "gate-result.v16",
+            "gate_id": "G-TARGETED",
+            "stage": "targeted",
+            "decision": "allow",
+            "expected_head": head,
+            "actual_head": "0" * 40,
+            "tree_sha": tree,
+            "dirty": False,
+            "snapshot_mode": "",
+            "snapshot_sha256": "",
+            "started_at": _utc(),
+            "ended_at": _utc(),
+            "elapsed_sec": 0.0,
+            "rows": [],
+        }
         return _expect_reject(lambda: validate_gate_result(bad, expected_head=head, expected_tree=tree))
     if name == "gate-disconnected-component":
         from .compiler import compile_mission
@@ -153,21 +202,31 @@ def _family_probe(root: pathlib.Path, family: Mapping[str, Any]) -> bool:
         return _expect_reject(lambda: compile_mission(bad))
     if name == "missing-green-or-p1-followup":
         from .state import validate_state, initial_state, transition
-        state = initial_state("V16-PRODUCTIVITY", mission["scope"]["exact_head"], mission["scope"].get("tree_sha", ""))
+        state = initial_state(
+            "V16-PRODUCTIVITY",
+            mission["scope"]["exact_head"],
+            mission["scope"].get("tree_sha", ""),
+            review_policy=resolve_review_policy(mission),
+        )
         state = transition(state, "COUNTEREXAMPLES_FROZEN", base_sha=mission["scope"]["exact_head"], head_sha=mission["scope"]["exact_head"], counterexample_ids=["CE-SCHEMA"], updated_at="9999-12-31T00:00:01Z")
         state = transition(state, "BASELINE_REPRODUCED", base_sha=mission["scope"]["exact_head"], head_sha=mission["scope"]["exact_head"], red_counterexamples=["CE-SCHEMA"], updated_at="9999-12-31T00:00:02Z")
         candidate = "0123456789abcdef0123456789abcdef01234567"
         state = transition(state, "IMPLEMENTING", base_sha=mission["scope"]["exact_head"], head_sha=candidate, updated_at="9999-12-31T00:00:03Z")
-        state = transition(state, "INNER_AUDIT_COMPLETE", base_sha=mission["scope"]["exact_head"], head_sha=candidate, spark_findings=["F1"], dispositions={"F1": "FOLLOW_UP"}, updated_at="9999-12-31T00:00:04Z")
+        state = transition(state, "INNER_AUDIT_COMPLETE", base_sha=mission["scope"]["exact_head"], head_sha=candidate, spark_findings=["F1"], spark_audit_count=1, dispositions={"F1": "FOLLOW_UP"}, updated_at="9999-12-31T00:00:04Z")
         return _expect_reject(lambda: transition(state, "LOCAL_READY", base_sha=mission["scope"]["exact_head"], head_sha=candidate, evidence_ids=["FAKE"], updated_at="9999-12-31T00:00:05Z"))
     if name == "fake-receipt":
         from .state import initial_state, transition
-        state = initial_state("V16-PRODUCTIVITY", mission["scope"]["exact_head"], mission["scope"].get("tree_sha", ""))
+        state = initial_state(
+            "V16-PRODUCTIVITY",
+            mission["scope"]["exact_head"],
+            mission["scope"].get("tree_sha", ""),
+            review_policy=resolve_review_policy(mission),
+        )
         state = transition(state, "COUNTEREXAMPLES_FROZEN", base_sha=mission["scope"]["exact_head"], head_sha=mission["scope"]["exact_head"], counterexample_ids=["CE-SCHEMA"], updated_at="9999-12-31T00:00:01Z")
         state = transition(state, "BASELINE_REPRODUCED", base_sha=mission["scope"]["exact_head"], head_sha=mission["scope"]["exact_head"], red_counterexamples=["CE-SCHEMA"], updated_at="9999-12-31T00:00:02Z")
         candidate = "0123456789abcdef0123456789abcdef01234567"
         state = transition(state, "IMPLEMENTING", base_sha=mission["scope"]["exact_head"], head_sha=candidate, updated_at="9999-12-31T00:00:03Z")
-        state = transition(state, "INNER_AUDIT_COMPLETE", base_sha=mission["scope"]["exact_head"], head_sha=candidate, spark_findings=["F1"], dispositions={"F1": "FIXED"}, updated_at="9999-12-31T00:00:04Z")
+        state = transition(state, "INNER_AUDIT_COMPLETE", base_sha=mission["scope"]["exact_head"], head_sha=candidate, spark_findings=["F1"], spark_audit_count=1, dispositions={"F1": "FIXED"}, updated_at="9999-12-31T00:00:04Z")
         return _expect_reject(lambda: transition(state, "LOCAL_READY", base_sha=mission["scope"]["exact_head"], head_sha=candidate, evidence_ids=["FAKE"], updated_at="9999-12-31T00:00:05Z"))
     if name == "inherited-secret":
         # The parent deliberately carries a synthetic secret.  The ordinary
@@ -253,6 +312,10 @@ def _family_probe(root: pathlib.Path, family: Mapping[str, Any]) -> bool:
         module = importlib.util.module_from_spec(spec); assert spec and spec.loader; spec.loader.exec_module(module)
         manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8")); bad = copy.deepcopy(manifest); bad["files"].pop(next(iter(bad["files"])))
         return module.verify_manifest_exact(root, bad)["status"] == "RED"
+    if name == "gate-missing-artifact":
+        return _gate_entrypoint_denominator_probe(lambda result: result["rows"].pop())
+    if name == "gate-duplicate-artifact":
+        return _gate_entrypoint_denominator_probe(lambda result: result["rows"].__setitem__(1, {**result["rows"][1], "entrypoint_id": "EP-A"}))
     raise R1Error("unknown negative family", family.get("family", "?"))
 
 
@@ -271,7 +334,7 @@ def run_negative_matrix(root: str | pathlib.Path) -> dict[str, Any]:
         row["row_sha256"] = canonical_sha256(row)
         rows.append(row)
     result = {"schema": "negative-matrix.v16", "matrix_id": "V16-R1-NEGATIVE-FAMILIES", "total": len(rows), "ran": sum(r["ran"] for r in rows), "passed": sum(r["passed"] for r in rows), "failed": sum(r["failed"] for r in rows), "skipped": sum(r["skipped"] for r in rows), "xfail": sum(r["xfail"] for r in rows), "unknown": sum(r["unknown"] for r in rows), "rows": rows}
-    if result["total"] != 20 or result["ran"] != result["total"] or result["passed"] != result["total"] or any(result[k] for k in ("failed", "skipped", "xfail", "unknown")):
+    if result["total"] != 22 or result["ran"] != result["total"] or result["passed"] != result["total"] or any(result[k] for k in ("failed", "skipped", "xfail", "unknown")):
         result["status"] = "RED"
     else:
         result["status"] = "GREEN"
