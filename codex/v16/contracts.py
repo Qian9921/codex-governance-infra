@@ -21,6 +21,10 @@ FORBIDDEN_TEXT_RE = re.compile(
     r"(?:gh[pso]_[A-Za-z0-9]{12,}|/" + r"home/|/Users/|prompt|token|credential|session[_-]?id|transcript)",
     re.I,
 )
+PRIVATE_FINDING_TEXT_RE = re.compile(
+    r"(?:gh[pso]_[A-Za-z0-9]{12,}|/" + r"home/|/Users/)",
+    re.I,
+)
 
 # A compact machine-readable inventory accompanies the executable validators.
 # ``validation_mode`` is deliberately explicit: a source/caller-bound
@@ -207,7 +211,9 @@ def canonical_sha256(value: Any) -> str:
 
 def counterexample_sha256(value: Any, path: str = "$.counterexample") -> str:
     """Hash the exact frozen public counterexample text."""
-    text = _str(value, path, public=True)
+    text = _str(value, path, public=False)
+    if PRIVATE_FINDING_TEXT_RE.search(text):
+        raise ContractError("privacy-sensitive text forbidden", path)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 

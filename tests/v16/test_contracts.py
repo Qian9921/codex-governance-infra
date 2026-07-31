@@ -7,6 +7,7 @@ from codex.v16.contracts import (
     ContractError,
     build_pre_execution_closure_authority,
     canonical_sha256,
+    counterexample_sha256,
     validate_closure_binding_receipt,
     validate_mission,
     validate_pre_execution_closure_authority,
@@ -75,6 +76,20 @@ class V16ContractTests(unittest.TestCase):
         value["mission_id"] = "prompt-id"
         with self.assertRaises(ContractError):
             validate_schema_document(value)
+
+    def test_counterexample_hash_allows_domain_words_but_rejects_private_artifacts(self):
+        digest = counterexample_sha256(
+            'The first token is "sh"; the dispatch transcript remains public.'
+        )
+        self.assertEqual(len(digest), 64)
+        for value in (
+            "/" + "home/alice/private/result.json",
+            "/" + "Users/alice/private/result.json",
+            "gh" + "p_12345678901234567890",
+        ):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ContractError, "privacy-sensitive"):
+                    counterexample_sha256(value)
 
     def test_zero_inner_audits_is_valid_for_low_risk_mission(self):
         value = copy.deepcopy(self.mission)
