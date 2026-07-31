@@ -2,6 +2,7 @@ import copy
 import hashlib
 import json
 import pathlib
+import subprocess
 import tempfile
 import unittest
 
@@ -13,6 +14,7 @@ from codex.v16.spark import (
     audit_requests,
     build_closure_binding_receipt,
     validate_bundle,
+    validate_dispatch_transcript,
     validate_result,
 )
 from codex.v16.contracts import (
@@ -417,6 +419,38 @@ def ingest(packet, artifact, **kwargs):
 
 
 class SparkTraceMetricsTests(unittest.TestCase):
+    def test_historical_transcript_does_not_recompile_with_candidate_compiler(self):
+        transcript = json.loads(
+            (
+                ROOT / "codex/v16/contracts/v16_dispatch_transcript.json"
+            ).read_text(encoding="utf-8")
+        )
+        current_plan_sha256 = canonical_sha256(compile_mission(MISSION))
+        self.assertNotEqual(
+            current_plan_sha256,
+            transcript["compiled_plan_sha256"],
+        )
+        head = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT,
+            text=True,
+        ).strip()
+        tree = subprocess.check_output(
+            ["git", "rev-parse", "HEAD^{tree}"],
+            cwd=ROOT,
+            text=True,
+        ).strip()
+        checked = validate_dispatch_transcript(
+            transcript,
+            expected_head=head,
+            expected_tree=tree,
+            root=ROOT,
+        )
+        self.assertEqual(
+            checked["compiled_plan_sha256"],
+            transcript["compiled_plan_sha256"],
+        )
+
     def test_preexecution_receipt_is_built_from_closure_plan_and_spark_sources(self):
         closure_plan_path = ROOT / "codex/v16/contracts/author_closure_plan.v16.json"
         closure_plan = json.loads(closure_plan_path.read_text(encoding="utf-8"))

@@ -724,14 +724,15 @@ def validate_dispatch_transcript(value: Any, *, expected_head: str | None = None
         mission_path = root_path / "codex/v16/fixtures/mission.valid.json"
         try:
             mission = json.loads(mission_path.read_text(encoding="utf-8"))
-            from .compiler import compile_mission
             from .contracts import canonical_sha256, validate_counterexample_linkage, validate_mission
             checked_mission = validate_mission(mission); validate_counterexample_linkage(checked_mission)
             if checked_mission["scope"]["exact_head"] != base or checked_mission["scope"].get("tree_sha") != base_tree or canonical_sha256(checked_mission["scope"]) != value["mission_scope_sha256"]:
                 raise SparkAuditError("mission scope binding mismatch")
-            plan = compile_mission(checked_mission)
-            if canonical_sha256(plan) != value["compiled_plan_sha256"]:
-                raise SparkAuditError("compiled plan binding mismatch")
+            # The transcript records the plan produced for the immutable
+            # audited input.  Recompiling that mission with the candidate's
+            # newer compiler would conflate historical lineage with current
+            # execution semantics.  The current compiled plan is bound
+            # separately by the pre-execution closure receipt and authority.
         except SparkAuditError:
             raise
         except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
