@@ -6,12 +6,14 @@
     "invariant.v16": {"validator": "contracts.validate_invariant", "required": ["id", "description", "blocking", "counterexample_ids"]},
     "counterexample.v16": {"validator": "contracts.validate_counterexample", "required": ["id", "semantics", "entrypoint_id", "gate_id", "why_red", "cost", "denominator", "expected"]},
     "gate.v16": {"validator": "contracts.validate_gate", "required": ["id", "stage", "depends_on", "entrypoint_ids", "blocking", "reusable"]},
-    "gate-result.v16": {"validator": "runner.validate_gate_result", "required": ["schema", "gate_id", "decision", "expected_head", "actual_head", "tree_sha"]},
-    "readiness-state.v16": {"validator": "state.validate_readiness_state", "required": ["schema", "mission_id", "state", "revision", "base_sha", "head_sha", "counterexample_ids", "spark_findings", "dispositions", "evidence_ids"]},
+    "gate-result.v16": {"validator": "runner.validate_gate_result", "required": ["schema", "gate_id", "stage", "decision", "expected_head", "actual_head", "tree_sha", "dirty", "started_at", "ended_at", "elapsed_sec", "rows"]},
+    "readiness-state.v16": {"validator": "state.validate_readiness_state", "required": ["schema", "mission_id", "state", "revision", "base_sha", "head_sha", "counterexample_ids", "spark_findings", "dispositions", "evidence_ids", "receipt_artifacts"]},
     "evidence-envelope.v16": {"validator": "evidence.validate_evidence_envelope", "required": ["schema", "mission_id", "head_sha", "tree_sha", "clean", "rows", "envelope_sha256"]},
     "spark-audit-request.v16": {"validator": "spark.validate_spark_request", "required": ["schema", "audit_id", "mission_id", "assigned_model", "fork_turns", "context_mode", "report_only"]},
     "spark-audit-result.v16": {"validator": "spark.validate_spark_result", "required": ["schema", "audit_id", "mission_id", "task_id", "findings", "dispositions"]},
     "review-packet.v16": {"validator": "trace.validate_review_packet", "required": ["schema", "author_login", "reviewer_login", "base_sha", "head_sha", "tree_sha", "coverage_status", "verdict"]},
-    "metrics.v16": {"validator": "metrics.validate_metrics", "required": ["schema", "mission_id", "source_hash", "first_pass_approval", "spark_audit_count", "gate_elapsed_sec"]}
+    "metrics.v16": {"validator": "metrics.validate_metrics", "required": ["schema", "mission_id", "source_hash", "first_pass_approval", "spark_audit_count", "gate_elapsed_sec"]},
+    "dispatch-transcript.v16": {"validator": "spark.validate_dispatch_transcript", "required": ["schema", "lineage_mode", "base_sha", "base_tree", "mission_scope_sha256", "compiled_plan_sha256", "snapshot", "audited_input_snapshot", "candidate_binding", "historical_original_audits", "accepted_current_audits", "finding_dispositions", "transcript_sha256"]},
+    "negative-matrix.v16": {"validator": "r1.run_negative_matrix", "required": ["schema", "total", "ran", "passed", "failed", "skipped", "xfail", "unknown", "rows", "matrix_sha256"]}
   }
 }

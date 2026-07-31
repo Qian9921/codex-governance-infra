@@ -16,7 +16,7 @@ ID_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.:/-]{1,127}\Z")
 SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
 HEX_RE = re.compile(r"[0-9a-fA-F]+\Z")
 FORBIDDEN_TEXT_RE = re.compile(
-    r"(?:gh[pso]_[A-Za-z0-9]{12,}|/home/|/Users/|prompt|token|credential|session[_-]?id|transcript)",
+    r"(?:gh[pso]_[A-Za-z0-9]{12,}|/" + r"home/|/Users/|prompt|token|credential|session[_-]?id|transcript)",
     re.I,
 )
 
@@ -379,6 +379,24 @@ def validate_counterexample_linkage(mission: Mapping[str, Any]) -> None:
     missing = sorted(set(ce) - covered)
     if missing:
         raise ContractError("counterexample not covered by acceptance", "$.acceptance")
+    # Coverage is bidirectional: a blocking invariant cannot be declared and
+    # then disappear from the executable acceptance surface.  Each acceptance
+    # row must also point at a counterexample owned by its invariant; otherwise
+    # a valid-looking row can satisfy the global CE set while leaving the
+    # invariant's actual failure mechanism untested.
+    acceptance_by_invariant: dict[str, list[Mapping[str, Any]]] = {}
+    for item in mission["acceptance"]:
+        acceptance_by_invariant.setdefault(item["invariant_id"], []).append(item)
+    for invariant in mission["invariants"]:
+        rows = acceptance_by_invariant.get(invariant["id"], [])
+        if not rows:
+            raise ContractError("invariant lacks acceptance mapping", f"$.invariants[{invariant['id']}]" )
+        owned = set(invariant["counterexample_ids"])
+        if any(row["counterexample_id"] not in owned for row in rows):
+            raise ContractError("acceptance counterexample is not owned by invariant", f"$.acceptance[{rows[0]['id']}]" )
+    referenced = {cid for invariant in mission["invariants"] for cid in invariant["counterexample_ids"]}
+    if referenced != set(ce):
+        raise ContractError("every counterexample must be owned by an invariant", "$.invariants")
     for gate in mission["gates"]:
         for dep in gate["depends_on"]:
             if dep not in gates:

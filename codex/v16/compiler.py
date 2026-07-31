@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import sys
 from typing import Any, Mapping
@@ -71,6 +72,27 @@ def compile_mission(mission: Mapping[str, Any]) -> dict[str, Any]:
         raise CompileError("at least one targeted gate required", "$.gates")
     if any(by_gate[gid]["stage"] == "full" for gid in order) and not any(by_gate[gid]["stage"] == "fresh" for gid in order):
         raise CompileError("full/fresh gate contract incomplete", "$.gates")
+    def ancestors(gid: str) -> set[str]:
+        seen: set[str] = set(); pending = list(by_gate[gid]["depends_on"])
+        while pending:
+            dep = pending.pop()
+            if dep in seen:
+                continue
+            seen.add(dep); pending.extend(by_gate[dep]["depends_on"])
+        return seen
+    fresh_ids = [g["id"] for g in normalized["gates"] if g["stage"] == "fresh"]
+    full_ids = {g["id"] for g in normalized["gates"] if g["stage"] == "full"}
+    targeted_ids = {g["id"] for g in normalized["gates"] if g["stage"] == "targeted"}
+    if not fresh_ids:
+        raise CompileError("fresh gate required", "$.gates")
+    connected: set[str] = set(fresh_ids)
+    for fresh_id in fresh_ids:
+        closure = ancestors(fresh_id)
+        if not closure & full_ids or not closure & targeted_ids:
+            raise CompileError("fresh gate must transitively depend on full and targeted", f"$.gates[{fresh_id}].depends_on")
+        connected.update(closure)
+    if connected != set(by_gate):
+        raise CompileError("disconnected gate component", "$.gates")
 
     # Ensure every entrypoint is a direct argv array. The compiler never turns a
     # shell string into argv and never permits shell metacharacter command text.
@@ -78,9 +100,27 @@ def compile_mission(mission: Mapping[str, Any]) -> dict[str, Any]:
         argv = entry["argv"]
         if not isinstance(argv, list) or not argv:
             raise CompileError("argv array required", f"$.entrypoints[{entry['id']}].argv")
-        shell_interpreters = {"sh", "bash", "dash", "zsh", "fish", "cmd", "powershell", "pwsh"}
-        if argv[0] in shell_interpreters and any(arg in {"-c", "/c", "-Command"} for arg in argv[1:]):
+        shell_interpreters = {"sh", "bash", "dash", "zsh", "fish", "ksh", "csh", "tcsh", "cmd", "powershell", "pwsh"}
+        executable = os.path.basename(argv[0]).lower()
+        if executable in shell_interpreters or executable.endswith((".sh", ".bat", ".cmd")):
             raise CompileError("shell interpreter execution forbidden", f"$.entrypoints[{entry['id']}].argv")
+        python_names = {"python", "python3", "python3.9", "python3.10", "python3.11", "python3.12"}
+        if argv[0].startswith("/") and executable not in python_names:
+            raise CompileError("absolute executable outside Python allowlist", f"$.entrypoints[{entry['id']}].argv")
+        # Relative paths are not accepted as executables: a repository-local
+        # file named ``python3`` or ``codex-*`` would otherwise bypass the
+        # positive allowlist through PATH/current-directory lookup.
+        if "/" in argv[0] and not argv[0].startswith("/"):
+            raise CompileError("relative executable path forbidden", f"$.entrypoints[{entry['id']}].argv")
+        if executable not in python_names and not executable.startswith("codex-"):
+            raise CompileError("executable not in positive allowlist", f"$.entrypoints[{entry['id']}].argv")
+        if executable in python_names:
+            resolved = pathlib.Path(sys.executable).resolve()
+            if not resolved.is_file() or not os.access(resolved, os.X_OK):
+                raise CompileError("resolved Python interpreter is not executable", f"$.entrypoints[{entry['id']}].argv[0]")
+            # Preserve the logical token in the compiled plan.  GateRunner
+            # resolves it to the current executable only at execution time so
+            # the plan hash remains portable across clean Python 3.9+ clones.
         for i, arg in enumerate(argv):
             if not isinstance(arg, str) or "\x00" in arg:
                 raise CompileError("unsafe argv item", f"$.entrypoints[{entry['id']}].argv[{i}]")
@@ -94,6 +134,10 @@ def compile_mission(mission: Mapping[str, Any]) -> dict[str, Any]:
     # Explicit acceptance must map each blocking invariant/counterexample to a
     # production entrypoint and gate, not merely name a prose requirement.
     blocking_inv = {i["id"] for i in normalized["invariants"] if i["blocking"]}
+    for invariant_id in sorted(blocking_inv):
+        rows = [a for a in normalized["acceptance"] if a["invariant_id"] == invariant_id]
+        if not any(a["blocking"] for a in rows):
+            raise CompileError("blocking invariant requires a blocking acceptance row", f"$.acceptance[{invariant_id}]")
     for acceptance in normalized["acceptance"]:
         if acceptance["blocking"] and acceptance["invariant_id"] not in blocking_inv:
             raise CompileError("blocking acceptance maps to non-blocking invariant", f"$.acceptance[{acceptance['id']}]..invariant_id")

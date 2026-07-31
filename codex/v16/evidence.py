@@ -6,6 +6,7 @@ import json
 import math
 import pathlib
 import re
+import sys
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -15,15 +16,26 @@ from .contracts import ContractError, canonical_json, canonical_sha256, _id, _in
 class EvidenceError(ContractError):
     pass
 
-_PRIVATE_RE = re.compile(r"(?:gh[pso]_[A-Za-z0-9]{12,}|/home/|/Users/|prompt|token|credential|session[_-]?id|transcript|private[_-]?path)", re.I)
+_PRIVATE_RE = re.compile(r"(?:gh[pso]_[A-Za-z0-9]{12,}|/" + r"home/|/Users/|prompt|token|credential|session[_-]?id|transcript|private[_-]?path)", re.I)
 _SHA_RE = re.compile(r"[0-9a-f]{64}\Z")
 
 
 def _utc(value: Any, path: str) -> str:
     value = _str(value, path, public=True)
     if not value.endswith("Z"):
+        raise EvidenceError("RFC3339 UTC timestamp required", path)
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError as exc:
+        raise EvidenceError("RFC3339 timestamp required", path) from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != timezone.utc.utcoffset(parsed):
         raise EvidenceError("UTC timestamp required", path)
     return value
+
+
+def _parsed_utc(value: str, path: str) -> datetime:
+    _utc(value, path)
+    return datetime.fromisoformat(value[:-1] + "+00:00")
 
 
 def _bool(value: Any, path: str) -> bool:
@@ -36,8 +48,8 @@ def validate_counts(value: Mapping[str, Any], path: str = "$.counts", *, require
     if not isinstance(value, dict):
         raise EvidenceError("counts object required", path)
     allowed = {"total", "ran", "passed", "failed", "skipped", "xfail", "unknown"}
-    if set(value) - allowed or not {"total", "passed", "failed", "skipped"} <= set(value):
-        raise EvidenceError("counts fields", path)
+    if set(value) != allowed:
+        raise EvidenceError("exact counts fields required", path)
     result: dict[str, int] = {}
     for key in allowed:
         if key in value:
@@ -92,11 +104,11 @@ def validate_public_text(value: str, path: str = "$") -> str:
     return value
 
 
-def validate_row(value: Any, *, expected_head: str | None = None, log_root: pathlib.Path | None = None, require_green: bool = True) -> dict[str, Any]:
+def validate_row(value: Any, *, expected_head: str | None = None, expected_tree: str | None = None, log_root: pathlib.Path | None = None, require_green: bool = True, plan: Mapping[str, Any] | None = None) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise EvidenceError("evidence row object required")
     fields = {"schema", "case_id", "semantics", "gate_id", "stage", "decision", "expected_head", "actual_head", "tree_sha", "dirty", "command", "cwd", "runtime", "config", "started_at", "ended_at", "elapsed_sec", "exit_status", "counts", "log_sha256", "log_mode", "log_size", "reused", "superseded"}
-    optional = {"correction_of", "expected_denied", "log_path", "unknown"}
+    optional = {"correction_of", "expected_denied", "log_path", "unknown", "writer_task_id", "artifact_id", "entrypoint_id"}
     if set(value) - fields - optional or fields - set(value):
         raise EvidenceError("missing/additional evidence row field")
     if value["schema"] != "evidence-row.v16":
@@ -119,6 +131,8 @@ def validate_row(value: Any, *, expected_head: str | None = None, log_root: path
     tree = _str(value["tree_sha"], "$.tree_sha", max_len=64, public=True)
     if len(tree) != 40 or not all(c in "0123456789abcdef" for c in tree.lower()):
         raise EvidenceError("tree SHA", "$.tree_sha")
+    if expected_tree and tree != expected_tree:
+        raise EvidenceError("tree drift", "$.tree_sha")
     if _bool(value["dirty"], "$.dirty"):
         raise EvidenceError("dirty worktree evidence is not green", "$.dirty")
     command = value["command"]
@@ -127,12 +141,29 @@ def validate_row(value: Any, *, expected_head: str | None = None, log_root: path
     cwd = _str(value["cwd"], "$.cwd", public=True)
     if cwd.startswith(("/", "~")) or ".." in pathlib.PurePosixPath(cwd).parts:
         raise EvidenceError("portable relative cwd required", "$.cwd")
+    if plan is not None:
+        gates = {g.get("id"): g for g in plan.get("gates", []) if isinstance(g, Mapping)}
+        entries = {e.get("id"): e for e in plan.get("entrypoints", []) if isinstance(e, Mapping)}
+        gate = gates.get(gate_id); entry = entries.get(value.get("entrypoint_id"))
+        if gate is None or entry is None or value.get("entrypoint_id") not in gate.get("entrypoint_ids", []) or gate.get("stage") != stage:
+            raise EvidenceError("evidence row is outside compiled plan", "$.gate_id")
+        expected_command = list(entry.get("argv", []))
+        if expected_command and pathlib.Path(expected_command[0]).name.lower() in {"python", "python3", "python3.9", "python3.10", "python3.11", "python3.12"}:
+            expected_command[0] = pathlib.Path(sys.executable).resolve().as_posix()
+        if command != expected_command or cwd != entry.get("cwd"):
+            raise EvidenceError("evidence command/cwd does not bind compiled plan")
     runtime = _str(value["runtime"], "$.runtime", public=True)
     config = _str(value["config"], "$.config", public=True)
     started = _utc(value["started_at"], "$.started_at"); ended = _utc(value["ended_at"], "$.ended_at")
+    start_dt = _parsed_utc(started, "$.started_at"); end_dt = _parsed_utc(ended, "$.ended_at")
+    if end_dt < start_dt:
+        raise EvidenceError("ended_at precedes started_at", "$.ended_at")
     elapsed = value["elapsed_sec"]
     if type(elapsed) not in (int, float) or isinstance(elapsed, bool) or not math.isfinite(float(elapsed)) or elapsed < 0:
         raise EvidenceError("finite elapsed seconds required", "$.elapsed_sec")
+    observed_elapsed = (end_dt - start_dt).total_seconds()
+    if abs(float(elapsed) - observed_elapsed) > max(0.05, observed_elapsed * 0.05):
+        raise EvidenceError("elapsed_sec/timestamp mismatch", "$.elapsed_sec")
     exit_status = _int(value["exit_status"], "$.exit_status", minimum=-255)
     counts = validate_counts(value["counts"], "$.counts", require_green=require_green)
     if "unknown" in value:
@@ -148,6 +179,22 @@ def validate_row(value: Any, *, expected_head: str | None = None, log_root: path
     if _bool(value["superseded"], "$.superseded"):
         raise EvidenceError("stale/superseded evidence cannot be accepted", "$.superseded")
     reused = _bool(value["reused"], "$.reused")
+    if "expected_denied" in value and type(value["expected_denied"]) is not bool:
+        raise EvidenceError("expected_denied must be boolean", "$.expected_denied")
+    if "correction_of" in value and (not isinstance(value["correction_of"], str) or not value["correction_of"]):
+        raise EvidenceError("correction_of must be a non-empty ID", "$.correction_of")
+    if "writer_task_id" in value and (not isinstance(value["writer_task_id"], str) or not value["writer_task_id"]):
+        raise EvidenceError("writer_task_id must be a non-empty ID", "$.writer_task_id")
+    if "entrypoint_id" in value and (not isinstance(value["entrypoint_id"], str) or not value["entrypoint_id"]):
+        raise EvidenceError("entrypoint_id must be a non-empty ID", "$.entrypoint_id")
+    if decision == "skipped":
+        raise EvidenceError("skipped evidence cannot be green", "$.decision")
+    if decision in {"allow", "reused"} and (exit_status != 0 or counts["failed"] or counts["skipped"] or counts["unknown"] or counts["xfail"]):
+        raise EvidenceError("allow/reused evidence must be fully green", "$.decision")
+    if require_green and decision not in {"allow", "reused"}:
+        raise EvidenceError("green evidence requires allow/reused decision", "$.decision")
+    if require_green and (counts["failed"] or counts["skipped"] or counts["unknown"] or counts["xfail"]):
+        raise EvidenceError("green evidence requires no failed/skipped/unknown/xfail", "$.counts")
     if decision == "deny" and exit_status == 0 and not value.get("expected_denied", False):
         raise EvidenceError("deny with exit 0 is ambiguous", "$.decision")
     if log_root is not None:
@@ -175,11 +222,12 @@ def validate_row(value: Any, *, expected_head: str | None = None, log_root: path
     return result
 
 
-def validate_envelope(value: Any, *, expected_head: str | None = None, log_root: pathlib.Path | None = None) -> dict[str, Any]:
+def validate_envelope(value: Any, *, expected_head: str | None = None, expected_tree: str | None = None, log_root: pathlib.Path | None = None, transcript_path: pathlib.Path | None = None, plan: Mapping[str, Any] | None = None) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise EvidenceError("evidence envelope object required")
     fields = {"schema", "mission_id", "head_sha", "tree_sha", "clean", "generated_at", "rows", "envelope_sha256"}
-    if set(value) != fields:
+    optional = {"dispatch_transcript_sha256"}
+    if set(value) - fields - optional or fields - set(value):
         raise EvidenceError("missing/additional envelope field")
     if value["schema"] != "evidence-envelope.v16":
         raise EvidenceError("schema", "$.schema")
@@ -190,13 +238,20 @@ def validate_envelope(value: Any, *, expected_head: str | None = None, log_root:
     tree = _str(value["tree_sha"], "$.tree_sha", max_len=64, public=True)
     if len(tree) != 40 or not all(c in "0123456789abcdef" for c in tree.lower()):
         raise EvidenceError("tree SHA", "$.tree_sha")
+    if expected_tree and tree != expected_tree:
+        raise EvidenceError("envelope tree drift", "$.tree_sha")
     if _bool(value["clean"], "$.clean") is not True:
         raise EvidenceError("clean worktree required", "$.clean")
     generated = _utc(value["generated_at"], "$.generated_at")
     rows = value["rows"]
     if not isinstance(rows, list) or not rows:
         raise EvidenceError("non-empty evidence rows required", "$.rows")
-    checked = [validate_row(row, expected_head=head, log_root=log_root) for row in rows]
+    checked = [validate_row(row, expected_head=head, expected_tree=tree, log_root=log_root, plan=plan) for row in rows]
+    generated_dt = _parsed_utc(generated, "$.generated_at")
+    row_starts = [_parsed_utc(row["started_at"], "$.rows[].started_at") for row in checked]
+    row_ends = [_parsed_utc(row["ended_at"], "$.rows[].ended_at") for row in checked]
+    if (log_root is not None or "dispatch_transcript_sha256" in value) and (generated_dt < min(row_starts) or generated_dt > max(row_ends)):
+        raise EvidenceError("generated_at must fall within evidence run window", "$.generated_at")
     case_ids = [r["case_id"] for r in checked]; semantics = [r["semantics"] for r in checked]
     if len(set(case_ids)) != len(case_ids) or len(set(semantics)) != len(semantics):
         raise EvidenceError("duplicate case semantics", "$.rows")
@@ -211,17 +266,32 @@ def validate_envelope(value: Any, *, expected_head: str | None = None, log_root:
     expected_hash = canonical_sha256(unsigned)
     if value["envelope_sha256"] != expected_hash:
         raise EvidenceError("envelope SHA mismatch", "$.envelope_sha256")
-    return {"schema": "evidence-envelope.v16", "mission_id": mission_id, "head_sha": head, "tree_sha": tree, "clean": True, "generated_at": generated, "rows": checked, "envelope_sha256": expected_hash}
+    if "dispatch_transcript_sha256" in value:
+        transcript_hash = value["dispatch_transcript_sha256"]
+        if not isinstance(transcript_hash, str) or _SHA_RE.fullmatch(transcript_hash) is None:
+            raise EvidenceError("dispatch transcript SHA-256 required", "$.dispatch_transcript_sha256")
+        if transcript_path is not None:
+            path = pathlib.Path(transcript_path)
+            if path.is_symlink() or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != transcript_hash:
+                raise EvidenceError("dispatch transcript hash/path mismatch", "$.dispatch_transcript_sha256")
+    result = {"schema": "evidence-envelope.v16", "mission_id": mission_id, "head_sha": head, "tree_sha": tree, "clean": True, "generated_at": generated, "rows": checked, "envelope_sha256": expected_hash}
+    if "dispatch_transcript_sha256" in value:
+        result["dispatch_transcript_sha256"] = value["dispatch_transcript_sha256"]
+    return result
 
 
-def build_envelope(mission_id: str, head_sha: str, tree_sha: str, rows: Sequence[Mapping[str, Any]], *, generated_at: str, log_root: pathlib.Path | None = None) -> dict[str, Any]:
+def build_envelope(mission_id: str, head_sha: str, tree_sha: str, rows: Sequence[Mapping[str, Any]], *, generated_at: str, log_root: pathlib.Path | None = None, dispatch_transcript_sha256: str | None = None, transcript_path: pathlib.Path | None = None, plan: Mapping[str, Any] | None = None) -> dict[str, Any]:
     unsigned = {"schema": "evidence-envelope.v16", "mission_id": mission_id, "head_sha": head_sha, "tree_sha": tree_sha, "clean": True, "generated_at": generated_at, "rows": [dict(r) for r in rows], "envelope_sha256": ""}
-    checked = validate_envelope(unsigned | {"envelope_sha256": canonical_sha256(unsigned)}, expected_head=head_sha, log_root=log_root)
+    if dispatch_transcript_sha256 is not None:
+        unsigned["dispatch_transcript_sha256"] = dispatch_transcript_sha256
+    checked = validate_envelope(unsigned | {"envelope_sha256": canonical_sha256(unsigned)}, expected_head=head_sha, expected_tree=tree_sha, log_root=log_root, transcript_path=transcript_path, plan=plan)
     return checked
 
 
-def write_envelope(envelope: Mapping[str, Any], path: str | pathlib.Path) -> tuple[str, str]:
-    checked = validate_envelope(dict(envelope), expected_head=envelope["head_sha"])
+def write_envelope(envelope: Mapping[str, Any], path: str | pathlib.Path, *, transcript_path: pathlib.Path | None = None) -> tuple[str, str]:
+    if envelope.get("dispatch_transcript_sha256") and transcript_path is None:
+        raise EvidenceError("transcript_path is required when binding a dispatch transcript")
+    checked = validate_envelope(dict(envelope), expected_head=envelope["head_sha"], expected_tree=envelope["tree_sha"], transcript_path=transcript_path)
     payload = canonical_json(checked) + "\n"
     destination = pathlib.Path(path)
     destination.write_text(payload, encoding="utf-8")

@@ -1,11 +1,15 @@
 import copy
+import hashlib
 import json
 import pathlib
+import tempfile
 import unittest
 
 from codex.v16.metrics import MetricsError, collect_metrics, dashboard
+from codex.v16.runner import GateRunError, validate_gate_result
 from codex.v16.spark import SparkAuditError, audit_requests, validate_bundle, validate_result
 from codex.v16.trace import TraceError, render_pr_trace, validate_review_packet
+from codex.v16.presubmit import source_identity_guard
 
 ROOT = pathlib.Path(__file__).parents[2]
 MISSION = json.loads((ROOT / "codex/v16/fixtures/mission.valid.json").read_text(encoding="utf-8"))
@@ -21,6 +25,37 @@ def result_for(request, index):
 
 
 class SparkTraceMetricsTests(unittest.TestCase):
+    def test_gate_result_strict_identity_time_counts_and_decision(self):
+        head = "a" * 40; tree = "b" * 40
+        with tempfile.TemporaryDirectory() as tmp:
+            pathlib.Path(tmp, "stdout.log").write_bytes(b"c")
+            pathlib.Path(tmp, "stderr.log").write_bytes(b"d")
+            pathlib.Path(tmp, "stdout.log").chmod(0o644)
+            pathlib.Path(tmp, "stderr.log").chmod(0o644)
+            row = {
+                "schema": "gate-row.v16", "gate_id": "G-TARGETED", "entrypoint_id": "EP", "stage": "targeted", "decision": "allow",
+                "expected_head": head, "actual_head": head, "tree_sha": tree, "dirty": False,
+                "command": ["python3", "-c", "pass"], "cwd": ".", "runtime": "python-stdlib-offline", "config": "fixture",
+                "started_at": "2026-07-31T00:00:00Z", "ended_at": "2026-07-31T00:00:01Z", "elapsed_sec": 1.0, "exit_status": 0,
+                "counts": {"total": 1, "ran": 1, "passed": 1, "failed": 0, "skipped": 0, "xfail": 0, "unknown": 0},
+                "log_paths": ["stdout.log", "stderr.log"], "log_shas": [hashlib.sha256(b"c").hexdigest(), hashlib.sha256(b"d").hexdigest()], "log_sizes": [1, 1], "log_modes": [0o644, 0o644],
+                "parse_error": "", "privacy_error": "", "identity_error": "", "survivor": False, "timed_out": False, "term_sent": False, "kill_sent": False,
+            }
+            valid = {"schema": "gate-result.v16", "gate_id": "G-TARGETED", "stage": "targeted", "decision": "allow", "expected_head": head, "actual_head": head, "tree_sha": tree, "dirty": False, "started_at": "2026-07-31T00:00:00Z", "ended_at": "2026-07-31T00:00:01Z", "elapsed_sec": 1.0, "rows": [row]}
+            self.assertEqual(validate_gate_result(valid, expected_head=head, expected_tree=tree, artifact_root=pathlib.Path(tmp))["decision"], "allow")
+            for mutation in (
+                {"started_at": "2026-07-31T00:00:02Z"},
+                {"elapsed_sec": 0.0},
+                {"dirty": "false"},
+                {"rows": [{**row, "counts": {**row["counts"], "ran": 0}}]},
+                {"rows": [{**row, "decision": "deny"}]},
+                {"actual_head": "e" * 40},
+                {"tree_sha": "f" * 40},
+            ):
+                candidate = {**valid, **mutation}
+                with self.assertRaises(GateRunError):
+                    validate_gate_result(candidate, expected_head=head, expected_tree=tree, artifact_root=pathlib.Path(tmp))
+
     def test_spark_exact_three_and_dispositions(self):
         requests = audit_requests(MISSION)
         results = [result_for(r, i) for i, r in enumerate(requests)]
@@ -43,12 +78,14 @@ class SparkTraceMetricsTests(unittest.TestCase):
         finding = {"id": "F-1", "severity": "P2", "label": "FOLLOW_UP", "attribution": "ORIGINAL_SCOPE_MISSED", "location": "fixture", "counterexample": "negative", "disposition": "FIXED"}
         rendered = render_pr_trace(mission_id="V16-PRODUCTIVITY", base_sha=BASE, head_sha=HEAD, tree_sha=TREE, checks=checks, findings=[finding], closures={"F-1": "FIXED"}, reviewed_scope=["codex/v16"], unreviewed_scope=[])
         packet = validate_review_packet(rendered["packet"])
-        self.assertEqual(packet["verdict"], "APPROVE")
+        # The author-side renderer can never synthesize the Independent gate;
+        # a separately ingested Sol artifact is required before APPROVE.
+        self.assertIsNone(packet["verdict"])
         collision = copy.deepcopy(packet); collision["reviewer_login"] = "Qian9921"
         with self.assertRaises(TraceError):
             validate_review_packet(collision)
         incomplete = render_pr_trace(mission_id="V16-PRODUCTIVITY", base_sha=BASE, head_sha=HEAD, tree_sha=TREE, checks=checks, findings=[], closures={}, reviewed_scope=["codex/v16"], unreviewed_scope=["docs"])
-        self.assertEqual(incomplete["packet"]["verdict"], "REQUEST_CHANGES")
+        self.assertIsNone(incomplete["packet"]["verdict"])
 
     def test_metrics_derived_and_policy_dashboard(self):
         evidence = {"rows": [{"stage": "targeted", "actual_head": HEAD, "correction_of": None, "writer_task_id": "writer-a"}, {"stage": "full", "actual_head": HEAD, "correction_of": None, "writer_task_id": "writer-a"}, {"stage": "fresh", "actual_head": HEAD, "correction_of": "E-1", "writer_task_id": "writer-b"}]}
@@ -63,6 +100,12 @@ class SparkTraceMetricsTests(unittest.TestCase):
         self.assertEqual(dashboard(metrics)["policy_targets"]["spark_audit_count"]["exact"], 3)
         with self.assertRaises(MetricsError):
             collect_metrics(mission=MISSION, evidence=evidence, review=review, spark_results=sparks[:2], gate_runs=runs)
+
+    def test_source_identity_guard_rejects_mutation(self):
+        head = "a" * 40; tree = "b" * 40
+        self.assertTrue(source_identity_guard((head, tree, False), (head, tree, False)))
+        self.assertFalse(source_identity_guard((head, tree, False), ("c" * 40, tree, False)))
+        self.assertFalse(source_identity_guard((head, tree, False), (head, tree, True)))
 
 
 if __name__ == "__main__":
