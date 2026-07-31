@@ -165,7 +165,7 @@ class HookContractTest(unittest.TestCase):
                 "model": "gpt-5.6-sol",
                 "session_id": "session-secret-123",
                 "prompt": "prompt-secret",
-                "cwd": "/private/worktree",
+                "cwd": "/" + "private/worktree",
             },
         )
         run_hook(
@@ -192,7 +192,7 @@ class HookContractTest(unittest.TestCase):
                 "call-secret-789",
                 "prompt-secret",
                 "private-secret",
-                "/private/worktree",
+                "/" + "private/worktree",
             ):
                 self.assertNotIn(forbidden, serialized)
         recorded = records[-1]

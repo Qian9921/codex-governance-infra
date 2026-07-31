@@ -10,7 +10,7 @@
             "type": "command"
           }
         ],
-        "matcher": "^(Bash|apply_patch|Edit|Write|mcp__.*)$"
+        "matcher": "^(Read|Grep|Glob|Bash|apply_patch|Edit|Write|mcp__.*)$"
       }
     ],
     "SessionStart": [

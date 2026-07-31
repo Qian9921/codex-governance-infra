@@ -93,62 +93,145 @@ def _deny(
     return 0
 
 
+# Native entrypoint schemas are intentionally closed.  Model names never affect
+# this map; task packet permissions and the lease do.
+_NATIVE_READ = {"Read", "Grep", "Glob"}
+_NATIVE_WRITE = {"Write", "Edit", "apply_patch"}
+_MCP_SEMBLE_READ = {"mcp__semble__search", "mcp__semble__find", "mcp__semble__query"}
+_MCP_CODEGRAPH_READ = {"mcp__codegraph__codegraph_explore", "mcp__codegraph__query", "mcp__codegraph__find_symbol"}
+_PATH_KEYS = {"path", "file_path"}
+_PATH_ALIASES = {"paths", "files", "filePath", "project_path", "projectPath", "repo", "repository", "root"}
+
+
+def _extract_native_path(tool_name: str, tool_input: Any) -> tuple[list[str], str]:
+    if not isinstance(tool_input, dict):
+        return [], "tool input must be an object"
+    if tool_name == "Read":
+        allowed = {"path", "file_path", "offset", "limit"}
+    elif tool_name == "Grep":
+        allowed = {"path", "file_path", "pattern", "query", "include", "glob", "max_results"}
+    elif tool_name == "Glob":
+        allowed = {"path", "file_path", "pattern", "ignore"}
+    elif tool_name in _NATIVE_WRITE:
+        allowed = {"path", "file_path", "content", "old_string", "new_string", "patch", "edits"}
+    else:
+        return [], "unknown native tool"
+    if any(k in tool_input for k in _PATH_ALIASES if k not in allowed):
+        return [], "unrecognized or conflicting path field"
+    found = [tool_input[k] for k in ("path", "file_path") if k in tool_input]
+    if len(found) != 1 or not isinstance(found[0], str) or not found[0]:
+        return [], "exactly one native path/file_path is required"
+    # A write may carry a patch/edit body but no executable command.
+    if any(k not in allowed for k in tool_input):
+        return [], "unknown native tool field"
+    return [found[0]], ""
+
+
+def _canonical_rel(root: pathlib.Path, value: str) -> str:
+    if not isinstance(value, str) or not value or "\\" in value:
+        raise ValueError("noncanonical requested path")
+    candidate = pathlib.Path(value)
+    if candidate.is_absolute():
+        # Absolute paths are accepted only when they are exactly below the pinned
+        # repository root.  The root itself is not a lease file.
+        root_abs = pathlib.Path(os.path.abspath(os.fspath(root)))
+        abs_value = pathlib.Path(os.path.abspath(value))
+        try:
+            rel = abs_value.relative_to(root_abs).as_posix()
+        except ValueError as exc:
+            raise ValueError("requested path outside repository") from exc
+    else:
+        rel = value
+    parts = rel.split("/")
+    if not rel or any(x in {"", ".", ".."} for x in parts):
+        raise ValueError("noncanonical requested path")
+    # Every existing component is lstat-checked; final symlinks are never followed.
+    cur = root
+    for i, part in enumerate(parts):
+        cur = cur / part
+        try:
+            info = cur.lstat()
+        except FileNotFoundError:
+            if i != len(parts) - 1:
+                raise ValueError("missing requested ancestor")
+            break
+        if stat.S_ISLNK(info.st_mode):
+            raise ValueError("symlink requested path")
+        if i != len(parts) - 1 and not stat.S_ISDIR(info.st_mode):
+            raise ValueError("non-directory requested ancestor")
+    return "/".join(parts)
+
+
 def _tool_paths(tool_input: Any) -> list[str]:
-    """Extract path-bearing fields without accepting alternate conflicting forms."""
-    found: list[str] = []
-    keys = {"path", "file_path", "filePath", "paths", "files"}
-    def walk(value: Any) -> None:
-        if isinstance(value, dict):
-            for key, item in value.items():
-                if key in keys:
-                    if isinstance(item, str): found.append(item)
-                    elif isinstance(item, list) and all(isinstance(x, str) for x in item): found.extend(item)
-                    else: raise ValueError("invalid tool path field")
-                elif isinstance(item, (dict, list)):
-                    walk(item)
-        elif isinstance(value, list):
-            for item in value: walk(item)
-    walk(tool_input)
-    if len(set(found)) != len(found):
-        raise ValueError("duplicate tool path")
+    """Extract only native path fields; MCP schemas are handled explicitly below."""
+    if not isinstance(tool_input, dict):
+        raise ValueError("tool input must be an object")
+    found = []
+    for key in ("path", "file_path"):
+        if key in tool_input:
+            value = tool_input[key]
+            if not isinstance(value, str):
+                raise ValueError("invalid tool path field")
+            found.append(value)
+    if len(found) > 1:
+        raise ValueError("duplicate/conflicting tool path")
     return found
 
 
-def _lease_path_allowed(root: pathlib.Path, leases: list[str], rel: str) -> bool:
-    if not isinstance(rel, str) or not rel or "\\" in rel or rel.startswith("/") or re.match(r"^[A-Za-z]:", rel): return False
-    parts = rel.split("/")
-    if any(p in {"", ".", ".."} for p in parts): return False
-    if not any(rel == lease or rel.startswith(lease + "/") for lease in leases): return False
-    cur = root
-    for i, part in enumerate(parts):
-        cur /= part
-        try: info = cur.lstat()
-        except FileNotFoundError:
-            if i != len(parts) - 1: return False
-            continue
-        if stat.S_ISLNK(info.st_mode) or (i != len(parts) - 1 and not stat.S_ISDIR(info.st_mode)): return False
-    return True
+def _lease_path_allowed(root: pathlib.Path, leases: list[str], value: str) -> bool:
+    try:
+        rel = _canonical_rel(root, value)
+    except ValueError:
+        return False
+    return any(rel == lease or rel.startswith(lease + "/") for lease in leases)
 
 
 def _delegation_tool_allowed(packet: dict[str, Any], payload: dict[str, Any], state: dict[str, Any], rec: dict[str, Any], tool_name: str) -> tuple[bool, str]:
     if rec.get("phase") != "STARTED" or not any(x.get("key") == _dc.state_key(packet) for x in state.get("active", [])):
         return False, "delegation packet is not active STARTED"
+    tool_input = payload.get("tool_input")
+    if not isinstance(tool_name, str) or not tool_name:
+        return False, "tool identity required"
     lowered = tool_name.lower()
-    forbidden = any(x in lowered for x in ("bash", "shell", "git", "github", "review", "approve", "merge"))
-    write = lowered in {"write", "edit", "apply_patch", "applypatch"} or "write" in lowered or lowered.endswith("edit")
-    read = lowered in {"read", "codegraph", "semble", "rg", "grep", "search", "inspect"} or lowered.startswith("mcp__codegraph") or lowered.startswith("mcp__semble")
-    if forbidden or not (read or write): return False, "delegation tool is forbidden or not classified"
-    paths = _tool_paths(payload.get("tool_input", {}))
-    leases = _dc._paths(packet.get("lease", {}).get("paths"))
+    if tool_name in {"Bash", "bash", "Shell", "Git", "GitHub"} or any(x in lowered for x in ("bash", "shell", "git", "github", "review", "approve", "merge")):
+        return False, "delegated shell/git/external tool denied"
+    leases = _dc._paths(packet["lease"]["paths"])
     root = pathlib.Path(packet["repo_root"])
-    if paths and not all(_lease_path_allowed(root, leases, p) for p in paths): return False, "tool path outside delegated lease"
-    if write:
-        if "write_paths" not in packet.get("permissions", []): return False, "write permission absent"
-        if not paths: return False, "write path required"
-    elif "read" not in packet.get("permissions", []):
-        return False, "read permission absent"
-    return True, ""
-
+    if tool_name in _NATIVE_READ or tool_name in _NATIVE_WRITE:
+        paths, reason = _extract_native_path(tool_name, tool_input)
+        if reason:
+            return False, reason
+        try:
+            normalized = [_canonical_rel(root, p) for p in paths]
+        except ValueError as exc:
+            return False, str(exc)
+        if not all(any(p == lease or p.startswith(lease + "/") for lease in leases) for p in normalized):
+            return False, "tool path outside delegated lease"
+        if tool_name in _NATIVE_WRITE:
+            if "write_paths" not in packet["permissions"]:
+                return False, "write permission absent"
+        elif "read" not in packet["permissions"]:
+            return False, "read permission absent"
+        return True, ""
+    if tool_name in _MCP_SEMBLE_READ:
+        if not isinstance(tool_input, dict) or set(k for k in tool_input if k in _PATH_ALIASES) != {"repo"} or not isinstance(tool_input.get("repo"), str):
+            return False, "Semble requires exact repo field"
+        try:
+            if pathlib.Path(os.path.abspath(tool_input["repo"])) != pathlib.Path(os.path.abspath(packet["repo_root"])):
+                return False, "Semble repo mismatch"
+            _canonical_rel(root, leases[0])
+        except ValueError:
+            return False, "Semble repo is not canonical"
+        return (True, "") if "read" in packet["permissions"] else (False, "read permission absent")
+    if tool_name in _MCP_CODEGRAPH_READ:
+        if not isinstance(tool_input, dict) or not isinstance(tool_input.get("projectPath"), str) or any(k in tool_input for k in _PATH_ALIASES if k != "projectPath"):
+            return False, "CodeGraph requires exact projectPath field"
+        if pathlib.Path(os.path.abspath(tool_input["projectPath"])) != pathlib.Path(os.path.abspath(packet["repo_root"])):
+            return False, "CodeGraph projectPath mismatch"
+        return (True, "") if "read" in packet["permissions"] else (False, "read permission absent")
+    if tool_name.startswith("mcp__"):
+        return False, "unknown MCP tool"
+    return False, "delegation tool is not classified"
 
 def _tokenize_shell(command: str) -> list[Token] | None:
     """Tokenize the supported shell subset while preserving quoted metacharacters."""
@@ -630,44 +713,28 @@ def main() -> int:
 
     model = payload.get("model") if isinstance(payload.get("model"), str) else "unknown"
     tool_name = payload.get("tool_name") if isinstance(payload.get("tool_name"), str) else ""
-    # Delegation mode is fail-closed at the enforceable PreToolUse boundary.
     if os.environ.get("CODEX_DELEGATION_REQUIRED") == "1":
         try:
             packet_path = pathlib.Path(os.environ["CODEX_DELEGATION_PACKET"])
             state_root = pathlib.Path(os.environ["CODEX_DELEGATION_STATE_ROOT"])
-            import delegation_contract as _dc
-            packet_bytes = packet_path.read_bytes()
-            if os.environ.get("CODEX_DELEGATION_PACKET_SHA256") != __import__("hashlib").sha256(packet_bytes).hexdigest():
-                return _deny("delegation packet self-hash mismatch", payload=payload, model=model, tool_name=tool_name, reason_code="delegation_identity")
-            packet = json.loads(packet_bytes)
-            _dc.validate_packet(packet, verify_snapshot=True)
-            payload_model = payload.get("model") if isinstance(payload.get("model"), str) else ""
-            exposed_task = payload.get("task_id", payload.get("agent_id", payload.get("child_task_id", "")))
-            if not payload_model or not isinstance(exposed_task, str) or not exposed_task:
-                return _deny("delegation payload identity required", payload=payload, model=model, tool_name=tool_name, reason_code="delegation_identity")
-            if payload_model != packet.get("assigned_model"):
-                return _deny("delegation payload model mismatch", payload=payload, model=model, tool_name=tool_name, reason_code="delegation_identity")
-            if exposed_task != packet.get("child_task_id"):
-                return _deny("delegation payload task mismatch", payload=payload, model=model, tool_name=tool_name, reason_code="delegation_identity")
-            state, _ = _dc._load(state_root)
-            key = _dc.state_key(packet); rec = state.get("packets", {}).get(key, {})
-            if rec.get("packet_sha256") != __import__("hashlib").sha256(packet_bytes).hexdigest() or rec.get("mission_hash") != _dc._mission_hash(packet):
-                return _deny("delegation packet ledger identity mismatch", payload=payload, model=model, tool_name=tool_name, reason_code="delegation_identity")
-            ok, reason = _delegation_tool_allowed(packet, payload, state, rec, tool_name)
-            if not ok:
-                return _deny(reason, payload=payload, model=model, tool_name=tool_name, reason_code="delegation_permission")
+            expected_packet = os.environ.get("CODEX_DELEGATION_PACKET_SHA256")
+            with _dc.locked_snapshot(state_root, packet_path) as tx:
+                if expected_packet != tx.packet_sha256:
+                    return _deny("delegation packet self-hash mismatch", payload=payload, model=model, tool_name=tool_name, reason_code="delegation_identity")
+                payload_model = payload.get("model") if isinstance(payload.get("model"), str) else ""
+                exposed_task = payload.get("task_id", payload.get("agent_id", payload.get("child_task_id", "")))
+                if not payload_model or not isinstance(exposed_task, str) or payload_model != tx.packet.get("assigned_model") or exposed_task != tx.packet.get("child_task_id"):
+                    return _deny("delegation payload identity mismatch", payload=payload, model=model, tool_name=tool_name, reason_code="delegation_identity")
+                tx.revalidate(expected_phase="STARTED")
+                rec = tx.state["packets"][ _dc.state_key(tx.packet) ]
+                ok, reason = _delegation_tool_allowed(tx.packet, payload, tx.state, rec, tool_name)
+                if not ok:
+                    return _deny(reason, payload=payload, model=model, tool_name=tool_name, reason_code="delegation_permission")
         except Exception:
             return _deny("invalid active delegation context", payload=payload, model=model, tool_name=tool_name, reason_code="delegation_context")
-    # Tool capability is no longer model-gated here.  Role selection and any
-    # consequential-action approval remain task/user/L0/platform concerns.
-    record_receipt(
-        "PreToolUse",
-        payload,
-        model=model,
-        tool_name=tool_name,
-        decision="allow",
-        reason_code="model_permissions_unrestricted",
-    )
+    # Outside a delegated child, capability remains model-unrestricted; platform,
+    # user, and task-level approvals are intentionally not synthesized here.
+    record_receipt("PreToolUse", payload, model=model, tool_name=tool_name, decision="allow", reason_code="model_permissions_unrestricted")
     return 0
 
 

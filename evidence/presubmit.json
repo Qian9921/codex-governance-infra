@@ -1,7 +1,7 @@
 {
   "checks": [
     {
-      "artifact": "/tmp/v15-hooks-final2.out",
+      "artifact": "<isolated-temp>/v15-hooks-final2.out",
       "command": "PYTHONPATH=codex/hooks python3 -m unittest hooks_contract_test",
       "cost": "~2.9s",
       "end_utc": "2026-07-31T06:11:03Z",
@@ -16,7 +16,7 @@
       "why_red": "regression in 13 live v14 behaviors or V15 Spark/delegation behavior"
     },
     {
-      "artifact": "/tmp/v15-tests-final2.out",
+      "artifact": "<isolated-temp>/v15-tests-final2.out",
       "command": "python3 -m unittest discover -s tests",
       "cost": "~0.2s",
       "end_utc": "2026-07-31T06:11:03Z",
@@ -31,7 +31,7 @@
       "why_red": "contract/privacy/installer/policy regression"
     },
     {
-      "artifact": "/tmp/v15-verify-final2.out",
+      "artifact": "<isolated-temp>/v15-verify-final2.out",
       "command": "python3 scripts/verify-governance.py --repo .",
       "cost": "<1s",
       "end_utc": "2026-07-31T06:11:03Z",

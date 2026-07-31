@@ -70,6 +70,9 @@ class Hardening(unittest.TestCase):
   with tempfile.TemporaryDirectory() as td:
    t=pathlib.Path(td)/"r"; shutil.copytree(ROOT,t,ignore=shutil.ignore_patterns('.git','__pycache__','*.pyc'))
    m=json.loads((t/'manifest.json').read_text()); m['files'].pop(next(iter(m['files']))); (t/'manifest.json').write_text(json.dumps(m)); self.assertNotEqual(subprocess.run([sys.executable,str(t/'scripts/verify-governance.py'),'--repo',str(t)]).returncode,0)
+   with tempfile.TemporaryDirectory() as td:
+    t=pathlib.Path(td)/"r"; shutil.copytree(ROOT,t,ignore=shutil.ignore_patterns('.git','__pycache__','*.pyc'))
+    m=json.loads((t/'manifest.json').read_text()); m['forbidden'].remove('token'); (t/'manifest.json').write_text(json.dumps(m)); self.assertNotEqual(subprocess.run([sys.executable,str(t/'scripts/verify-governance.py'),'--repo',str(t)]).returncode,0)
  def test_symlink_rejected(self):
   with tempfile.TemporaryDirectory() as td:
    t=pathlib.Path(td)/'r'; shutil.copytree(ROOT,t,ignore=shutil.ignore_patterns('.git','__pycache__','*.pyc')); (t/'codex'/'evil').symlink_to('/etc/passwd'); self.assertNotEqual(subprocess.run([sys.executable,str(t/'scripts/verify-governance.py'),'--repo',str(t)]).returncode,0)

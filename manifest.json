@@ -29,27 +29,27 @@
     "codex/contracts/mission_packet.example.json": "ebcb89a92a6723fdfc849f24dbd15075dd06f54dc70f4ac818ef56b6129ff3bb",
     "codex/contracts/review_packet.example.json": "5e20b7f945f5d32a2d032256460a8290cead75ada6f7ae16782f36eb33677878",
     "codex/contracts/v14_preservation_matrix.json": "2163a087afd5397b13cc854fdc0cfb6099c3d3c68252a4b7fbd250f8bd520f7f",
-    "codex/hooks.json": "d25f7cc64d9bdd68bfd1b15c3fa093a0f0c43a7d27fa62bf67c807d17357fde1",
-    "codex/hooks/delegation_contract.py": "c4e68271b942e91a8c0a33ba1f4e85943278a75c9bafea976329906160b44192",
+    "codex/hooks.json": "9f1504339136c31485c2c5bf2b9263bcac848e61e52bc58decbac1cbe0db7933",
+    "codex/hooks/delegation_contract.py": "0dffb172669cbb7e653b4883ea335a9f2736b368378bba79841355cb9b5fd701",
     "codex/hooks/hook_receipt.py": "a69963bc9ba1e209858726ef488247790e4749dcbb3b54b7fc484e03b8ec2716",
     "codex/hooks/hooks.json": "33221824d219251243be1edda9bb462f2ac4d606718033d04565687391047925",
-    "codex/hooks/hooks_contract_test.py": "23872d75332c3ad697a85d27b79a79a75f0b85b483fd08aa297a66b2ae8bd107",
-    "codex/hooks/pre_tool_use_policy.py": "7d3d6b2af076cf7d9f224b9cbaadb9028db12ae08213a4d4b2428dfb70ff9501",
+    "codex/hooks/hooks_contract_test.py": "a17c384acaf6fc895d87e613c6ade385273872fcb6db198adf83f0f269c3ee93",
+    "codex/hooks/pre_tool_use_policy.py": "5c493ac575af0fd5b1079b420b56caedced6154815900b99c3be678373a5602c",
     "codex/hooks/session_context.py": "b3c07ab72b9002adce6fdbbb67e754c9bed6c9f1db2cd220f9f43ad335291646",
-    "docs/architecture.md": "28354687ec02a803dd226243363c85462f238c9cc5e2801ead82b8d5768d1468",
-    "docs/deployment.md": "fbadf2e3fe1b69e85f77f73f1e6b956b0a9d89a88eb2639e2a2f3008df72fa4f",
-    "docs/privacy-threat-model.md": "6fdeb07f3c49961f713496236ec56d74fb082c4e554458727dde746759503b51",
+    "docs/architecture.md": "f4d3b8f709b6733192f7a3a442d2b4829cbdc3a6aa68fa71fa0d3b3f5784f068",
+    "docs/deployment.md": "891c7ca1cd96017f8d87d395898900eea5d8c92b17f0d473258f6308ca5638f3",
+    "docs/privacy-threat-model.md": "d72d989d0a08223e2ba22f3be251f5ce5456b19a39adeadfb92e27cac13de1a0",
     "docs/review-workflow.md": "bde753a1f2cc5a61dc0c76226499d27997d73f96196322d3652d41d1fe2cf22a",
     "evidence/counterexample_manifest.json": "cfcd4f0b2c4038eab941c5ef170f09af069b8606689ba10a7f3f60e60956854e",
-    "evidence/presubmit.json": "4b2412a2b3d8d04bc78f4008a759a2ae34e8fea495ebf12b1400baf4ab11f161",
-    "scripts/counterexample-matrix.py": "c88b9ffebf3216673a2228455047dca5612c6d2f622c39edd777638fabec8cc6",
-    "scripts/install-governance.py": "4da88715b45d097023f1a3c2622f0100cb10d3774d1b882f41f7dcbbfd2febaf",
-    "scripts/verify-governance.py": "0cc80adefb82d3aad44ca792e6dd10196a230417c639ee7f139b396ac6284c63",
+    "evidence/presubmit.json": "8ecd63b1c3cdaafc910ee0dbbb0bc2a60035604907a910d93d026534cd0ff127",
+    "scripts/counterexample-matrix.py": "08f33ee14913aea6d063fdad25738fcc405e11cf4a5c6dba7c0da9a0bac11c27",
+    "scripts/install-governance.py": "ed3e6ff013a925811f7d7635b69479d976bbb871355031223a4eb1be4bc8141b",
+    "scripts/verify-governance.py": "913d672f3db944bf24ad6f2d2919a756abf3f844727981888e781339ed8a6f5e",
     "tests/fixtures_context.json": "2fa587121522a7a01b9f883c7fd25eb31828f9099d16778b7a2a74784a11e89e",
     "tests/test_context_contamination.py": "6947c64b3fe56663b1b93431d509479b6f8c5f941a259dd51019fcabe41f7eda",
     "tests/test_contract_fixtures.py": "75f69cac45344117e4dcfb7c78d617316a040564806c5f2a5d01541149bf2a97",
-    "tests/test_counterexample_matrix.py": "5a5711becd81eb72cf6ad2b29a036d0a138894b9d2205a48c006dac01726d76e",
-    "tests/test_hardening.py": "a2696937c11d5b82b6ad921d0c6461384beb58a0df0d8caaa7b298204b1c515a",
+    "tests/test_counterexample_matrix.py": "c87de3d99668e9643979cbb31a10ccbb6ff43292201d88cf0b6a3be5e149acd8",
+    "tests/test_hardening.py": "84ae0241f7ca2faae1565f0413a117284b74bf6ab230ff2ef2350f5197e24eeb",
     "tests/test_installer.py": "5d6a3f9eeb79570176019c8dcbad7c394374b5e8d6bf5a3c760161ae83333e6e",
     "tests/test_policy.py": "c719b519107f57d2bf1b4d39be29d31a1920980265817dc138b155ebeabf674a",
     "tests/test_privacy.py": "ed053579922bc5b033ee9ee9150557c94ca36c939240aea6141d686ea3de9bfd"
@@ -67,6 +67,131 @@
     "transcript"
   ],
   "package": "codex-governance-infra",
+  "privacy": {
+    "allowed_placeholders": [
+      {
+        "id": "user",
+        "scope": "exact-value",
+        "value": "<user>"
+      },
+      {
+        "id": "isolated-temp",
+        "scope": "exact-value",
+        "value": "<isolated-temp>"
+      },
+      {
+        "id": "home",
+        "scope": "exact-value",
+        "value": "${HOME}"
+      },
+      {
+        "id": "home-short",
+        "scope": "exact-value",
+        "value": "$HOME"
+      },
+      {
+        "id": "codex-home",
+        "scope": "exact-value",
+        "value": "${CODEX_HOME}"
+      },
+      {
+        "id": "codex-home-short",
+        "scope": "exact-value",
+        "value": "$CODEX_HOME"
+      },
+      {
+        "id": "domain",
+        "scope": "exact-value",
+        "value": "example.invalid"
+      },
+      {
+        "id": "synthetic-token",
+        "scope": "exact-value",
+        "value": "synthetic-token"
+      },
+      {
+        "id": "synthetic-id",
+        "scope": "exact-value",
+        "value": "<synthetic-id>"
+      },
+      {
+        "id": "session-example",
+        "scope": "exact-value",
+        "value": "session-secret-123"
+      },
+      {
+        "id": "turn-example",
+        "scope": "exact-value",
+        "value": "turn-secret-456"
+      },
+      {
+        "id": "runtime-example",
+        "scope": "exact-value",
+        "value": "runtime-id"
+      }
+    ],
+    "rule_ids": [
+      "credential-value",
+      "forbidden-filename",
+      "non-utf8",
+      "private-path",
+      "runtime-identifier",
+      "symlink",
+      "temp-artifact"
+    ],
+    "rules": [
+      {
+        "class": "credential",
+        "id": "credential-value",
+        "mandatory": true,
+        "pattern": "(?i)\\b(?:assigned[_ -]?credential|credential|token|secret|password)\\s*[:=]\\s*[\\\"\\']?[^\\s,}\\\"\\']+",
+        "semantics": "literal-assignment-value"
+      },
+      {
+        "class": "runtime-id",
+        "id": "runtime-identifier",
+        "mandatory": true,
+        "pattern": "(?i)\\b(?:session_id|turn_id|prompt_id|transcript_id|receipt_id)\\b\\s*[:=]\\s*[^\\n]+",
+        "semantics": "literal-json-yaml-or-unquoted-value"
+      },
+      {
+        "class": "path",
+        "id": "private-path",
+        "mandatory": true,
+        "pattern": "(?:\\\\x2f|/)(?:home|Users|private|var[/\\\\]tmp)(?:\\\\x2f|/)[A-Za-z0-9._~-]+",
+        "semantics": "portable-linux-macos-windows-raw-or-escaped"
+      },
+      {
+        "class": "filename",
+        "id": "forbidden-filename",
+        "mandatory": true,
+        "pattern": "decorated-session-receipt-prompt-transcript-credential-token-secret-password",
+        "semantics": "path-token-boundary"
+      },
+      {
+        "class": "encoding",
+        "id": "non-utf8",
+        "mandatory": true,
+        "pattern": "utf-8",
+        "semantics": "decode-strict"
+      },
+      {
+        "class": "filesystem",
+        "id": "symlink",
+        "mandatory": true,
+        "pattern": "symlink",
+        "semantics": "lstat-no-follow"
+      },
+      {
+        "class": "path",
+        "id": "temp-artifact",
+        "mandatory": true,
+        "pattern": "(?:\\\\x2f|/)tmp(?:\\\\x2f|/)",
+        "semantics": "tracked-temporary-artifact-path"
+      }
+    ],
+    "schema": "privacy-rules.v1"
+  },
   "schema_version": "1",
   "version": "15.0.0"
 }
