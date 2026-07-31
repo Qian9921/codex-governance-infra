@@ -7,7 +7,7 @@ def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
 def collect(src):
     out=[]
     for p in sorted(src.rglob('*')):
-        if p.is_file() and '.git' not in p.parts:
+        if p.is_file() and '.git' not in p.parts and '__pycache__' not in p.parts and p.suffix != '.pyc':
             rel=p.relative_to(src).as_posix()
             if rel.startswith(ALLOW): out.append((rel,p))
             elif rel not in {'README.md','SECURITY.md','PRIVACY.md','LICENSE','AGENTS.md','manifest.json'}: continue
