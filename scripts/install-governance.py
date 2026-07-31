@@ -188,37 +188,55 @@ def _remove_empty_dirs(paths: Iterable[pathlib.Path]) -> None:
 
 
 def _rollback_records(dest: pathlib.Path, backup: pathlib.Path, records: list[dict], created_dirs: list[str], *, require_current: bool = False) -> None:
-    # Verify managed objects before changing anything, so rollback is all-or-nothing.
+    """Validate the complete restore plan before mutation, then recover on restore failure."""
+    plan=[]
+    check_chain(dest)
+    for rel in created_dirs:
+        if rel:
+            check_chain(dest / rel)
     for rec in records:
-        target = dest / rec["path"]
+        target=dest / rec["path"]; check_chain(target.parent); info=lstat_or_none(target)
         if require_current:
-            info = lstat_or_none(target)
-            if info is None or stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            if info is None or stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or digest(target) != rec.get("installed_sha256"):
                 raise RuntimeError("rollback refused: managed target changed:" + rec["path"])
-            if digest(target) != rec.get("installed_sha256"):
-                raise RuntimeError("rollback refused: managed target changed:" + rec["path"])
-    for rec in reversed(records):
-        target = dest / rec["path"]
         if rec.get("exists"):
-            source = backup / rec["path"]
-            if not lexists(source) or not lstat_or_none(source) or stat.S_ISLNK(lstat_or_none(source).st_mode):
-                # A failpoint may fire before the backup replace; unchanged originals need no action.
-                info = lstat_or_none(target)
-                if info is not None and stat.S_ISREG(info.st_mode) and digest(target) == rec.get("sha256"):
-                    continue
+            source=backup / rec["path"]; check_chain(source.parent)
+            binfo=lstat_or_none(source)
+            if binfo is None or stat.S_ISLNK(binfo.st_mode) or not stat.S_ISREG(binfo.st_mode):
+                if not require_current and info is not None and stat.S_ISREG(info.st_mode) and digest(target)==rec.get("sha256"):
+                    plan.append((rec,target,None,"noop")); continue
                 raise RuntimeError("missing transaction backup:" + rec["path"])
-            target.parent.mkdir(parents=True, exist_ok=True)
-            old_fail = os.environ.pop("CODEX_INSTALL_FAIL_AFTER", None)
-            try: _atomic_copy(source, target, int(rec.get("mode", 0o644)), [0], "rollback")
-            finally:
-                if old_fail is not None: os.environ["CODEX_INSTALL_FAIL_AFTER"] = old_fail
+            if digest(source) != rec.get("sha256") or not isinstance(rec.get("mode"),int) or not 0 <= rec["mode"] <= 0o7777:
+                raise RuntimeError("corrupt transaction backup:" + rec["path"])
+            plan.append((rec,target,source,"restore"))
         else:
-            info = lstat_or_none(target)
-            if info is not None:
-                if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-                    raise RuntimeError("rollback encountered unexpected managed object:" + rec["path"])
-                target.unlink(); _fsync_dir(target.parent)
-    _remove_empty_dirs([dest / p for p in created_dirs])
+            if info is not None and (stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode)):
+                raise RuntimeError("rollback encountered unexpected managed object:" + rec["path"])
+            plan.append((rec,target,None,"remove" if info is not None else "noop"))
+    # Snapshot every installed object before any mutation, allowing roll-forward if restore itself fails.
+    snapshot=pathlib.Path(tempfile.mkdtemp(prefix=".v15-rollback-",dir=backup.parent)); snapmap=[]
+    try:
+        for rec,target,source,action in plan:
+            info=lstat_or_none(target)
+            if info is not None and stat.S_ISREG(info.st_mode):
+                snap=snapshot / rec["path"]; snap.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(target,snap); snapmap.append((target,snap,stat.S_IMODE(info.st_mode)))
+        old_fail=os.environ.pop("CODEX_INSTALL_FAIL_AFTER",None)
+        try:
+            for rec,target,source,action in reversed(plan):
+                if action=="restore":
+                    target.parent.mkdir(parents=True,exist_ok=True); _atomic_copy(source,target,int(rec["mode"]),[0],"rollback")
+                elif action=="remove":
+                    target.unlink(); _fsync_dir(target.parent)
+            _remove_empty_dirs([dest / p for p in created_dirs])
+        except Exception:
+            # Roll forward to the exact installed snapshot; failure is surfaced to caller.
+            for target,snap,mode in snapmap:
+                target.parent.mkdir(parents=True,exist_ok=True); _atomic_copy(snap,target,mode,[0],"rollback-recover")
+            raise
+        finally:
+            if old_fail is not None: os.environ["CODEX_INSTALL_FAIL_AFTER"] = old_fail
+    finally:
+        shutil.rmtree(snapshot,ignore_errors=True)
 
 
 def main() -> int:

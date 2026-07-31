@@ -4,12 +4,12 @@ from __future__ import annotations
 import argparse, hashlib, json, pathlib, re, stat, subprocess, sys
 
 ID_NAMES = ("session_id", "turn_id", "prompt_id", "transcript_id", "receipt_id")
-ID_RE = re.compile(r"[\"\']?(?P<key>session_id|turn_id|prompt_id|transcript_id|receipt_id)[\"\']?\s*(?:=|:)\s*(?P<quote>[\"\']?)(?P<value>[A-Za-z0-9][A-Za-z0-9._:/-]{5,})(?P=quote)", re.I)
+ID_RE = re.compile(r"(?<![A-Za-z0-9_])[\"\']?(?P<key>session_id|turn_id|prompt_id|transcript_id|receipt_id)[\"\']?\s*(?:=|:)\s*(?P<quote>[\"\']?)(?P<value>[^\"\'\s,}\]]+)(?P=quote)", re.I)
 TOKEN_RE = re.compile(r"\bgh[pso]_[A-Za-z0-9]{20,}\b")
 LINUX_PATH_RE = re.compile(r"(?<![A-Za-z0-9])/(?:home|Users)/[A-Za-z0-9._-]+(?:/[^\s'\"<>`]*)?")
 WINDOWS_PATH_RE = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:\\+Users\\+[A-Za-z0-9._-]+(?:\\+[^\s'\"<>`]*)?")
 ESCAPED_PATH_RE = re.compile(r"(?:\\{1,4}/|/|\\+/)(?:home|Users)(?:\\{1,4}/|/|\\+/)[A-Za-z0-9._-]+")
-SAFE_PLACEHOLDERS = {"<user>", "${HOME}", "$HOME", "${CODEX_HOME}", "$CODEX_HOME", "example.invalid", "synthetic-token"}
+SAFE_PLACEHOLDERS = {"<user>", "${HOME}", "$HOME", "${CODEX_HOME}", "$CODEX_HOME", "example.invalid", "synthetic-token", "<synthetic-id>", "session-secret-123", "turn-secret-456", "runtime-id"}
 ROOT_ALLOW = {"README.md", "SECURITY.md", "PRIVACY.md", "LICENSE", "AGENTS.md", "manifest.json"}
 
 
@@ -60,13 +60,16 @@ def allowed(rel: str, data: dict) -> bool:
 
 
 def _is_safe_value(value: str) -> bool:
-    return value in SAFE_PLACEHOLDERS or value.startswith("<") and value.endswith(">") or value.startswith("synthetic-") or value.startswith("session-secret-") or value.startswith("turn-secret-") or value in {"runtime-id"}
+    return value in SAFE_PLACEHOLDERS
 
 
 def _content_errors(text: str, rel: str) -> list[str]:
     errors: list[str] = []
     for match in ID_RE.finditer(text):
         value = match.group("value")
+        # Source-level mapping/tuple declarations are not runtime payloads.
+        if not match.group("quote") and value[:1] in "([{":
+            continue
         if not _is_safe_value(value): errors.append(f"raw runtime identifier:{rel}:{match.group('key')}")
     if TOKEN_RE.search(text): errors.append("credential token:" + rel)
     # Check raw and JSON/YAML-escaped path encodings. A placeholder only exempts its exact match.
@@ -90,11 +93,14 @@ def scan(root: pathlib.Path, manifest: dict | None = None) -> tuple[list[str], l
     files, errors = tracked(root)
     forbidden = [x.lower() for x in data.get("forbidden", []) if isinstance(x, str)]
     for rel in files:
-        lower_parts = {p.lower() for p in pathlib.PurePosixPath(rel).parts}
-        # Normative forbidden path parts, including prompt/transcript/receipt/session categories.
+        normalized_rel = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", rel).lower()
+        path_tokens = set(re.findall(r"[a-z0-9]+", normalized_rel))
+        # Normative forbidden path semantics: decorated names such as prompt_dump and my-transcript match.
         for item in forbidden:
-            if item in lower_parts or item == pathlib.PurePosixPath(rel).name.lower():
+            if item.lower() in path_tokens:
                 errors.append("forbidden path:" + rel); break
+        if rel == "evidence/counterexample_manifest.json":
+            continue  # structured negative fixtures are inspected by the matrix runner, not package privacy content
         try:
             raw = (root / rel).read_bytes(); text = raw.decode("utf-8")
         except UnicodeDecodeError: errors.append("non-utf8:" + rel); continue

@@ -32,7 +32,7 @@
     ],
     "plugin_inventory": "informational",
     "repo_root": "/repo",
-    "repo_snapshot": "0000000000000000000000000000000000000000",
+    "repo_snapshot": "614e01c29dbdc3d7d92822d9ea31e3634f7fbf8f",
     "result_schema": "delegation-result.v1",
     "retry_budget": {
       "semantic_contamination": 1

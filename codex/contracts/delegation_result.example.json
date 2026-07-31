@@ -18,6 +18,7 @@
   "depth": 1,
   "evidence_id": "fixture-evidence",
   "parent_task_id": "parent/1",
+  "result_schema": "delegation-result.v1",
   "retry_transcript": [],
   "retry_used": 0,
   "schema": "delegation-result.v1",

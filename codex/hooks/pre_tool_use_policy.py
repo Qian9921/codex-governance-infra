@@ -581,6 +581,14 @@ def main() -> int:
             if os.environ.get("CODEX_DELEGATION_PACKET_SHA256") != __import__("hashlib").sha256(packet_bytes).hexdigest():
                 return _deny("delegation packet self-hash mismatch", payload=payload, model=model, tool_name=tool_name, reason_code="delegation_identity")
             packet = json.loads(packet_bytes)
+            payload_model = payload.get("model") if isinstance(payload.get("model"), str) else ""
+            exposed_task = payload.get("task_id", payload.get("agent_id", payload.get("child_task_id", "")))
+            if not payload_model or not isinstance(exposed_task, str) or not exposed_task:
+                return _deny("delegation payload identity required", payload=payload, model=model, tool_name=tool_name, reason_code="delegation_identity")
+            if payload_model != packet.get("assigned_model"):
+                return _deny("delegation payload model mismatch", payload=payload, model=model, tool_name=tool_name, reason_code="delegation_identity")
+            if exposed_task != packet.get("child_task_id"):
+                return _deny("delegation payload task mismatch", payload=payload, model=model, tool_name=tool_name, reason_code="delegation_identity")
             state, _ = _dc._load(state_root)
             key = _dc.state_key(packet); rec = state.get("packets", {}).get(key, {})
             if rec.get("phase") != "STARTED" or not any(x.get("key") == key for x in state.get("active", [])) or "read" not in packet.get("permissions", []):

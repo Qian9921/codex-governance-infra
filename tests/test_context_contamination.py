@@ -14,7 +14,7 @@ class ContextContamination(unittest.TestCase):
  def test_unauthorized_git_reject(self): p=dict(FX['packet']); p['permissions']=['git']; self.assertRaises(ContractError,validate_packet,p)
  def test_unauthorized_github_reject(self): p=dict(FX['packet']); p['permissions']=['github']; self.assertRaises(ContractError,validate_packet,p)
  def test_contaminated_result_reject(self):
-  r={'schema':'delegation-result.v1','parent_task_id':'v15/spark/parent','child_task_id':'v15/spark/context','assigned_model':'gpt-5.3-codex-spark','task_id':'v15/spark/context','depth':1,'changed_paths':['tests/x.py'],'counts':{'total':1,'ran':1,'passed':1,'failed':0,'skipped':0},'retry_used':0,'contamination':True,'status':'rejected'}
+  r={'schema':'delegation-result.v1','result_schema':'delegation-result.v1','parent_task_id':'v15/spark/parent','child_task_id':'v15/spark/context','assigned_model':'gpt-5.3-codex-spark','task_id':'v15/spark/context','depth':1,'attempt_id':'attempt/1','changed_paths':['tests/x.py'],'counts':{'total':1,'ran':1,'passed':1,'failed':0,'skipped':0,'unknown':0},'retry_used':0,'retry_transcript':[],'contamination':True,'status':'rejected','artifact_sha256':'a'*64,'evidence_id':'test/1'}
   self.assertRaises(ContractError,validate_result,r,FX['packet'])
  def test_retry_exactly_one(self): self.assertEqual(FX['packet']['retry_budget']['semantic_contamination'],1)
 if __name__=='__main__': unittest.main()

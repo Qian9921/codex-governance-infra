@@ -72,7 +72,8 @@ def _validate_repo_and_lease(packet, verify_snapshot=False):
     snap = packet.get("repo_snapshot")
     if not (isinstance(snap, str) and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", snap)): raise ContractError("repo snapshot")
     head = _git_head(root)
-    if verify_snapshot and head and snap != "0" * 40 and snap != head: raise ContractError("repo snapshot mismatch")
+    if head is None: raise ContractError("git repository snapshot required")
+    if not re.fullmatch(r"[0-9a-f]{40}", snap) or snap != head: raise ContractError("repo snapshot mismatch")
     lease = packet.get("lease")
     paths = _paths(lease.get("paths") if isinstance(lease, dict) else None)
     for rel in paths:
@@ -89,7 +90,7 @@ def _validate_repo_and_lease(packet, verify_snapshot=False):
 
 
 def validate_packet(packet, parent_task_id=None, active_leases=None, *, verify_snapshot=False):
-    if not isinstance(packet, dict) or not REQUIRED_PACKET <= packet.keys(): raise ContractError("missing packet field")
+    if not isinstance(packet, dict) or set(packet) != REQUIRED_PACKET: raise ContractError("packet schema fields")
     if packet["schema"] != "delegation.v1" or packet.get("result_schema") != "delegation-result.v1": raise ContractError("schema")
     _validate_repo_and_lease(packet, verify_snapshot=verify_snapshot)
     if parent_task_id and packet["parent_task_id"] != parent_task_id: raise ContractError("parent mismatch")
@@ -99,8 +100,8 @@ def validate_packet(packet, parent_task_id=None, active_leases=None, *, verify_s
     if any(not _not_bool_int(packet.get(k)) for k in ("max_depth", "depth")) or packet["max_depth"] != 1 or packet["depth"] != 1: raise ContractError("depth")
     if packet["active_mission_lock"] is not True or packet["plugin_inventory"] != "informational": raise ContractError("mission lock")
     perms = packet["permissions"]; forbidden = packet["forbidden_permissions"]
-    if not isinstance(perms, list) or any(not isinstance(x, str) or x.lower() != x or x not in SAFE_PERMISSIONS for x in perms): raise ContractError("permission allowlist")
-    if not isinstance(forbidden, list) or set(forbidden) != FORBIDDEN_CANONICAL or any(not isinstance(x, str) for x in forbidden): raise ContractError("canonical forbidden set")
+    if not isinstance(perms, list) or len(perms) != len(set(perms)) or any(not isinstance(x, str) or x.lower() != x or x not in SAFE_PERMISSIONS for x in perms): raise ContractError("permission allowlist")
+    if not isinstance(forbidden, list) or len(forbidden) != len(set(forbidden)) or set(forbidden) != FORBIDDEN_CANONICAL or any(not isinstance(x, str) for x in forbidden): raise ContractError("canonical forbidden set")
     if any(x in FORBIDDEN_CANONICAL or any(t in x for t in ("git", "github", "shell", "bash", "review", "approv", "merge")) for x in perms): raise ContractError("forbidden child permission")
     if active_leases:
         paths = _paths(packet["lease"]["paths"])
@@ -113,54 +114,62 @@ def validate_packet(packet, parent_task_id=None, active_leases=None, *, verify_s
     return True
 
 
-def _validate_transcript(transcript, attempts):
-    if not isinstance(transcript, list): raise ContractError("retry transcript type")
+def _validate_transcript(transcript, prior_attempts, current_attempt):
+    if not isinstance(transcript, list) or len(transcript) > 1: raise ContractError("retry transcript type")
+    seen = set()
     for rec in transcript:
-        if not isinstance(rec, dict) or set(rec) - {"attempt_id", "status", "reason"} or not _id(rec.get("attempt_id")) or rec.get("attempt_id") not in attempts or rec.get("status") not in {"contaminated", "retry_available", "accepted", "terminal_rejected"} or not isinstance(rec.get("reason", ""), str): raise ContractError("retry transcript record")
+        if not isinstance(rec, dict) or set(rec) != {"attempt_id", "status", "reason"}: raise ContractError("retry transcript record")
+        aid = rec.get("attempt_id")
+        if not _id(aid) or aid in seen or aid == current_attempt or aid not in prior_attempts: raise ContractError("retry transcript correlation")
+        if rec.get("status") != "contaminated" or not isinstance(rec.get("reason"), str) or not rec["reason"]: raise ContractError("retry transcript status")
+        seen.add(aid)
 
 
-def validate_result(result, packet, state=None):
-    if not isinstance(result, dict) or not REQUIRED_RESULT <= result.keys(): raise ContractError("missing result field")
-    if result.get("result_schema", "delegation-result.v1") != "delegation-result.v1" or result.get("schema") != "delegation-result.v1": raise ContractError("result schema")
+def validate_result(result, packet, state=None, *, allow_contamination=False, record_state=True):
+    expected_fields = set(REQUIRED_RESULT) | {"result_schema"}
+    if not isinstance(result, dict) or set(result) != expected_fields: raise ContractError("result schema fields")
+    if result.get("result_schema") != "delegation-result.v1" or result.get("schema") != "delegation-result.v1": raise ContractError("result schema")
     if result.get("parent_task_id") != packet["parent_task_id"] or result.get("child_task_id") != packet["child_task_id"] or result.get("task_id") != packet["child_task_id"] or result.get("assigned_model") != packet["assigned_model"]: raise ContractError("result identity")
     if not _not_bool_int(result.get("depth")) or result["depth"] != packet["depth"]: raise ContractError("result depth")
     if not _id(result.get("attempt_id")): raise ContractError("attempt id")
-    if result.get("status") not in STATUSES: raise ContractError("status")
-    paths = result.get("changed_paths")
+    status=result.get("status")
+    if status not in STATUSES: raise ContractError("status")
+    paths=result.get("changed_paths")
     if not isinstance(paths, list) or any(not isinstance(x, str) for x in paths): raise ContractError("changed paths type")
-    normalized = [normalize_path(x) for x in paths]
+    normalized=[normalize_path(x) for x in paths]
     if len(set(normalized)) != len(normalized): raise ContractError("duplicate changed path")
-    lease = _paths(packet["lease"]["paths"])
-    root = pathlib.Path(packet["repo_root"])
+    lease=_paths(packet["lease"]["paths"]); root=pathlib.Path(packet["repo_root"])
     for n in normalized:
         if not any(n == p or n.startswith(p + "/") for p in lease): raise ContractError("changed path outside lease")
-        cur = root
+        cur=root
         for part in n.split("/"):
-            cur /= part; info = _lstat(cur)
+            cur/=part; info=_lstat(cur)
             if info is not None and stat.S_ISLNK(info.st_mode): raise ContractError("symlink changed path")
-    counts = result.get("counts")
-    if not isinstance(counts, dict) or set(counts) != {"total", "ran", "passed", "failed", "skipped", "unknown"}: raise ContractError("counts fields")
+    counts=result.get("counts")
+    if not isinstance(counts, dict) or set(counts) != {"total","ran","passed","failed","skipped","unknown"}: raise ContractError("counts fields")
     if any(not _not_bool_int(counts[k]) or counts[k] < 0 for k in counts): raise ContractError("counts types")
     if counts["total"] != counts["passed"] + counts["failed"] + counts["skipped"] or counts["ran"] != counts["passed"] + counts["failed"]: raise ContractError("count arithmetic")
-    if not _not_bool_int(result.get("retry_used")) or result["retry_used"] not in (0, 1): raise ContractError("retry overflow")
+    if not _not_bool_int(result.get("retry_used")) or result["retry_used"] not in (0,1): raise ContractError("retry overflow")
     if type(result.get("contamination")) is not bool: raise ContractError("contamination type")
-    attempts = [] if state is None else state.get("delegations", {}).get(state_key(packet), {}).get("attempts", [])
-    transcript = result.get("retry_transcript")
-    _validate_transcript(transcript, attempts + [result["attempt_id"]])
+    prior = [] if state is None else state.get("delegations", {}).get(state_key(packet), {}).get("attempts", [])
+    transcript = result.get("retry_transcript"); _validate_transcript(transcript, prior, result["attempt_id"])
     if result["retry_used"] != len(transcript): raise ContractError("retry consistency")
     if not isinstance(result.get("evidence_id"), str) or not _id(result["evidence_id"]): raise ContractError("evidence id")
     if not _sha256(result.get("artifact_sha256")): raise ContractError("artifact sha256")
-    if result["status"] == "complete":
+    if status == "complete":
         if counts["total"] <= 0 or counts["failed"] != 0 or counts["skipped"] != 0 or counts["unknown"] != 0: raise ContractError("incomplete evidence")
-    elif result["status"] in {"blocked", "failed", "rejected"} and counts["total"] < 0: raise ContractError("transport schema")
+    else:
+        if counts["passed"] != 0 or result["contamination"] is False and result["retry_used"] != 0: raise ContractError("transport counts")
     if result["contamination"] is True:
         if state is not None:
             rec = state.setdefault("delegations", {}).setdefault(state_key(packet), {"attempts": [], "phase": "STARTED"})
-            if result["attempt_id"] in rec["attempts"] or len(rec["attempts"]) >= 2: raise ContractError("attempt replay")
+            if result["attempt_id"] in rec["attempts"] or len(rec["attempts"]) >= 1:
+                raise ContractError("contamination terminal")
             rec["attempts"].append(result["attempt_id"]); rec["phase"] = "RETRY_AVAILABLE"
-        raise ContractError("contaminated result")
-    if state is not None:
-        rec = state.setdefault("delegations", {}).setdefault(state_key(packet), {"attempts": [], "phase": "STARTED"})
+        if not allow_contamination: raise ContractError("contaminated result; retry available")
+        return True
+    if state is not None and record_state:
+        rec=state.setdefault("delegations",{}).setdefault(state_key(packet),{"attempts":[],"phase":"STARTED"})
         if result["attempt_id"] in rec["attempts"] or len(rec["attempts"]) >= 2: raise ContractError("attempt replay")
     return True
 
@@ -228,23 +237,38 @@ def cli():
             state.setdefault("packets", {})[key] = rec; state.setdefault("delegations", {})[key] = {"attempts": [], "phase": "REGISTERED"}; state.setdefault("active", []).append({"task_id": packet["child_task_id"], "lease": packet["lease"]["paths"], "key": key}); _save(state, state_file); print(json.dumps({"decision": "allow", "mission_hash": mission})); return 0
         rec = state.get("packets", {}).get(key)
         if args.cmd == "subagent-start":
-            event = os.environ.get("CODEX_DELEGATION_EVENT", "SubagentStart")
-            model = os.environ.get("CODEX_DELEGATION_MODEL", packet.get("assigned_model")); task = os.environ.get("CODEX_DELEGATION_TASK_ID", packet.get("child_task_id"))
+            event = os.environ.get("CODEX_DELEGATION_EVENT")
+            model = os.environ.get("CODEX_DELEGATION_MODEL"); task = os.environ.get("CODEX_DELEGATION_TASK_ID")
             if event != "SubagentStart" or model != packet["assigned_model"] or task != packet["child_task_id"] or os.environ.get("CODEX_DELEGATION_PACKET_SHA256") != expected or not rec or rec.get("packet_sha256") != expected or rec.get("phase") != "REGISTERED": raise ContractError("missing, wrong, unregistered, duplicate, or mismatched SubagentStart")
             validate_packet(packet, verify_snapshot=True); rec["phase"] = "STARTED"; state["delegations"][key]["phase"] = "STARTED"; _save(state, state_file); print(json.dumps({"decision": "allow", "packet_sha256": expected, "mission_hash": rec["mission_hash"]})); return 0
-        if not args.result or not rec or rec.get("phase") not in {"STARTED", "CONTAMINATED_RECORDED", "RETRY_AVAILABLE"}: raise ContractError("result without active started record")
+        if not args.result or not rec or rec.get("phase") not in {"STARTED", "CONTAMINATED_RECORDED", "RETRY_AVAILABLE"}:
+            raise ContractError("result without active started record")
         result = json.loads(pathlib.Path(args.result).read_text())
         ledger = state["delegations"][key]
-        if ledger.get("phase") == "CONTAMINATED_RECORDED":
-            ledger["phase"] = "RETRY_AVAILABLE"; rec["phase"] = "RETRY_AVAILABLE"; _save(state, state_file)
-        if result.get("contamination") is not True and ((ledger.get("phase") == "STARTED" and result.get("retry_used") != 0) or (ledger.get("phase") == "RETRY_AVAILABLE" and result.get("retry_used") != 1)):
+        # Require the persisted state to agree with retry use before validating payload.
+        expected_retry = 0 if ledger.get("phase") == "STARTED" else 1
+        if result.get("contamination") is not True and result.get("retry_used") != expected_retry:
             raise ContractError("retry state mismatch")
         if result.get("contamination") is True:
-            # Persist contamination before returning rejection, enabling exactly one clean retry.
-            ledger = state["delegations"][key]; attempt = result.get("attempt_id")
-            if not _id(attempt) or attempt in ledger["attempts"] or len(ledger["attempts"]) >= 2: ledger["phase"] = "TERMINAL_REJECTED"; rec["phase"] = "TERMINAL_REJECTED"; _save(state, state_file); raise ContractError("contamination terminal")
-            ledger["attempts"].append(attempt); ledger["phase"] = "CONTAMINATED_RECORDED"; rec["phase"] = "CONTAMINATED_RECORDED"; _save(state, state_file); raise ContractError("contaminated result; retry available")
-        validate_result(result, packet, state); ledger = state["delegations"][key]; ledger["attempts"].append(result["attempt_id"]); ledger["phase"] = "ACCEPTED" if result["status"] == "complete" else "TERMINAL_REJECTED"; rec["phase"] = ledger["phase"]; rec["attempt_id"] = result["attempt_id"]; state["active"] = [x for x in state.get("active", []) if x.get("key") != key]; _save(state, state_file); print(json.dumps({"decision": "accept" if result["status"] == "complete" else "reject", "attempt_id": result["attempt_id"]})); return 0
+            try:
+                validate_result(result, packet, state, allow_contamination=True)
+            except ContractError as exc:
+                # A fully validated second contamination is terminal; malformed input
+                # must not mutate state or release the lease.
+                if str(exc) != "contamination terminal":
+                    raise
+                ledger["phase"] = "TERMINAL_REJECTED"; rec["phase"] = "TERMINAL_REJECTED"
+                state["active"] = [x for x in state.get("active", []) if x.get("key") != key]; _save(state, state_file)
+                raise
+            rec["phase"] = "CONTAMINATED_RECORDED"; ledger["phase"] = "CONTAMINATED_RECORDED"; _save(state, state_file)
+            raise ContractError("contaminated result; retry available")
+        validate_result(result, packet, state)
+        if result["attempt_id"] in ledger.get("attempts", []): raise ContractError("attempt replay")
+        ledger["attempts"].append(result["attempt_id"])
+        ledger["phase"] = "ACCEPTED" if result["status"] == "complete" else "TERMINAL_REJECTED"
+        rec["phase"] = ledger["phase"]; rec["attempt_id"] = result["attempt_id"]
+        state["active"] = [x for x in state.get("active", []) if x.get("key") != key]
+        _save(state, state_file); print(json.dumps({"decision": "accept" if result["status"] == "complete" else "reject", "attempt_id": result["attempt_id"]})); return 0
 
 
 if __name__ == "__main__":

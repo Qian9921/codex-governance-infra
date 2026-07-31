@@ -6,9 +6,9 @@ installer=load('installer',ROOT/'scripts/install-governance.py'); verifier=load(
 sys.path.insert(0,str(ROOT/'codex/hooks')); import delegation_contract as dc
 class Hardening(unittest.TestCase):
  def packet(self,child='child/1'):
-  return {'schema':'delegation.v1','repo_root':str(ROOT.resolve()),'repo_snapshot':'0'*40,'parent_task_id':'parent/1','child_task_id':child,'assigned_model':'gpt-5.3-codex-spark','role':'specialist','max_depth':1,'depth':1,'permissions':['read','write_paths'],'forbidden_permissions':sorted(dc.FORBIDDEN_CANONICAL),'lease':{'paths':['tests']},'retry_budget':{'semantic_contamination':1},'active_mission_lock':True,'plugin_inventory':'informational','result_schema':'delegation-result.v1'}
+  return {'schema':'delegation.v1','repo_root':str(ROOT.resolve()),'repo_snapshot':subprocess.check_output(['git','-C',str(ROOT),'rev-parse','HEAD'],text=True).strip(),'parent_task_id':'parent/1','child_task_id':child,'assigned_model':'gpt-5.3-codex-spark','role':'specialist','max_depth':1,'depth':1,'permissions':['read','write_paths'],'forbidden_permissions':sorted(dc.FORBIDDEN_CANONICAL),'lease':{'paths':['tests']},'retry_budget':{'semantic_contamination':1},'active_mission_lock':True,'plugin_inventory':'informational','result_schema':'delegation-result.v1'}
  def result(self,p,**kw):
-  r={'schema':'delegation-result.v1','parent_task_id':p['parent_task_id'],'child_task_id':p['child_task_id'],'assigned_model':p['assigned_model'],'task_id':p['child_task_id'],'depth':1,'changed_paths':['tests/x.py'],'counts':{'total':1,'ran':1,'passed':1,'failed':0,'skipped':0,'unknown':0},'retry_used':0,'retry_transcript':[],'contamination':False,'status':'complete','artifact_sha256':'a'*64,'evidence_id':'ev/1','attempt_id':'attempt/1'}; r.update(kw); return r
+  r={'schema':'delegation-result.v1','result_schema':'delegation-result.v1','parent_task_id':p['parent_task_id'],'child_task_id':p['child_task_id'],'assigned_model':p['assigned_model'],'task_id':p['child_task_id'],'depth':1,'changed_paths':['tests/x.py'],'counts':{'total':1,'ran':1,'passed':1,'failed':0,'skipped':0,'unknown':0},'retry_used':0,'retry_transcript':[],'contamination':False,'status':'complete','artifact_sha256':'a'*64,'evidence_id':'ev/1','attempt_id':'attempt/1'}; r.update(kw); return r
  def test_path_rejections(self):
   for x in ('../x','/abs','a//b','a/./b','a\\b','C:/x',''):
    with self.assertRaises(dc.ContractError): dc.normalize_path(x)
@@ -46,7 +46,7 @@ class Hardening(unittest.TestCase):
    t=pathlib.Path(td); (t/'codex').mkdir(); (t/'codex/x').write_text('ghp_'+'A'*24); files,errs=verifier.scan(t); self.assertTrue(errs)
  def test_connected_cli_flow(self):
   with tempfile.TemporaryDirectory() as td:
-   t=pathlib.Path(td); p=t/'p.json'; p.write_text(json.dumps(self.packet())); state=t/'state'; env=os.environ.copy(); env['CODEX_DELEGATION_PACKET_SHA256']=hashlib.sha256(p.read_bytes()).hexdigest()
+   t=pathlib.Path(td); p=t/'p.json'; p.write_text(json.dumps(self.packet())); state=t/'state'; env=os.environ.copy(); env['CODEX_DELEGATION_PACKET_SHA256']=hashlib.sha256(p.read_bytes()).hexdigest(); env['CODEX_DELEGATION_EVENT']='SubagentStart'; env['CODEX_DELEGATION_MODEL']=self.packet()['assigned_model']; env['CODEX_DELEGATION_TASK_ID']=self.packet()['child_task_id']
    self.assertEqual(subprocess.run([sys.executable,str(ROOT/'codex/hooks/delegation_contract.py'),'pre-dispatch','--packet',str(p),'--state-root',str(state)]).returncode,0)
    self.assertEqual(subprocess.run([sys.executable,str(ROOT/'codex/hooks/delegation_contract.py'),'subagent-start','--packet',str(p),'--state-root',str(state)],env=env).returncode,0)
    env['CODEX_DELEGATION_REQUIRED']='1'; env['CODEX_DELEGATION_PACKET']=str(p); env['CODEX_DELEGATION_STATE_ROOT']=str(state)
