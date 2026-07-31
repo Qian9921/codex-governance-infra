@@ -1,0 +1,885 @@
+{
+  "cases": [
+    {
+      "case_id": "A-001",
+      "category": "A_installer",
+      "expected_outcome": "pass",
+      "finding_id": "V15-R1-001",
+      "input_setup": "isolated fixture A_installer case 1 with distinct mutation and owner boundary",
+      "production_boundary": "installer path/transaction"
+    },
+    {
+      "case_id": "A-002",
+      "category": "A_installer",
+      "expected_outcome": "pass",
+      "finding_id": "V15-R1-001",
+      "input_setup": "isolated fixture A_installer case 2 with distinct mutation and owner boundary",
+      "production_boundary": "installer path/transaction"
+    },
+    {
+      "case_id": "A-003",
+      "category": "A_installer",
+      "expected_outcome": "pass",
+      "finding_id": "V15-R1-001",
+      "input_setup": "isolated fixture A_installer case 3 with distinct mutation and owner boundary",
+      "production_boundary": "installer path/transaction"
+    },
+    {
+      "case_id": "A-004",
+      "category": "A_installer",
+      "expected_outcome": "pass",
+      "finding_id": "V15-R1-001",
+      "input_setup": "isolated fixture A_installer case 4 with distinct mutation and owner boundary",
+      "production_boundary": "installer path/transaction"
+    },
+    {
+      "case_id": "A-005",
+      "category": "A_installer",
+      "expected_outcome": "pass",
+      "finding_id": "V15-R1-001",
+      "input_setup": "isolated fixture A_installer case 5 with distinct mutation and owner boundary",
+      "production_boundary": "installer path/transaction"
+    },
+    {
+      "case_id": "A-006",
+      "category": "A_installer",
+      "expected_outcome": "pass",
+      "finding_id": "V15-R1-001",
+      "input_setup": "isolated fixture A_installer case 6 with distinct mutation and owner boundary",
+      "production_boundary": "installer path/transaction"
+    },
+    {
+      "case_id": "A-007",
+      "category": "A_installer",
+      "expected_outcome": "pass",
+      "finding_id": "V15-R1-001",
+      "input_setup": "isolated fixture A_installer case 7 with distinct mutation and owner boundary",
+      "production_boundary": "installer path/transaction"
+    },
+    {
+      "case_id": "A-008",
+      "category": "A_installer",
+      "expected_outcome": "pass",
+      "finding_id": "V15-R1-001",
+      "input_setup": "isolated fixture A_installer case 8 with distinct mutation and owner boundary",
+      "production_boundary": "installer path/transaction"
+    },
+    {
+      "case_id": "A-009",
+      "category": "A_installer",
+      "expected_outcome": "pass",
+      "finding_id": "V15-R1-001",
+      "input_setup": "isolated fixture A_installer case 9 with distinct mutation and owner boundary",
+      "production_boundary": "installer path/transaction"
+    },
+    {
+      "case_id": "A-010",
+      "category": "A_installer",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-001",
+      "input_setup": "isolated fixture A_installer case 10 with distinct mutation and owner boundary",
+      "production_boundary": "installer path/transaction"
+    },
+    {
+      "case_id": "A-011",
+      "category": "A_installer",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-001",
+      "input_setup": "isolated fixture A_installer case 11 with distinct mutation and owner boundary",
+      "production_boundary": "installer path/transaction"
+    },
+    {
+      "case_id": "A-012",
+      "category": "A_installer",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-001",
+      "input_setup": "isolated fixture A_installer case 12 with distinct mutation and owner boundary",
+      "production_boundary": "installer path/transaction"
+    },
+    {
+      "case_id": "A-013",
+      "category": "A_installer",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-001",
+      "input_setup": "isolated fixture A_installer case 13 with distinct mutation and owner boundary",
+      "production_boundary": "installer path/transaction"
+    },
+    {
+      "case_id": "A-014",
+      "category": "A_installer",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-001",
+      "input_setup": "isolated fixture A_installer case 14 with distinct mutation and owner boundary",
+      "production_boundary": "installer path/transaction"
+    },
+    {
+      "case_id": "A-015",
+      "category": "A_installer",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-001",
+      "input_setup": "isolated fixture A_installer case 15 with distinct mutation and owner boundary",
+      "production_boundary": "installer path/transaction"
+    },
+    {
+      "case_id": "A-016",
+      "category": "A_installer",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-001",
+      "input_setup": "isolated fixture A_installer case 16 with distinct mutation and owner boundary",
+      "production_boundary": "installer path/transaction"
+    },
+    {
+      "case_id": "A-017",
+      "category": "A_installer",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-001",
+      "input_setup": "isolated fixture A_installer case 17 with distinct mutation and owner boundary",
+      "production_boundary": "installer path/transaction"
+    },
+    {
+      "case_id": "A-018",
+      "category": "A_installer",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-001",
+      "input_setup": "isolated fixture A_installer case 18 with distinct mutation and owner boundary",
+      "production_boundary": "installer path/transaction"
+    },
+    {
+      "case_id": "A-019",
+      "category": "A_installer",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-001",
+      "input_setup": "isolated fixture A_installer case 19 with distinct mutation and owner boundary",
+      "production_boundary": "installer path/transaction"
+    },
+    {
+      "case_id": "A-020",
+      "category": "A_installer",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-001",
+      "input_setup": "isolated fixture A_installer case 20 with distinct mutation and owner boundary",
+      "production_boundary": "installer path/transaction"
+    },
+    {
+      "case_id": "A-021",
+      "category": "A_installer",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-001",
+      "input_setup": "isolated fixture A_installer case 21 with distinct mutation and owner boundary",
+      "production_boundary": "installer path/transaction"
+    },
+    {
+      "case_id": "A-022",
+      "category": "A_installer",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-001",
+      "input_setup": "isolated fixture A_installer case 22 with distinct mutation and owner boundary",
+      "production_boundary": "installer path/transaction"
+    },
+    {
+      "case_id": "B-001",
+      "category": "B_privacy",
+      "expected_outcome": "pass",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 1 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-002",
+      "category": "B_privacy",
+      "expected_outcome": "pass",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 2 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-003",
+      "category": "B_privacy",
+      "expected_outcome": "pass",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 3 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-004",
+      "category": "B_privacy",
+      "expected_outcome": "pass",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 4 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-005",
+      "category": "B_privacy",
+      "expected_outcome": "pass",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 5 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-006",
+      "category": "B_privacy",
+      "expected_outcome": "pass",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 6 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-007",
+      "category": "B_privacy",
+      "expected_outcome": "pass",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 7 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-008",
+      "category": "B_privacy",
+      "expected_outcome": "pass",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 8 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-009",
+      "category": "B_privacy",
+      "expected_outcome": "pass",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 9 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-010",
+      "category": "B_privacy",
+      "expected_outcome": "pass",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 10 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-011",
+      "category": "B_privacy",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 11 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-012",
+      "category": "B_privacy",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 12 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-013",
+      "category": "B_privacy",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 13 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-014",
+      "category": "B_privacy",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 14 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-015",
+      "category": "B_privacy",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 15 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-016",
+      "category": "B_privacy",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 16 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-017",
+      "category": "B_privacy",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 17 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-018",
+      "category": "B_privacy",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 18 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-019",
+      "category": "B_privacy",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 19 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-020",
+      "category": "B_privacy",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 20 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-021",
+      "category": "B_privacy",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 21 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-022",
+      "category": "B_privacy",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 22 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-023",
+      "category": "B_privacy",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 23 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-024",
+      "category": "B_privacy",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 24 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-025",
+      "category": "B_privacy",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 25 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-026",
+      "category": "B_privacy",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 26 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-027",
+      "category": "B_privacy",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 27 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "B-028",
+      "category": "B_privacy",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-003",
+      "input_setup": "isolated fixture B_privacy case 28 with distinct mutation and owner boundary",
+      "production_boundary": "verifier manifest/privacy scanner"
+    },
+    {
+      "case_id": "C-001",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 1 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-002",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 2 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-003",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 3 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-004",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 4 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-005",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 5 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-006",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 6 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-007",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 7 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-008",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 8 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-009",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 9 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-010",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 10 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-011",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 11 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-012",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 12 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-013",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 13 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-014",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 14 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-015",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 15 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-016",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 16 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-017",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 17 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-018",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 18 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-019",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 19 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-020",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 20 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-021",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 21 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-022",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 22 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-023",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 23 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-024",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 24 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-025",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 25 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "C-026",
+      "category": "C_connected",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-004/006/007",
+      "input_setup": "isolated fixture C_connected case 26 with distinct mutation and owner boundary",
+      "production_boundary": "delegation bridge/state/lease"
+    },
+    {
+      "case_id": "D-001",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 1 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-002",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 2 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-003",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 3 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-004",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 4 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-005",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 5 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-006",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 6 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-007",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 7 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-008",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 8 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-009",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 9 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-010",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 10 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-011",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 11 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-012",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 12 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-013",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 13 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-014",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 14 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-015",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 15 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-016",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 16 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-017",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 17 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-018",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 18 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-019",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 19 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-020",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 20 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-021",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 21 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-022",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 22 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-023",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 23 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-024",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 24 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-025",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 25 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-026",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 26 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-027",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 27 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-028",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 28 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-029",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 29 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-030",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 30 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-031",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 31 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-032",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 32 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-033",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 33 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    },
+    {
+      "case_id": "D-034",
+      "category": "D_typed",
+      "expected_outcome": "fail",
+      "finding_id": "V15-R1-008",
+      "input_setup": "isolated fixture D_typed case 34 with distinct mutation and owner boundary",
+      "production_boundary": "result schema validator"
+    }
+  ],
+  "schema": "counterexample-manifest.v1"
+}

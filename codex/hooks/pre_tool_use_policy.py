@@ -7,6 +7,7 @@ import json
 import os
 import re
 import sys
+import pathlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -570,6 +571,26 @@ def main() -> int:
 
     model = payload.get("model") if isinstance(payload.get("model"), str) else "unknown"
     tool_name = payload.get("tool_name") if isinstance(payload.get("tool_name"), str) else ""
+    # Delegation mode is fail-closed at the enforceable PreToolUse boundary.
+    if os.environ.get("CODEX_DELEGATION_REQUIRED") == "1":
+        try:
+            packet_path = pathlib.Path(os.environ["CODEX_DELEGATION_PACKET"])
+            state_root = pathlib.Path(os.environ["CODEX_DELEGATION_STATE_ROOT"])
+            import delegation_contract as _dc
+            packet_bytes = packet_path.read_bytes()
+            if os.environ.get("CODEX_DELEGATION_PACKET_SHA256") != __import__("hashlib").sha256(packet_bytes).hexdigest():
+                return _deny("delegation packet self-hash mismatch", payload=payload, model=model, tool_name=tool_name, reason_code="delegation_identity")
+            packet = json.loads(packet_bytes)
+            state, _ = _dc._load(state_root)
+            key = _dc.state_key(packet); rec = state.get("packets", {}).get(key, {})
+            if rec.get("phase") != "STARTED" or not any(x.get("key") == key for x in state.get("active", [])) or "read" not in packet.get("permissions", []):
+                return _deny("delegation packet is not active STARTED", payload=payload, model=model, tool_name=tool_name, reason_code="delegation_state")
+            lowered = tool_name.lower()
+            allowed_read = (lowered in {"read", "codegraph", "semble", "rg", "grep", "search", "inspect"} or lowered.startswith("mcp__codegraph") or lowered.startswith("mcp__semble"))
+            if not allowed_read:
+                return _deny("delegation permissions allow read-only observation only", payload=payload, model=model, tool_name=tool_name, reason_code="delegation_permission")
+        except Exception:
+            return _deny("invalid active delegation context", payload=payload, model=model, tool_name=tool_name, reason_code="delegation_context")
     # Tool capability is no longer model-gated here.  Role selection and any
     # consequential-action approval remain task/user/L0/platform concerns.
     record_receipt(

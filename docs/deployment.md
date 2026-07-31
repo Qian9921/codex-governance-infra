@@ -5,3 +5,13 @@ Use an isolated `CODEX_HOME` for verification. `install-governance.py --dry-run`
 ## Transaction contract
 
 Installation overlays managed files at `$CODEX_HOME/AGENTS.md`, `$CODEX_HOME/BRIEF-TEMPLATES.md`, `$CODEX_HOME/hooks.json`, `$CODEX_HOME/hooks/`, and `$CODEX_HOME/contracts/`; it never replaces the entire home. A task-owned transaction state and private managed backup record exact previous hashes. Existing unrelated files remain byte-for-byte. Backup/state collisions are refused. Failure injection after each mutation restores the pre-install snapshot. Rollback verifies current managed hashes, refuses unexpected edits, restores previous managed files, removes only newly created managed files, and retains unrelated/post-install files.
+
+## Native delegation boundary
+
+The platform's native collaboration spawn event is not universally observable by these files. The
+bridge therefore accepts only an exact `SubagentStart` payload whose model/task identity, packet
+self-hash, canonical repository snapshot, lease, and persisted mission state match the registered
+packet. In delegation mode `pre_tool_use_policy.py` is the enforceable fail-closed boundary: only
+explicit read/CodeGraph/Semble/rg-equivalent observation tool names are allowed; Write/Edit,
+shell/Bash, Git/GitHub, review, approval, merge, and external mutation capabilities are denied.
+Ordinary non-delegated hooks retain their existing routing behavior.

@@ -50,13 +50,29 @@ def main() -> int:
         payload = {}
     event = payload.get("hook_event_name", "SessionStart")
     if os.environ.get("CODEX_DELEGATION_REQUIRED") == "1":
-        packet=os.environ.get("CODEX_DELEGATION_PACKET"); state_root=os.environ.get("CODEX_DELEGATION_STATE_ROOT")
+        # Only the native SubagentStart boundary can consume a registered packet.
+        if event != "SubagentStart":
+            return 2
+        packet = os.environ.get("CODEX_DELEGATION_PACKET")
+        state_root = os.environ.get("CODEX_DELEGATION_STATE_ROOT")
         if not packet or not state_root:
             return 2
-        bridge=Path(__file__).with_name("delegation_contract.py")
-        proc=subprocess.run([sys.executable,str(bridge),"subagent-start","--packet",packet,"--state-root",state_root],capture_output=True,text=True)
+        bridge = Path(__file__).with_name("delegation_contract.py")
+        env = os.environ.copy()
+        env["CODEX_DELEGATION_EVENT"] = str(event)
+        env["CODEX_DELEGATION_MODEL"] = payload.get("model") if isinstance(payload.get("model"), str) else ""
+        exposed = payload.get("task_id", payload.get("agent_id", payload.get("child_task_id", "")))
+        env["CODEX_DELEGATION_TASK_ID"] = exposed if isinstance(exposed, str) else ""
+        proc = subprocess.run([sys.executable, str(bridge), "subagent-start", "--packet", packet, "--state-root", state_root], capture_output=True, text=True, env=env)
         if proc.returncode != 0:
             return 2
+        try:
+            bridge_result = json.loads(proc.stdout or "{}")
+            mission = bridge_result.get("mission_hash", "")
+        except json.JSONDecodeError:
+            return 2
+    else:
+        mission = ""
     record_receipt(
         str(event),
         payload,
@@ -66,7 +82,7 @@ def main() -> int:
     output = {
         "hookSpecificOutput": {
             "hookEventName": event,
-            "additionalContext": _role_context(payload) + "\n" + CONTEXT,
+            "additionalContext": _role_context(payload) + "\n" + CONTEXT + ("\nMISSION_HASH=" + mission if mission else ""),
         }
     }
     sys.stdout.write(json.dumps(output, ensure_ascii=False) + "\n")
