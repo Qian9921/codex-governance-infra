@@ -4,6 +4,7 @@ from delegation_contract import ContractError,validate_packet,validate_result
 ROOT=pathlib.Path(__file__).parents[1]
 P=json.loads((ROOT/'codex/contracts/delegation_packet.example.json').read_text()); R=json.loads((ROOT/'codex/contracts/delegation_result.example.json').read_text())
 class ContractFixtures(unittest.TestCase):
+ def setUp(self): P['repo_root']=str(ROOT.resolve())
  def test_valid(self): self.assertTrue(validate_packet(P)); self.assertTrue(validate_result(R,P))
  def test_missing_required(self): q=copy.deepcopy(P); q.pop('lease'); self.assertRaises(ContractError,validate_packet,q)
  def test_count_arithmetic(self): q=copy.deepcopy(R); q['counts']['total']=3; self.assertRaises(ContractError,validate_result,q,P)

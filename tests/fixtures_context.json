@@ -31,6 +31,8 @@
       "write_paths"
     ],
     "plugin_inventory": "informational",
+    "repo_root": "/repo",
+    "repo_snapshot": "0000000000000000000000000000000000000000",
     "result_schema": "delegation-result.v1",
     "retry_budget": {
       "semantic_contamination": 1

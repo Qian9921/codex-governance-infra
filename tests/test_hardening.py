@@ -6,7 +6,7 @@ installer=load('installer',ROOT/'scripts/install-governance.py'); verifier=load(
 sys.path.insert(0,str(ROOT/'codex/hooks')); import delegation_contract as dc
 class Hardening(unittest.TestCase):
  def packet(self,child='child/1'):
-  return {'schema':'delegation.v1','parent_task_id':'parent/1','child_task_id':child,'assigned_model':'gpt-5.3-codex-spark','role':'specialist','max_depth':1,'depth':1,'permissions':['read','write_paths'],'forbidden_permissions':sorted(dc.FORBIDDEN_CANONICAL),'lease':{'paths':['tests']},'retry_budget':{'semantic_contamination':1},'active_mission_lock':True,'plugin_inventory':'informational','result_schema':'delegation-result.v1'}
+  return {'schema':'delegation.v1','repo_root':str(ROOT.resolve()),'repo_snapshot':'0'*40,'parent_task_id':'parent/1','child_task_id':child,'assigned_model':'gpt-5.3-codex-spark','role':'specialist','max_depth':1,'depth':1,'permissions':['read','write_paths'],'forbidden_permissions':sorted(dc.FORBIDDEN_CANONICAL),'lease':{'paths':['tests']},'retry_budget':{'semantic_contamination':1},'active_mission_lock':True,'plugin_inventory':'informational','result_schema':'delegation-result.v1'}
  def result(self,p,**kw):
   r={'schema':'delegation-result.v1','parent_task_id':p['parent_task_id'],'child_task_id':p['child_task_id'],'assigned_model':p['assigned_model'],'task_id':p['child_task_id'],'depth':1,'changed_paths':['tests/x.py'],'counts':{'total':1,'ran':1,'passed':1,'failed':0,'skipped':0,'unknown':0},'retry_used':0,'retry_transcript':[],'contamination':False,'status':'complete','artifact_sha256':'a'*64,'evidence_id':'ev/1','attempt_id':'attempt/1'}; r.update(kw); return r
  def test_path_rejections(self):

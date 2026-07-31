@@ -8,7 +8,8 @@ class ContextContamination(unittest.TestCase):
   import subprocess, json
   c=json.loads(subprocess.check_output([sys.executable,str(pathlib.Path(__file__).parents[1]/'codex/hooks/session_context.py')],input=json.dumps({'hook_event_name':'SubagentStart','model':FX['child_model']}).encode()))['hookSpecificOutput']['additionalContext']; self.assertIn('GPT-5.3 Codex Spark',c); self.assertIn('full tool capability',c)
  def test_plugins_informational(self): self.assertEqual(FX['plugin_inventory'],'informational')
- def test_valid_luna_spark_packet(self): self.assertTrue(validate_packet(FX['packet']))
+ def test_valid_luna_spark_packet(self):
+  p=dict(FX['packet']); p['repo_root']=str(pathlib.Path(__file__).parents[1].resolve()); self.assertTrue(validate_packet(p))
  def test_depth_gt_one_reject(self): p=dict(FX['packet']); p['depth']=2; self.assertRaises(ContractError,validate_packet,p)
  def test_unauthorized_git_reject(self): p=dict(FX['packet']); p['permissions']=['git']; self.assertRaises(ContractError,validate_packet,p)
  def test_unauthorized_github_reject(self): p=dict(FX['packet']); p['permissions']=['github']; self.assertRaises(ContractError,validate_packet,p)

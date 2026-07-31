@@ -6,7 +6,7 @@ try:
 except ImportError:
  fcntl=None
 class ContractError(ValueError): pass
-REQUIRED_PACKET={"schema","parent_task_id","child_task_id","assigned_model","role","max_depth","depth","permissions","forbidden_permissions","lease","retry_budget","active_mission_lock","plugin_inventory","result_schema"}
+REQUIRED_PACKET={"schema","repo_root","repo_snapshot","parent_task_id","child_task_id","assigned_model","role","max_depth","depth","permissions","forbidden_permissions","lease","retry_budget","active_mission_lock","plugin_inventory","result_schema"}
 REQUIRED_RESULT={"schema","parent_task_id","child_task_id","assigned_model","task_id","depth","changed_paths","counts","retry_used","contamination","status"}
 SAFE_PERMISSIONS={"read","write_paths","test","inspect","evidence"}
 FORBIDDEN_CANONICAL={"git","github","review","approve","merge","shell","bash","git_push","github_api","reviewer","approver","merger"}
@@ -27,7 +27,9 @@ def _paths(paths):
  return out
 def validate_packet(packet,parent_task_id=None,active_leases=None):
  if not isinstance(packet,dict) or not REQUIRED_PACKET<=packet.keys(): raise ContractError('missing packet field')
- if packet['schema']!='delegation.v1': raise ContractError('schema')
+ if packet['schema']!='delegation.v1' or packet.get('result_schema')!='delegation-result.v1': raise ContractError('schema')
+ if not isinstance(packet['repo_root'],str) or not os.path.isabs(packet['repo_root']) or not os.path.isdir(packet['repo_root']): raise ContractError('repo root')
+ if not (isinstance(packet['repo_snapshot'],str) and re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}',packet['repo_snapshot'])): raise ContractError('repo snapshot')
  if parent_task_id and packet['parent_task_id']!=parent_task_id: raise ContractError('parent mismatch')
  if not _id(packet['parent_task_id']) or not _id(packet['child_task_id']): raise ContractError('task identity')
  if packet['assigned_model'] not in {'gpt-5.6-luna','gpt-5.3-codex-spark'}: raise ContractError('model')
@@ -79,6 +81,10 @@ def validate_result(result,packet,state=None):
  lease=_paths(packet['lease']['paths'])
  for path in result['changed_paths']:
   n=normalize_path(path)
+  cur=pathlib.Path(packet['repo_root'])
+  for part in n.split('/'):
+   cur=cur/part
+   if cur.exists() and cur.is_symlink(): raise ContractError('symlink path')
   if not any(n==p or n.startswith(p+'/') for p in lease): raise ContractError('changed path outside lease')
  if state:
   key=state_key(packet); rec=state.setdefault('delegations',{}).setdefault(key,{'attempts':[],'accepted':False})
@@ -86,7 +92,7 @@ def validate_result(result,packet,state=None):
   if not _id(attempt) or attempt in rec['attempts']: raise ContractError('attempt replay')
   if len(rec['attempts'])>=2: raise ContractError('retry ledger exhausted')
  return True
-def state_key(packet): return hashlib.sha256(json.dumps({k:packet[k] for k in ('parent_task_id','child_task_id','assigned_model','depth','lease')},sort_keys=True).encode()).hexdigest()
+def state_key(packet): return hashlib.sha256(json.dumps({k:packet[k] for k in ('repo_root','repo_snapshot','parent_task_id','child_task_id','assigned_model','depth','lease')},sort_keys=True).encode()).hexdigest()
 def _load(root):
  p=pathlib.Path(root); p.mkdir(mode=0o700,parents=True,exist_ok=True); f=p/'delegation-state.json'
  if f.exists(): return json.loads(f.read_text()),f

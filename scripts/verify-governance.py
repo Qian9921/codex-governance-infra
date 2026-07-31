@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, hashlib, json, pathlib, re, stat, sys
+import argparse, hashlib, json, pathlib, re, stat, sys, subprocess
 FORBIDDEN_PARTS=("sessions","hook-receipts","plugins","connections","models_cache.json",".env")
 TOKEN_RE=re.compile(r"gh[pso]_[A-Za-z0-9]{20,}")
 RAW_ID_RE=re.compile(r"(?:session_id|turn_id|prompt_id|transcript_id|receipt_id)\s*[=:]\s*[A-Za-z0-9._-]{6,}",re.I)
@@ -17,6 +17,14 @@ def tracked(root):
   if not p.is_file(): continue
   out.append(rel)
  return out,errs
+
+def git_tracked(root):
+ try:
+  p=subprocess.run(['git','-C',str(root),'ls-files','-z'],capture_output=True,check=False)
+  if p.returncode!=0: return None
+  return {x for x in p.stdout.decode().split('\0') if x}
+ except (OSError,UnicodeDecodeError): return None
+
 def allowed(rel,data):
  allow=data.get('allowlist',[]) if isinstance(data,dict) else []
  return rel in ROOT_ALLOW or any(rel.startswith(x) for x in allow if isinstance(x,str))
@@ -36,6 +44,8 @@ def scan(root):
  return files,errors
 def main():
  ap=argparse.ArgumentParser(); ap.add_argument('--repo',default='.'); a=ap.parse_args(); root=pathlib.Path(a.repo).resolve(); files,errors=scan(root)
+ tracked_set=git_tracked(root)
+ package_extra=sorted(set(files)-tracked_set) if tracked_set is not None else []
  for req in ('codex/AGENTS.md','codex/BRIEF-TEMPLATES.md','codex/hooks.json','scripts/install-governance.py','manifest.json'):
   if req not in files: errors.append('missing:'+req)
  man=root/'manifest.json'
@@ -68,5 +78,5 @@ def main():
    if len(rows)<11: errors.append('matrix incomplete')
   except Exception: errors.append('matrix parse')
  else: errors.append('missing:matrix')
- out={'repo':str(root),'files':len(files),'errors':errors,'status':'GREEN' if not errors else 'RED'}; print(json.dumps(out,sort_keys=True)); return 0 if not errors else 1
+ out={'repo':str(root),'files':len(files),'git_tracked':len(tracked_set) if tracked_set is not None else None,'package_extra':package_extra,'errors':errors,'status':'GREEN' if not errors else 'RED'}; print(json.dumps(out,sort_keys=True)); return 0 if not errors else 1
 if __name__=='__main__': raise SystemExit(main())
