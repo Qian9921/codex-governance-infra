@@ -99,6 +99,26 @@ class SchemaRegistryExtensionTests(unittest.TestCase):
                 self.assertEqual(entry["validation_mode"], "source-bound")
                 self.assertEqual(entry["external_inputs"], ["source_bundle"])
 
+    def test_review_runtime_entries_are_caller_bound_and_exact(self):
+        runtime = SCHEMA_REGISTRY["review-runtime.v16"]
+        self.assertEqual(
+            runtime["validator"], "review_runtime.validate_review_runtime"
+        )
+        self.assertEqual(runtime["validation_mode"], "caller-bound")
+        self.assertEqual(runtime["external_inputs"], ["review-policy.v16"])
+        self.assertIn("soft_deadline_sec", runtime["required"])
+        self.assertIn("hard_deadline_sec", runtime["required"])
+        self.assertIn("max_tool_calls", runtime["required"])
+        self.assertIn("duplicate_full_scope_reviews", runtime["required"])
+
+        progress = SCHEMA_REGISTRY["review-runtime-progress.v16"]
+        self.assertEqual(
+            progress["validator"], "review_runtime.validate_review_progress"
+        )
+        self.assertEqual(progress["validation_mode"], "caller-bound")
+        self.assertEqual(progress["external_inputs"], ["review-runtime.v16"])
+        self.assertIn("approval_eligible", progress["required"])
+
     def test_evidence_inventory_requires_canonical_snapshot_identity(self):
         evidence = SCHEMA_REGISTRY["evidence-envelope.v16"]
         self.assertIn("identity_mode", evidence["required"])

@@ -11,4 +11,8 @@
   authorization, then refresh after edits; never substitute another project's
   index.
 - Run `python3 scripts/verify-governance.py --repo .` and the contract test suite before review.
+- Compile and obey `codex.v16.review_runtime`: one formal review call, bounded
+  delta/context/tool scope, soft report deadline, hard interrupt-and-replan
+  deadline, and no duplicate full-scope review. Runtime budgets select routing;
+  they never waive correctness or evidence.
 - The repository is authored by Qian9921; Liang9921 is the independent governance reviewer.

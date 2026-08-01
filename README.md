@@ -20,8 +20,11 @@ not deploy to a live `$CODEX_HOME` during development.
 5. One risk-routed report-only reviewer owns the final verdict:
    `gpt-5.6-terra` high for classified low/medium risk and `gpt-5.6-sol` xhigh
    for high or unresolved risk. Initial review is clean-room; ordinary fixes
-   preserve reviewer continuity and only explicit escalation triggers replace
-   the reviewer. The mission chooses its writer from authorized live models;
+   preserve reviewer continuity, use a bounded high-effort delta-only runtime,
+   and only explicit escalation triggers replace the reviewer. One formal call,
+   zero duplicate full-scope reviews, tool/context limits, and soft/hard
+   report/replan deadlines are compiled by `codex.v16.review_runtime`. The
+   mission chooses its writer from authorized live models;
    the renderer never calls GitHub or switches identity. A review `APPROVE` is
    not a merge/GO claim.
 

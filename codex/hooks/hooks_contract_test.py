@@ -43,6 +43,12 @@ class HooksContractTests(unittest.TestCase):
         guidance = context["additionalContext"]
         for route in ("CodeGraph", "Semble", "rtk", "rg"):
             self.assertIn(route, guidance)
+        self.assertEqual(context["review_runtime"]["formal_review_calls"], 1)
+        self.assertEqual(
+            context["review_runtime"]["duplicate_full_scope_reviews"], 0
+        )
+        self.assertIn("delta-only", context["review_runtime"]["delta_continuation"])
+        self.assertIn("REVIEW-RUNTIME", guidance)
 
     def test_receipt_allowlists_private_fields(self):
         raw = "PRIVATE_PROMPT_VALUE /cwd /secret"

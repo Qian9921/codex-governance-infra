@@ -166,6 +166,27 @@ Context modes are:
   rewrite, missed/new P1 evidence, incident, lineage loss, governance change,
   dispute, or two non-converging rounds.
 
+Before dispatch, compile `codex.v16.review_runtime.compile_review_runtime` and
+record the resulting `review-runtime.v16` hash. The controller must provide:
+
+```text
+context_mode
+changed_files / changed_lines
+prior_coverage_status / prior_unreviewed_count
+same_reviewer_available
+contract_drift
+escalation_triggers
+```
+
+For a contract-stable continuation, use the original reviewer with a distinct
+run and high effort; send only the exact delta, prior findings/dispositions,
+reused evidence, and direct affected boundaries. Do not repeat the original
+full-scope review. Obey the compiled file/line/context/tool limits and
+soft/hard deadlines. At soft deadline request a report; at hard deadline use
+`INTERRUPT_REPLAN`. A PARTIAL report or runtime timeout cannot approve. New
+falsifiable evidence selects `escalated_fresh`; unsupported scope expansion
+must stop.
+
 `APPROVE` requires complete coverage, empty unreviewed scope, no active
 P1/BLOCKING, a matching caller-bound Independent artifact, and valid evidence.
 Otherwise use `REQUEST_CHANGES` or `null` for infrastructure failure.
@@ -195,6 +216,9 @@ Allowed high-risk triggers are `math_numeric`, `exact_parity`, `security`,
 contain at least one. Missing, invalid, ambiguous, or legacy policy resolves
 fail-closed to high. The resolver, not the writer, fixes the reviewer route:
 low/medium → `gpt-5.6-terra` high; high → `gpt-5.6-sol` xhigh.
+That xhigh default applies to initial or escalated high-risk review. A
+contract-stable `delta_continuation` retains Sol but uses high effort under its
+bounded runtime contract.
 `required_stages` is an independent frozen evidence route and must be one
 ordered prefix: targeted; targeted+full; or targeted+full+fresh. Its default is
 risk-informed, but an explicit route follows the mission's affected WHY-RED

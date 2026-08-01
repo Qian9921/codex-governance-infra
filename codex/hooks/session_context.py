@@ -24,6 +24,13 @@ ROUTING_GUIDANCE = {
     "shell_display": "rtk",
     "exact_text_log_config": "rg",
 }
+REVIEW_RUNTIME_GUIDANCE = {
+    "initial_high": "fresh Sol xhigh",
+    "delta_continuation": "same reviewer Sol high; delta-only; 90s soft/240s hard",
+    "escalated_high": "fresh Sol xhigh",
+    "formal_review_calls": 1,
+    "duplicate_full_scope_reviews": 0,
+}
 
 
 def build_context(event: str | None = None, model: str | None = None) -> dict[str, object]:
@@ -40,7 +47,11 @@ def build_context(event: str | None = None, model: str | None = None) -> dict[st
         "inventory informational. ROUTING: known structure/symbol/call/impact "
         "-> CodeGraph; unknown semantic or similar implementation -> Semble; "
         "shell output/display -> rtk; exact text/log/config/error -> rg. "
-        "Choose by task shape; do not infer intent from raw command arguments."
+        "REVIEW-RUNTIME: compile review-runtime.v16; initial/escalated high "
+        "risk -> fresh Sol xhigh; contract-stable delta -> same reviewer Sol "
+        "high, delta-only, 90s report/240s replan; one review call, zero "
+        "duplicate full-scope reviews. Choose by task shape; do not infer "
+        "intent from raw command arguments."
     )
     return {
         "event": event or "SessionStart",
@@ -48,6 +59,7 @@ def build_context(event: str | None = None, model: str | None = None) -> dict[st
         "model": model or os.environ.get("CODEX_MODEL", "unknown"),
         "spark_supported": True,
         "routing": dict(ROUTING_GUIDANCE),
+        "review_runtime": dict(REVIEW_RUNTIME_GUIDANCE),
         "additionalContext": guidance[:1200],
     }
 

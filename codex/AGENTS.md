@@ -40,6 +40,17 @@ same reviewer in `delta_continuation`; only explicit escalation triggers create
 hash. Full/fresh work is never repeated merely for reviewer convenience. The
 writer and `author_contextual` review cannot approve.
 
+Every formal dispatch must compile `review-runtime.v16`. Initial or escalated
+high-risk review remains fresh Sol xhigh. A contract-stable continuation after
+COMPLETE coverage reuses the same reviewer, reviews only the exact delta and
+direct boundaries, and uses high effort; it must not rewalk the prior full
+scope. The runtime contract freezes one review call, zero duplicate full-scope
+reviews, file/line/context/tool budgets, and soft/hard deadlines. At the soft
+deadline request the current formal report; at the hard deadline interrupt and
+replan without manufacturing a verdict. Scope expansion requires a new
+falsifiable counterexample; otherwise stop the roam. Runtime eligibility never
+overrides the evidence, P1/BLOCKING, coverage, or lineage gates.
+
 ## TOOLING-1
 Tool routing is a contract, not a stylistic suggestion. Known symbols, calls,
 dependencies, and blast radius use the revision-matching child CodeGraph;

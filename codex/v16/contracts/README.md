@@ -28,6 +28,15 @@ shape/arithmetic checks with `observation_mode: injected-observation`: callers
 may provide deterministic observations to bind a decision/report, but the
 inventory does not claim that either artifact proves a tool was executed.
 
+`review-runtime.v16` is a caller-bound dispatch/SLO contract derived from the
+frozen review policy. It fixes the reviewer route/effort, fresh-versus-
+continuation identity, delta-only behavior, one-call/zero-duplicate rule, and
+file/line/context/tool/deadline budgets. `review-runtime-progress.v16`
+recomputes the controller action from that contract and current privacy-safe
+counts. These schemas govern routing and interruption only: they cannot turn a
+partial report, invalid evidence, active blocker, or lineage mismatch into
+approval.
+
 Formal review packets and Independent artifacts carry the frozen review-policy
 identity (`required_stages`, classifier/triggers, and `review_policy_sha256`)
 plus component hashes for reference/domain/threshold/invariant/non-goal scope.

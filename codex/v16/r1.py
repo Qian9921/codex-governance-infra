@@ -55,6 +55,9 @@ NEGATIVE_FAMILIES: tuple[dict[str, Any], ...] = (
     {"case_id": "NF-020", "family": "manifest-row-deletion", "mechanism": "manifest omission is not exact-set RED"},
     {"case_id": "NF-021", "family": "gate-missing-artifact", "mechanism": "gate receipt omits a required compiled entrypoint row"},
     {"case_id": "NF-022", "family": "gate-duplicate-artifact", "mechanism": "gate receipt duplicates one entrypoint row and omits another"},
+    {"case_id": "NF-023", "family": "review-runtime-partial-approval", "mechanism": "incomplete review coverage is accepted as approval eligible"},
+    {"case_id": "NF-024", "family": "review-runtime-hard-timeout", "mechanism": "hard review deadline is allowed to continue or approve"},
+    {"case_id": "NF-025", "family": "review-runtime-delta-roam", "mechanism": "delta review expands scope without new falsifiable evidence"},
 )
 
 
@@ -316,6 +319,61 @@ def _family_probe(root: pathlib.Path, family: Mapping[str, Any]) -> bool:
         return _gate_entrypoint_denominator_probe(lambda result: result["rows"].pop())
     if name == "gate-duplicate-artifact":
         return _gate_entrypoint_denominator_probe(lambda result: result["rows"].__setitem__(1, {**result["rows"][1], "entrypoint_id": "EP-A"}))
+    if name in {
+        "review-runtime-partial-approval",
+        "review-runtime-hard-timeout",
+        "review-runtime-delta-roam",
+    }:
+        from .review_runtime import compile_review_runtime, review_progress_decision
+
+        runtime = compile_review_runtime(
+            mission,
+            context_mode="delta_continuation",
+            changed_files=1,
+            changed_lines=1,
+            prior_coverage_status="COMPLETE",
+            prior_unreviewed_count=0,
+            same_reviewer_available=True,
+        )
+        observations = {
+            "elapsed_sec": 1,
+            "tool_calls": 1,
+            "files_read": 1,
+            "verdict_present": False,
+            "coverage_complete": False,
+            "unreviewed_count": 1,
+        }
+        if name == "review-runtime-partial-approval":
+            observations["verdict_present"] = True
+            progress = review_progress_decision(runtime, **observations)
+            return (
+                progress["action"] == "RETURN_PARTIAL"
+                and progress["reason_code"] == "VERDICT_WITH_INCOMPLETE_COVERAGE"
+                and progress["approval_eligible"] is False
+            )
+        if name == "review-runtime-hard-timeout":
+            observations["elapsed_sec"] = runtime["hard_deadline_sec"]
+            observations["verdict_present"] = True
+            observations["coverage_complete"] = True
+            observations["unreviewed_count"] = 0
+            progress = review_progress_decision(runtime, **observations)
+            return (
+                progress["action"] == "INTERRUPT_REPLAN"
+                and progress["reason_code"] == "HARD_RUNTIME_BUDGET_EXCEEDED"
+                and progress["budget_exceeded"] is True
+                and progress["approval_eligible"] is False
+            )
+        progress = review_progress_decision(
+            runtime,
+            **observations,
+            scope_expansion_requested=True,
+            new_falsifiable_evidence=False,
+        )
+        return (
+            progress["action"] == "STOP_SCOPE_EXPANSION"
+            and progress["reason_code"] == "SCOPE_EXPANSION_LACKS_COUNTEREXAMPLE"
+            and progress["approval_eligible"] is False
+        )
     raise R1Error("unknown negative family", family.get("family", "?"))
 
 
@@ -334,7 +392,7 @@ def run_negative_matrix(root: str | pathlib.Path) -> dict[str, Any]:
         row["row_sha256"] = canonical_sha256(row)
         rows.append(row)
     result = {"schema": "negative-matrix.v16", "matrix_id": "V16-R1-NEGATIVE-FAMILIES", "total": len(rows), "ran": sum(r["ran"] for r in rows), "passed": sum(r["passed"] for r in rows), "failed": sum(r["failed"] for r in rows), "skipped": sum(r["skipped"] for r in rows), "xfail": sum(r["xfail"] for r in rows), "unknown": sum(r["unknown"] for r in rows), "rows": rows}
-    if result["total"] != 22 or result["ran"] != result["total"] or result["passed"] != result["total"] or any(result[k] for k in ("failed", "skipped", "xfail", "unknown")):
+    if result["total"] != 25 or result["ran"] != result["total"] or result["passed"] != result["total"] or any(result[k] for k in ("failed", "skipped", "xfail", "unknown")):
         result["status"] = "RED"
     else:
         result["status"] = "GREEN"

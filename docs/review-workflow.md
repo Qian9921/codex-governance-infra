@@ -26,6 +26,34 @@ The executable enum source is
 come from `codex.v16.trace._ESCALATION_TRIGGERS`. Prose cannot silently add
 either kind of trigger.
 
+## Runtime and convergence budget
+
+Compile `review-runtime.v16` before every formal dispatch. This is a routing and
+latency contract, not an acceptance threshold:
+
+- Initial high-risk and `escalated_fresh` review remains fresh Sol xhigh.
+- A contract-stable `delta_continuation` after prior `COMPLETE` coverage reuses
+  the same reviewer, uses Sol high for high-risk work, and receives only the
+  exact delta, prior finding/closure lineage, reused evidence, and direct
+  affected boundaries.
+- Delta continuation is bounded to 12 files, 800 changed lines, 12,000 context
+  characters, eight read-only tool calls, a 90-second soft report deadline, and
+  a 240-second hard deadline. Exceeding its static size route selects
+  `escalated_fresh`; it is not a blocker or a reason to relax acceptance.
+- Initial low/medium review uses a 180/480-second soft/hard budget; initial or
+  escalated high-risk review uses 300/900 seconds. Exactly one formal review
+  call and zero duplicate full-scope reviews are permitted per identity.
+- At the soft deadline the controller requests the current formal report. At
+  the hard deadline or a tool/file budget breach it interrupts and replans;
+  partial coverage cannot approve. New falsifiable evidence in a continuation
+  selects `escalated_fresh`; unsupported scope expansion stops.
+
+`review-runtime-progress.v16` mechanically derives `CONTINUE`,
+`REQUEST_REPORT`, `ACCEPT_REPORT`, `RETURN_PARTIAL`, `INTERRUPT_REPLAN`,
+`ESCALATE_FRESH`, or `STOP_SCOPE_EXPANSION`. Runtime eligibility only says the
+report is complete enough to ingest. The independent evidence, lineage,
+coverage, P1/BLOCKING, and verdict gates remain authoritative.
+
 ## Clean-room packet and artifact
 
 The initial gate is a distinct, report-only task with `fork_turns=none`. It
