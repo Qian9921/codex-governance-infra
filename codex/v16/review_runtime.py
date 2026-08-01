@@ -21,6 +21,9 @@ RUNTIME_FIELDS = frozenset(
     {
         "schema",
         "review_policy_sha256",
+        "review_identity_sha256",
+        "prior_review_artifact_sha256",
+        "reviewer_continuity_id",
         "review_risk",
         "context_mode",
         "reviewer_model",
@@ -45,6 +48,16 @@ RUNTIME_FIELDS = frozenset(
         "contract_sha256",
     }
 )
+EXPECTATION_FIELDS = frozenset(
+    {
+        "context_mode",
+        "changed_files",
+        "changed_lines",
+        "review_identity_sha256",
+        "prior_review_artifact_sha256",
+        "reviewer_continuity_id",
+    }
+)
 PROGRESS_FIELDS = frozenset(
     {
         "schema",
@@ -55,6 +68,9 @@ PROGRESS_FIELDS = frozenset(
         "elapsed_sec",
         "tool_calls",
         "files_read",
+        "context_chars",
+        "review_calls",
+        "duplicate_full_scope_reviews",
         "verdict_present",
         "coverage_complete",
         "unreviewed_count",
@@ -140,12 +156,46 @@ def _canonical_sha256(value: Mapping[str, Any]) -> str:
     ).hexdigest()
 
 
+def _sha256(value: Any, path: str, *, allow_empty: bool = False) -> str:
+    if allow_empty and value == "":
+        return ""
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(char not in "0123456789abcdef" for char in value)
+    ):
+        raise ReviewRuntimeError(f"{path}: lowercase SHA-256 required")
+    return value
+
+
+def _runtime_expectations(
+    *,
+    context_mode: str,
+    changed_files: int,
+    changed_lines: int,
+    review_identity_sha256: str,
+    prior_review_artifact_sha256: str,
+    reviewer_continuity_id: str,
+) -> dict[str, Any]:
+    return {
+        "context_mode": context_mode,
+        "changed_files": changed_files,
+        "changed_lines": changed_lines,
+        "review_identity_sha256": review_identity_sha256,
+        "prior_review_artifact_sha256": prior_review_artifact_sha256,
+        "reviewer_continuity_id": reviewer_continuity_id,
+    }
+
+
 def compile_review_runtime(
     policy_or_mission: Mapping[str, Any],
     *,
     context_mode: str,
     changed_files: int,
     changed_lines: int,
+    review_identity_sha256: str,
+    prior_review_artifact_sha256: str = "",
+    reviewer_continuity_id: str = "",
     prior_coverage_status: str = "",
     prior_unreviewed_count: int = 0,
     contract_drift: bool = False,
@@ -159,6 +209,19 @@ def compile_review_runtime(
         raise ReviewRuntimeError("$.context_mode: formal gating mode required")
     files = _strict_int(changed_files, "$.changed_files", minimum=1)
     lines = _strict_int(changed_lines, "$.changed_lines", minimum=1)
+    review_identity = _sha256(
+        review_identity_sha256, "$.review_identity_sha256"
+    )
+    prior_artifact = _sha256(
+        prior_review_artifact_sha256,
+        "$.prior_review_artifact_sha256",
+        allow_empty=True,
+    )
+    continuity = _sha256(
+        reviewer_continuity_id,
+        "$.reviewer_continuity_id",
+        allow_empty=True,
+    )
     unreviewed = _strict_int(prior_unreviewed_count, "$.prior_unreviewed_count")
     drift = _strict_bool(contract_drift, "$.contract_drift")
     same_reviewer = _strict_bool(same_reviewer_available, "$.same_reviewer_available")
@@ -181,6 +244,10 @@ def compile_review_runtime(
             raise ReviewRuntimeError(
                 "$.escalation_triggers: delta continuation cannot carry escalation triggers"
             )
+        if not prior_artifact or not continuity:
+            raise ReviewRuntimeError(
+                "$: delta continuation requires prior review artifact and reviewer continuity identities"
+            )
         profile = dict(_DELTA_PROFILE)
         if files > profile["max_files"] or lines > profile["max_changed_lines"]:
             raise ReviewRuntimeError(
@@ -199,6 +266,10 @@ def compile_review_runtime(
             raise ReviewRuntimeError(
                 "$.escalation_triggers: escalated_fresh requires a named trigger"
             )
+        if not prior_artifact or continuity:
+            raise ReviewRuntimeError(
+                "$: escalated_fresh requires prior artifact and forbids reused reviewer continuity"
+            )
         profile = dict(_INITIAL_PROFILES[policy["review_risk"]])
         fresh = True
         reuse = False
@@ -210,6 +281,10 @@ def compile_review_runtime(
         if prior_coverage_status or unreviewed or same_reviewer or triggers:
             raise ReviewRuntimeError(
                 "$: initial clean-room review cannot claim prior continuity or escalation"
+            )
+        if prior_artifact or continuity:
+            raise ReviewRuntimeError(
+                "$: initial clean-room review forbids prior artifact/reviewer continuity identities"
             )
         profile = dict(_INITIAL_PROFILES[policy["review_risk"]])
         fresh = True
@@ -224,6 +299,9 @@ def compile_review_runtime(
     result: dict[str, Any] = {
         "schema": RUNTIME_SCHEMA,
         "review_policy_sha256": _canonical_sha256(policy),
+        "review_identity_sha256": review_identity,
+        "prior_review_artifact_sha256": prior_artifact,
+        "reviewer_continuity_id": continuity,
         "review_risk": policy["review_risk"],
         "context_mode": mode,
         "reviewer_model": policy["reviewer_model"],
@@ -243,13 +321,25 @@ def compile_review_runtime(
         "contract_sha256": "",
     }
     result["contract_sha256"] = _canonical_sha256(result)
-    return validate_review_runtime(result, policy_or_mission=policy_or_mission)
+    return validate_review_runtime(
+        result,
+        policy_or_mission=policy_or_mission,
+        expectations=_runtime_expectations(
+            context_mode=mode,
+            changed_files=files,
+            changed_lines=lines,
+            review_identity_sha256=review_identity,
+            prior_review_artifact_sha256=prior_artifact,
+            reviewer_continuity_id=continuity,
+        ),
+    )
 
 
 def validate_review_runtime(
     value: Mapping[str, Any],
     *,
-    policy_or_mission: Mapping[str, Any] | None = None,
+    policy_or_mission: Mapping[str, Any],
+    expectations: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Validate exact runtime fields and internal route invariants."""
     if not isinstance(value, Mapping) or set(value) != RUNTIME_FIELDS:
@@ -257,6 +347,37 @@ def validate_review_runtime(
     result = dict(value)
     if result["schema"] != RUNTIME_SCHEMA:
         raise ReviewRuntimeError("$.schema: review-runtime.v16 required")
+    if not isinstance(expectations, Mapping) or set(expectations) != EXPECTATION_FIELDS:
+        raise ReviewRuntimeError(
+            "$.expectations: exact caller-bound runtime expectations required"
+        )
+    expected_mode = _text(
+        expectations["context_mode"], "$.expectations.context_mode"
+    )
+    expected_files = _strict_int(
+        expectations["changed_files"],
+        "$.expectations.changed_files",
+        minimum=1,
+    )
+    expected_lines = _strict_int(
+        expectations["changed_lines"],
+        "$.expectations.changed_lines",
+        minimum=1,
+    )
+    expected_review_identity = _sha256(
+        expectations["review_identity_sha256"],
+        "$.expectations.review_identity_sha256",
+    )
+    expected_prior_artifact = _sha256(
+        expectations["prior_review_artifact_sha256"],
+        "$.expectations.prior_review_artifact_sha256",
+        allow_empty=True,
+    )
+    expected_continuity = _sha256(
+        expectations["reviewer_continuity_id"],
+        "$.expectations.reviewer_continuity_id",
+        allow_empty=True,
+    )
     policy_digest = result["review_policy_sha256"]
     if not isinstance(policy_digest, str) or len(policy_digest) != 64 or any(
         c not in "0123456789abcdef" for c in policy_digest
@@ -264,6 +385,17 @@ def validate_review_runtime(
         raise ReviewRuntimeError("$.review_policy_sha256: lowercase SHA-256 required")
     if result["review_risk"] not in {"low", "medium", "high"}:
         raise ReviewRuntimeError("$.review_risk: known risk required")
+    _sha256(result["review_identity_sha256"], "$.review_identity_sha256")
+    _sha256(
+        result["prior_review_artifact_sha256"],
+        "$.prior_review_artifact_sha256",
+        allow_empty=True,
+    )
+    _sha256(
+        result["reviewer_continuity_id"],
+        "$.reviewer_continuity_id",
+        allow_empty=True,
+    )
     if result["context_mode"] not in CONTEXT_MODES - {"author_contextual"}:
         raise ReviewRuntimeError("$.context_mode: formal gating mode required")
     _text(result["reviewer_model"], "$.reviewer_model")
@@ -296,6 +428,17 @@ def validate_review_runtime(
     if result["max_review_calls"] != 1 or result["duplicate_full_scope_reviews"] != 0:
         raise ReviewRuntimeError("$: exactly one non-duplicated review call required")
     mode = result["context_mode"]
+    if (
+        mode != expected_mode
+        or result["changed_files"] != expected_files
+        or result["changed_lines"] != expected_lines
+        or result["review_identity_sha256"] != expected_review_identity
+        or result["prior_review_artifact_sha256"] != expected_prior_artifact
+        or result["reviewer_continuity_id"] != expected_continuity
+    ):
+        raise ReviewRuntimeError(
+            "$: runtime contract does not match caller-bound identity/delta expectations"
+        )
     is_delta = mode == "delta_continuation"
     if is_delta != result["delta_only"] or is_delta != result["reuse_prior_reviewer"]:
         raise ReviewRuntimeError("$: delta continuity flags mismatch")
@@ -323,6 +466,21 @@ def validate_review_runtime(
         raise ReviewRuntimeError("$: escalated_fresh requires escalation triggers")
     if mode != "escalated_fresh" and result["escalation_triggers"]:
         raise ReviewRuntimeError("$: escalation triggers require escalated_fresh")
+    if is_delta and (
+        not result["prior_review_artifact_sha256"]
+        or not result["reviewer_continuity_id"]
+    ):
+        raise ReviewRuntimeError("$: delta continuation identities are incomplete")
+    if mode == "escalated_fresh" and (
+        not result["prior_review_artifact_sha256"]
+        or result["reviewer_continuity_id"]
+    ):
+        raise ReviewRuntimeError("$: escalated fresh identity mismatch")
+    if mode == "independent_clean_room" and (
+        result["prior_review_artifact_sha256"]
+        or result["reviewer_continuity_id"]
+    ):
+        raise ReviewRuntimeError("$: initial clean-room identity mismatch")
     if is_delta and result["reasoning_effort"] != "high":
         raise ReviewRuntimeError("$: bounded delta continuation requires high effort")
     if not is_delta and result["review_risk"] == "high" and result["reasoning_effort"] != "xhigh":
@@ -346,23 +504,27 @@ def validate_review_runtime(
     unhashed["contract_sha256"] = ""
     if _canonical_sha256(unhashed) != digest:
         raise ReviewRuntimeError("$.contract_sha256: runtime contract hash mismatch")
-    if policy_or_mission is not None:
-        policy = resolve_review_policy(policy_or_mission)
-        if (
-            result["review_policy_sha256"] != _canonical_sha256(policy)
-            or result["review_risk"] != policy["review_risk"]
-            or result["reviewer_model"] != policy["reviewer_model"]
-        ):
-            raise ReviewRuntimeError("$: runtime contract does not match review policy")
+    policy = resolve_review_policy(policy_or_mission)
+    if (
+        result["review_policy_sha256"] != _canonical_sha256(policy)
+        or result["review_risk"] != policy["review_risk"]
+        or result["reviewer_model"] != policy["reviewer_model"]
+    ):
+        raise ReviewRuntimeError("$: runtime contract does not match review policy")
     return result
 
 
 def review_progress_decision(
     runtime: Mapping[str, Any],
     *,
+    policy_or_mission: Mapping[str, Any],
+    runtime_expectations: Mapping[str, Any],
     elapsed_sec: int,
     tool_calls: int,
     files_read: int,
+    context_chars: int,
+    review_calls: int,
+    duplicate_full_scope_reviews: int,
     verdict_present: bool,
     coverage_complete: bool,
     unreviewed_count: int,
@@ -370,10 +532,19 @@ def review_progress_decision(
     new_falsifiable_evidence: bool = False,
 ) -> dict[str, Any]:
     """Return the control-plane action for current bounded review progress."""
-    contract = validate_review_runtime(runtime)
+    contract = validate_review_runtime(
+        runtime,
+        policy_or_mission=policy_or_mission,
+        expectations=runtime_expectations,
+    )
     elapsed = _strict_int(elapsed_sec, "$.elapsed_sec")
     calls = _strict_int(tool_calls, "$.tool_calls")
     files = _strict_int(files_read, "$.files_read")
+    context = _strict_int(context_chars, "$.context_chars")
+    reviews = _strict_int(review_calls, "$.review_calls")
+    duplicate_reviews = _strict_int(
+        duplicate_full_scope_reviews, "$.duplicate_full_scope_reviews"
+    )
     verdict = _strict_bool(verdict_present, "$.verdict_present")
     complete = _strict_bool(coverage_complete, "$.coverage_complete")
     unreviewed = _strict_int(unreviewed_count, "$.unreviewed_count")
@@ -382,6 +553,9 @@ def review_progress_decision(
     exceeded = (
         calls > contract["max_tool_calls"]
         or files > contract["max_files"]
+        or context > contract["max_context_chars"]
+        or reviews > contract["max_review_calls"]
+        or duplicate_reviews > contract["duplicate_full_scope_reviews"]
         or elapsed >= contract["hard_deadline_sec"]
     )
 
@@ -415,6 +589,9 @@ def review_progress_decision(
         "elapsed_sec": elapsed,
         "tool_calls": calls,
         "files_read": files,
+        "context_chars": context,
+        "review_calls": reviews,
+        "duplicate_full_scope_reviews": duplicate_reviews,
         "verdict_present": verdict,
         "coverage_complete": complete,
         "unreviewed_count": unreviewed,
@@ -428,6 +605,8 @@ def validate_review_progress(
     value: Mapping[str, Any],
     *,
     runtime: Mapping[str, Any],
+    policy_or_mission: Mapping[str, Any],
+    runtime_expectations: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Recompute a progress action from its runtime contract and observations."""
     if not isinstance(value, Mapping) or set(value) != PROGRESS_FIELDS:
@@ -438,9 +617,16 @@ def validate_review_progress(
         )
     expected = review_progress_decision(
         runtime,
+        policy_or_mission=policy_or_mission,
+        runtime_expectations=runtime_expectations,
         elapsed_sec=value.get("elapsed_sec"),
         tool_calls=value.get("tool_calls"),
         files_read=value.get("files_read"),
+        context_chars=value.get("context_chars"),
+        review_calls=value.get("review_calls"),
+        duplicate_full_scope_reviews=value.get(
+            "duplicate_full_scope_reviews"
+        ),
         verdict_present=value.get("verdict_present"),
         coverage_complete=value.get("coverage_complete"),
         unreviewed_count=value.get("unreviewed_count"),
@@ -455,6 +641,7 @@ def validate_review_progress(
 
 
 __all__ = [
+    "EXPECTATION_FIELDS",
     "PROGRESS_FIELDS",
     "PROGRESS_SCHEMA",
     "RUNTIME_FIELDS",

@@ -44,15 +44,22 @@ latency contract, not an acceptance threshold:
   escalated high-risk review uses 300/900 seconds. Exactly one formal review
   call and zero duplicate full-scope reviews are permitted per identity.
 - At the soft deadline the controller requests the current formal report. At
-  the hard deadline or a tool/file budget breach it interrupts and replans;
-  partial coverage cannot approve. New falsifiable evidence in a continuation
-  selects `escalated_fresh`; unsupported scope expansion stops.
+  the hard deadline or a file/context/tool/review-call/duplicate-full-scope
+  budget breach it interrupts and replans; partial coverage cannot approve.
+  New falsifiable evidence in a continuation selects `escalated_fresh`;
+  unsupported scope expansion stops.
 
 `review-runtime-progress.v16` mechanically derives `CONTINUE`,
 `REQUEST_REPORT`, `ACCEPT_REPORT`, `RETURN_PARTIAL`, `INTERRUPT_REPLAN`,
 `ESCALATE_FRESH`, or `STOP_SCOPE_EXPANSION`. Runtime eligibility only says the
 report is complete enough to ingest. The independent evidence, lineage,
 coverage, P1/BLOCKING, and verdict gates remain authoritative.
+The progress validator receives the frozen review policy independently and
+records observed context characters, review calls, and duplicate full-scope
+reviews. Runtime and progress validation also receive caller-owned exact
+context-mode, changed-file/line, review-identity, prior-artifact, and
+reviewer-continuity expectations; the runtime payload and its digest are not
+self-authenticating authority.
 
 ## Clean-room packet and artifact
 

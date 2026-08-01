@@ -58,6 +58,9 @@ NEGATIVE_FAMILIES: tuple[dict[str, Any], ...] = (
     {"case_id": "NF-023", "family": "review-runtime-partial-approval", "mechanism": "incomplete review coverage is accepted as approval eligible"},
     {"case_id": "NF-024", "family": "review-runtime-hard-timeout", "mechanism": "hard review deadline is allowed to continue or approve"},
     {"case_id": "NF-025", "family": "review-runtime-delta-roam", "mechanism": "delta review expands scope without new falsifiable evidence"},
+    {"case_id": "NF-026", "family": "review-runtime-policy-rehash", "mechanism": "coherent high-to-medium route rewrite and rehash bypasses frozen policy"},
+    {"case_id": "NF-027", "family": "review-runtime-delta-underreport", "mechanism": "caller understates exact changed-file or changed-line denominator"},
+    {"case_id": "NF-028", "family": "review-runtime-hidden-budget", "mechanism": "context or duplicate formal-review budget is omitted from progress"},
 )
 
 
@@ -323,6 +326,9 @@ def _family_probe(root: pathlib.Path, family: Mapping[str, Any]) -> bool:
         "review-runtime-partial-approval",
         "review-runtime-hard-timeout",
         "review-runtime-delta-roam",
+        "review-runtime-policy-rehash",
+        "review-runtime-delta-underreport",
+        "review-runtime-hidden-budget",
     }:
         from .review_runtime import compile_review_runtime, review_progress_decision
 
@@ -331,21 +337,44 @@ def _family_probe(root: pathlib.Path, family: Mapping[str, Any]) -> bool:
             context_mode="delta_continuation",
             changed_files=1,
             changed_lines=1,
+            review_identity_sha256=canonical_sha256(
+                {"negative_family": name}
+            ),
+            prior_review_artifact_sha256="1" * 64,
+            reviewer_continuity_id="2" * 64,
             prior_coverage_status="COMPLETE",
             prior_unreviewed_count=0,
             same_reviewer_available=True,
         )
+        runtime_expectations = {
+            "context_mode": runtime["context_mode"],
+            "changed_files": runtime["changed_files"],
+            "changed_lines": runtime["changed_lines"],
+            "review_identity_sha256": runtime["review_identity_sha256"],
+            "prior_review_artifact_sha256": runtime[
+                "prior_review_artifact_sha256"
+            ],
+            "reviewer_continuity_id": runtime["reviewer_continuity_id"],
+        }
         observations = {
             "elapsed_sec": 1,
             "tool_calls": 1,
             "files_read": 1,
+            "context_chars": 100,
+            "review_calls": 1,
+            "duplicate_full_scope_reviews": 0,
             "verdict_present": False,
             "coverage_complete": False,
             "unreviewed_count": 1,
         }
         if name == "review-runtime-partial-approval":
             observations["verdict_present"] = True
-            progress = review_progress_decision(runtime, **observations)
+            progress = review_progress_decision(
+                runtime,
+                policy_or_mission=mission,
+                runtime_expectations=runtime_expectations,
+                **observations,
+            )
             return (
                 progress["action"] == "RETURN_PARTIAL"
                 and progress["reason_code"] == "VERDICT_WITH_INCOMPLETE_COVERAGE"
@@ -356,15 +385,96 @@ def _family_probe(root: pathlib.Path, family: Mapping[str, Any]) -> bool:
             observations["verdict_present"] = True
             observations["coverage_complete"] = True
             observations["unreviewed_count"] = 0
-            progress = review_progress_decision(runtime, **observations)
+            progress = review_progress_decision(
+                runtime,
+                policy_or_mission=mission,
+                runtime_expectations=runtime_expectations,
+                **observations,
+            )
             return (
                 progress["action"] == "INTERRUPT_REPLAN"
                 and progress["reason_code"] == "HARD_RUNTIME_BUDGET_EXCEEDED"
                 and progress["budget_exceeded"] is True
                 and progress["approval_eligible"] is False
             )
+        if name == "review-runtime-policy-rehash":
+            medium_policy = {
+                "review_risk": "medium",
+                "reasons": ["negative route rewrite probe"],
+                "classifier_identity": "r1-negative-matrix",
+            }
+            rewritten = compile_review_runtime(
+                medium_policy,
+                context_mode="independent_clean_room",
+                changed_files=1,
+                changed_lines=1,
+                review_identity_sha256=canonical_sha256(
+                    {"negative_family": name}
+                ),
+            )
+            rewritten_expectations = {
+                key: rewritten[key]
+                for key in (
+                    "context_mode",
+                    "changed_files",
+                    "changed_lines",
+                    "review_identity_sha256",
+                    "prior_review_artifact_sha256",
+                    "reviewer_continuity_id",
+                )
+            }
+            return _expect_reject(
+                lambda: review_progress_decision(
+                    rewritten,
+                    policy_or_mission=mission,
+                    runtime_expectations=rewritten_expectations,
+                    **observations,
+                )
+            )
+        if name == "review-runtime-delta-underreport":
+            understated = {
+                **runtime_expectations,
+                "changed_files": 13,
+                "changed_lines": 801,
+            }
+            return _expect_reject(
+                lambda: review_progress_decision(
+                    runtime,
+                    policy_or_mission=mission,
+                    runtime_expectations=understated,
+                    **observations,
+                )
+            )
+        if name == "review-runtime-hidden-budget":
+            context_overrun = review_progress_decision(
+                runtime,
+                policy_or_mission=mission,
+                runtime_expectations=runtime_expectations,
+                **{
+                    **observations,
+                    "context_chars": runtime["max_context_chars"] + 1,
+                },
+            )
+            duplicate_review = review_progress_decision(
+                runtime,
+                policy_or_mission=mission,
+                runtime_expectations=runtime_expectations,
+                **{
+                    **observations,
+                    "review_calls": 2,
+                    "duplicate_full_scope_reviews": 1,
+                },
+            )
+            return all(
+                progress["action"] == "INTERRUPT_REPLAN"
+                and progress["budget_exceeded"] is True
+                and progress["approval_eligible"] is False
+                for progress in (context_overrun, duplicate_review)
+            )
         progress = review_progress_decision(
             runtime,
+            policy_or_mission=mission,
+            runtime_expectations=runtime_expectations,
             **observations,
             scope_expansion_requested=True,
             new_falsifiable_evidence=False,
@@ -392,7 +502,7 @@ def run_negative_matrix(root: str | pathlib.Path) -> dict[str, Any]:
         row["row_sha256"] = canonical_sha256(row)
         rows.append(row)
     result = {"schema": "negative-matrix.v16", "matrix_id": "V16-R1-NEGATIVE-FAMILIES", "total": len(rows), "ran": sum(r["ran"] for r in rows), "passed": sum(r["passed"] for r in rows), "failed": sum(r["failed"] for r in rows), "skipped": sum(r["skipped"] for r in rows), "xfail": sum(r["xfail"] for r in rows), "unknown": sum(r["unknown"] for r in rows), "rows": rows}
-    if result["total"] != 25 or result["ran"] != result["total"] or result["passed"] != result["total"] or any(result[k] for k in ("failed", "skipped", "xfail", "unknown")):
+    if result["total"] != 28 or result["ran"] != result["total"] or result["passed"] != result["total"] or any(result[k] for k in ("failed", "skipped", "xfail", "unknown")):
         result["status"] = "RED"
     else:
         result["status"] = "GREEN"

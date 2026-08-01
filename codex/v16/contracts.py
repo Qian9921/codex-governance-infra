@@ -162,16 +162,16 @@ SCHEMA_REGISTRY = {
     "review-runtime.v16": {
         "validator": "review_runtime.validate_review_runtime",
         "validation_mode": "caller-bound",
-        "required": ["schema", "review_policy_sha256", "review_risk", "context_mode", "reviewer_model", "reasoning_effort", "fresh_reviewer", "reuse_prior_reviewer", "delta_only", "prior_complete_required", "changed_files", "changed_lines", "max_files", "max_changed_lines", "max_context_chars", "max_tool_calls", "max_review_calls", "soft_deadline_sec", "hard_deadline_sec", "duplicate_full_scope_reviews", "scope_expansion_policy", "timeout_action", "escalation_triggers", "contract_sha256"],
+        "required": ["schema", "review_policy_sha256", "review_identity_sha256", "prior_review_artifact_sha256", "reviewer_continuity_id", "review_risk", "context_mode", "reviewer_model", "reasoning_effort", "fresh_reviewer", "reuse_prior_reviewer", "delta_only", "prior_complete_required", "changed_files", "changed_lines", "max_files", "max_changed_lines", "max_context_chars", "max_tool_calls", "max_review_calls", "soft_deadline_sec", "hard_deadline_sec", "duplicate_full_scope_reviews", "scope_expansion_policy", "timeout_action", "escalation_triggers", "contract_sha256"],
         "optional": [],
-        "external_inputs": ["review-policy.v16"],
+        "external_inputs": ["review-policy.v16", "runtime-expectations"],
     },
     "review-runtime-progress.v16": {
         "validator": "review_runtime.validate_review_progress",
         "validation_mode": "caller-bound",
-        "required": ["schema", "contract_sha256", "action", "reason_code", "approval_eligible", "elapsed_sec", "tool_calls", "files_read", "verdict_present", "coverage_complete", "unreviewed_count", "scope_expansion_requested", "new_falsifiable_evidence", "budget_exceeded"],
+        "required": ["schema", "contract_sha256", "action", "reason_code", "approval_eligible", "elapsed_sec", "tool_calls", "files_read", "context_chars", "review_calls", "duplicate_full_scope_reviews", "verdict_present", "coverage_complete", "unreviewed_count", "scope_expansion_requested", "new_falsifiable_evidence", "budget_exceeded"],
         "optional": [],
-        "external_inputs": ["review-runtime.v16"],
+        "external_inputs": ["review-runtime.v16", "review-policy.v16", "runtime-expectations"],
     },
     "dispatch-transcript.v16": {
         "validator": "spark.validate_dispatch_transcript",

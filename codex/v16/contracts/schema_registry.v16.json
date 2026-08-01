@@ -607,6 +607,9 @@
       "required": [
         "schema",
         "review_policy_sha256",
+        "review_identity_sha256",
+        "prior_review_artifact_sha256",
+        "reviewer_continuity_id",
         "review_risk",
         "context_mode",
         "reviewer_model",
@@ -632,7 +635,8 @@
       ],
       "optional": [],
       "external_inputs": [
-        "review-policy.v16"
+        "review-policy.v16",
+        "runtime-expectations"
       ]
     },
     "review-runtime-progress.v16": {
@@ -647,6 +651,9 @@
         "elapsed_sec",
         "tool_calls",
         "files_read",
+        "context_chars",
+        "review_calls",
+        "duplicate_full_scope_reviews",
         "verdict_present",
         "coverage_complete",
         "unreviewed_count",
@@ -656,7 +663,9 @@
       ],
       "optional": [],
       "external_inputs": [
-        "review-runtime.v16"
+        "review-runtime.v16",
+        "review-policy.v16",
+        "runtime-expectations"
       ]
     },
     "dispatch-transcript.v16": {

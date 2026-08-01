@@ -50,6 +50,10 @@ deadline request the current formal report; at the hard deadline interrupt and
 replan without manufacturing a verdict. Scope expansion requires a new
 falsifiable counterexample; otherwise stop the roam. Runtime eligibility never
 overrides the evidence, P1/BLOCKING, coverage, or lineage gates.
+Runtime/progress validation must independently receive the frozen policy and
+caller-owned exact context mode, delta counts, review identity, prior artifact,
+and reviewer-continuity expectations; a self-rehashed payload is never its own
+authority.
 
 ## TOOLING-1
 Tool routing is a contract, not a stylistic suggestion. Known symbols, calls,

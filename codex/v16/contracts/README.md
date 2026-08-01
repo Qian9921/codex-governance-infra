@@ -32,9 +32,14 @@ inventory does not claim that either artifact proves a tool was executed.
 frozen review policy. It fixes the reviewer route/effort, fresh-versus-
 continuation identity, delta-only behavior, one-call/zero-duplicate rule, and
 file/line/context/tool/deadline budgets. `review-runtime-progress.v16`
-recomputes the controller action from that contract and current privacy-safe
-counts. These schemas govern routing and interruption only: they cannot turn a
-partial report, invalid evidence, active blocker, or lineage mismatch into
+recomputes the controller action from current privacy-safe time, file,
+context-character, tool-call, review-call, and duplicate-full-scope counts.
+Both validators independently require the frozen review policy, so a coherent
+route rewrite plus rehash cannot weaken it. They also require caller-owned
+exact context-mode, delta-count, review-identity, prior-artifact, and
+reviewer-continuity expectations so understated deltas and false continuity are
+rejected. These schemas govern routing and interruption only: they cannot turn
+a partial report, invalid evidence, active blocker, or lineage mismatch into
 approval.
 
 Formal review packets and Independent artifacts carry the frozen review-policy

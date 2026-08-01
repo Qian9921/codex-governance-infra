@@ -26,7 +26,10 @@ ROUTING_GUIDANCE = {
 }
 REVIEW_RUNTIME_GUIDANCE = {
     "initial_high": "fresh Sol xhigh",
-    "delta_continuation": "same reviewer Sol high; delta-only; 90s soft/240s hard",
+    "delta_continuation": (
+        "same reviewer and model; high-risk Sol high, low/medium Terra high; "
+        "delta-only; 90s soft/240s hard"
+    ),
     "escalated_high": "fresh Sol xhigh",
     "formal_review_calls": 1,
     "duplicate_full_scope_reviews": 0,
@@ -48,8 +51,9 @@ def build_context(event: str | None = None, model: str | None = None) -> dict[st
         "-> CodeGraph; unknown semantic or similar implementation -> Semble; "
         "shell output/display -> rtk; exact text/log/config/error -> rg. "
         "REVIEW-RUNTIME: compile review-runtime.v16; initial/escalated high "
-        "risk -> fresh Sol xhigh; contract-stable delta -> same reviewer Sol "
-        "high, delta-only, 90s report/240s replan; one review call, zero "
+        "risk -> fresh Sol xhigh; contract-stable delta -> same reviewer/model "
+        "(high-risk Sol high; low/medium Terra high), delta-only, 90s report/"
+        "240s replan; one review call, zero "
         "duplicate full-scope reviews. Choose by task shape; do not infer "
         "intent from raw command arguments."
     )

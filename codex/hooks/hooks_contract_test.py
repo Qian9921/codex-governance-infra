@@ -48,7 +48,10 @@ class HooksContractTests(unittest.TestCase):
             context["review_runtime"]["duplicate_full_scope_reviews"], 0
         )
         self.assertIn("delta-only", context["review_runtime"]["delta_continuation"])
+        self.assertIn("high-risk Sol high", context["review_runtime"]["delta_continuation"])
+        self.assertIn("low/medium Terra high", context["review_runtime"]["delta_continuation"])
         self.assertIn("REVIEW-RUNTIME", guidance)
+        self.assertIn("low/medium Terra high", guidance)
 
     def test_receipt_allowlists_private_fields(self):
         raw = "PRIVATE_PROMPT_VALUE /cwd /secret"

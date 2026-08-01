@@ -105,7 +105,13 @@ class SchemaRegistryExtensionTests(unittest.TestCase):
             runtime["validator"], "review_runtime.validate_review_runtime"
         )
         self.assertEqual(runtime["validation_mode"], "caller-bound")
-        self.assertEqual(runtime["external_inputs"], ["review-policy.v16"])
+        self.assertEqual(
+            runtime["external_inputs"],
+            ["review-policy.v16", "runtime-expectations"],
+        )
+        self.assertIn("review_identity_sha256", runtime["required"])
+        self.assertIn("prior_review_artifact_sha256", runtime["required"])
+        self.assertIn("reviewer_continuity_id", runtime["required"])
         self.assertIn("soft_deadline_sec", runtime["required"])
         self.assertIn("hard_deadline_sec", runtime["required"])
         self.assertIn("max_tool_calls", runtime["required"])
@@ -116,8 +122,18 @@ class SchemaRegistryExtensionTests(unittest.TestCase):
             progress["validator"], "review_runtime.validate_review_progress"
         )
         self.assertEqual(progress["validation_mode"], "caller-bound")
-        self.assertEqual(progress["external_inputs"], ["review-runtime.v16"])
+        self.assertEqual(
+            progress["external_inputs"],
+            [
+                "review-runtime.v16",
+                "review-policy.v16",
+                "runtime-expectations",
+            ],
+        )
         self.assertIn("approval_eligible", progress["required"])
+        self.assertIn("context_chars", progress["required"])
+        self.assertIn("review_calls", progress["required"])
+        self.assertIn("duplicate_full_scope_reviews", progress["required"])
 
     def test_evidence_inventory_requires_canonical_snapshot_identity(self):
         evidence = SCHEMA_REGISTRY["evidence-envelope.v16"]

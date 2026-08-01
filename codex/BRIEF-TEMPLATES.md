@@ -172,6 +172,8 @@ record the resulting `review-runtime.v16` hash. The controller must provide:
 ```text
 context_mode
 changed_files / changed_lines
+review_identity_sha256
+prior_review_artifact_sha256 / reviewer_continuity_id
 prior_coverage_status / prior_unreviewed_count
 same_reviewer_available
 contract_drift
@@ -186,6 +188,12 @@ soft/hard deadlines. At soft deadline request a report; at hard deadline use
 `INTERRUPT_REPLAN`. A PARTIAL report or runtime timeout cannot approve. New
 falsifiable evidence selects `escalated_fresh`; unsupported scope expansion
 must stop.
+
+Every progress receipt must carry observed `context_chars`, `review_calls`, and
+`duplicate_full_scope_reviews`, and validation must separately supply the
+frozen review policy plus caller-owned expectations for context mode, exact
+changed-file/line counts, review identity, prior artifact, and reviewer
+continuity. Do not trust a runtime payload or its digest as its own authority.
 
 `APPROVE` requires complete coverage, empty unreviewed scope, no active
 P1/BLOCKING, a matching caller-bound Independent artifact, and valid evidence.
