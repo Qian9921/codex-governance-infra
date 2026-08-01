@@ -555,6 +555,7 @@ def review_progress_decision(
         or files > contract["max_files"]
         or context > contract["max_context_chars"]
         or reviews > contract["max_review_calls"]
+        or (verdict and reviews != contract["max_review_calls"])
         or duplicate_reviews > contract["duplicate_full_scope_reviews"]
         or elapsed >= contract["hard_deadline_sec"]
     )

@@ -302,6 +302,30 @@ class ReviewRuntimeTests(unittest.TestCase):
                 forged, runtime=runtime, policy_or_mission=MEDIUM_POLICY
             )
 
+    def test_complete_report_requires_exactly_one_formal_review_call(self):
+        runtime = compile_review_runtime(
+            MEDIUM_POLICY,
+            context_mode="independent_clean_room",
+            changed_files=4,
+            changed_lines=100,
+        )
+        decision = review_progress_decision(
+            runtime,
+            policy_or_mission=MEDIUM_POLICY,
+            elapsed_sec=10,
+            tool_calls=2,
+            files_read=4,
+            context_chars=2000,
+            review_calls=0,
+            duplicate_full_scope_reviews=0,
+            verdict_present=True,
+            coverage_complete=True,
+            unreviewed_count=0,
+        )
+        self.assertEqual(decision["action"], "INTERRUPT_REPLAN")
+        self.assertTrue(decision["budget_exceeded"])
+        self.assertFalse(decision["approval_eligible"])
+
     def test_delta_new_evidence_escalates_and_scope_roam_stops(self):
         runtime = compile_review_runtime(
             HIGH_POLICY,
