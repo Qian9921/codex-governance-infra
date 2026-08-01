@@ -1,0 +1,247 @@
+{
+  "schema": "mission.v16",
+  "mission_id": "V16-PRODUCTIVITY",
+  "milestone": "HARDENING",
+  "objective": "Make bounded evidence-backed engineering throughput reproducible",
+  "owner": "Qian9921/v16",
+  "assigned_model": "gpt-5.6-luna",
+  "role": "writer",
+  "permissions": [
+    "read",
+    "write",
+    "test"
+  ],
+  "scope": {
+    "paths": [
+      "codex/v16",
+      "scripts",
+      "tests/v16",
+      "README.md",
+      "codex/AGENTS.md",
+      "codex/BRIEF-TEMPLATES.md"
+    ],
+    "exact_head": "e18439c8dfe01d901895efd09b8b73b6842327a9",
+    "tree_sha": "1de79a7c48e6c66f167be54ca9cf387310149f80"
+  },
+  "reviewer_separation": {
+    "independent_model": "gpt-5.6-sol",
+    "fork_turns": "none",
+    "report_only": true
+  },
+  "operating_domain": "Linux Python>=3.9 stdlib-only private repository",
+  "invariants": [
+    {
+      "id": "INV-SCHEMA",
+      "description": "Contracts reject malformed or privacy-sensitive packets",
+      "blocking": true,
+      "counterexample_ids": [
+        "CE-SCHEMA"
+      ]
+    },
+    {
+      "id": "INV-GATES",
+      "description": "Only ordered, identity-bound foreground gates may advance readiness",
+      "blocking": true,
+      "counterexample_ids": [
+        "CE-GATE"
+      ]
+    },
+    {
+      "id": "INV-EVIDENCE",
+      "description": "Evidence arithmetic and provenance are independently reproducible",
+      "blocking": true,
+      "counterexample_ids": [
+        "CE-EVIDENCE"
+      ]
+    }
+  ],
+  "counterexamples": [
+    {
+      "id": "CE-SCHEMA",
+      "semantics": "schema-extra-field",
+      "description": "An extra contract key must be rejected",
+      "entrypoint_id": "EP-UNIT",
+      "gate_id": "G-TARGETED",
+      "why_red": "A permissive parser can silently ignore a malformed field",
+      "cost": "milliseconds",
+      "denominator": 1,
+      "expected": "GREEN"
+    },
+    {
+      "id": "CE-GATE",
+      "semantics": "gate-stage-jump",
+      "description": "A full gate before targeted prerequisites must be rejected",
+      "entrypoint_id": "EP-UNIT",
+      "gate_id": "G-FULL",
+      "why_red": "Skipping lower evidence stages hides the first failing boundary",
+      "cost": "milliseconds",
+      "denominator": 1,
+      "expected": "GREEN"
+    },
+    {
+      "id": "CE-EVIDENCE",
+      "semantics": "evidence-count-arithmetic",
+      "description": "Counts must satisfy exact arithmetic and known denominator",
+      "entrypoint_id": "EP-UNIT",
+      "gate_id": "G-TARGETED",
+      "why_red": "Copied or invented pass counts can produce a false green",
+      "cost": "milliseconds",
+      "denominator": 1,
+      "expected": "GREEN"
+    }
+  ],
+  "entrypoints": [
+    {
+      "id": "EP-UNIT",
+      "argv": [
+        "python3",
+        "-c",
+        "print('{\\\"total\\\":1,\\\"ran\\\":1,\\\"passed\\\":1,\\\"failed\\\":0,\\\"skipped\\\":0,\\\"xfail\\\":0,\\\"unknown\\\":0}')"
+      ],
+      "cwd": ".",
+      "env": {},
+      "timeout_sec": 30,
+      "stop_conditions": [
+        "exit nonzero",
+        "timeout"
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "G-TARGETED",
+      "stage": "targeted",
+      "depends_on": [],
+      "entrypoint_ids": [
+        "EP-UNIT"
+      ],
+      "blocking": true,
+      "reusable": true
+    },
+    {
+      "id": "G-FULL",
+      "stage": "full",
+      "depends_on": [
+        "G-TARGETED"
+      ],
+      "entrypoint_ids": [
+        "EP-UNIT"
+      ],
+      "blocking": true,
+      "reusable": false
+    },
+    {
+      "id": "G-FRESH",
+      "stage": "fresh",
+      "depends_on": [
+        "G-FULL"
+      ],
+      "entrypoint_ids": [
+        "EP-UNIT"
+      ],
+      "blocking": true,
+      "reusable": false
+    }
+  ],
+  "acceptance": [
+    {
+      "id": "AC-SCHEMA",
+      "invariant_id": "INV-SCHEMA",
+      "counterexample_id": "CE-SCHEMA",
+      "entrypoint_id": "EP-UNIT",
+      "gate_id": "G-TARGETED",
+      "blocking": true,
+      "why_red": "Parser must reject extra keys",
+      "cost": "milliseconds",
+      "denominator": 1,
+      "red_meaning": "Malformed input accepted",
+      "green_meaning": "Malformed input rejected"
+    },
+    {
+      "id": "AC-GATE",
+      "invariant_id": "INV-GATES",
+      "counterexample_id": "CE-GATE",
+      "entrypoint_id": "EP-UNIT",
+      "gate_id": "G-FULL",
+      "blocking": true,
+      "why_red": "Stage order is safety critical",
+      "cost": "milliseconds",
+      "denominator": 1,
+      "red_meaning": "Full stage bypasses targeted",
+      "green_meaning": "Dependency order enforced"
+    },
+    {
+      "id": "AC-EVIDENCE",
+      "invariant_id": "INV-EVIDENCE",
+      "counterexample_id": "CE-EVIDENCE",
+      "entrypoint_id": "EP-UNIT",
+      "gate_id": "G-TARGETED",
+      "blocking": true,
+      "why_red": "Counts and provenance must be exact",
+      "cost": "milliseconds",
+      "denominator": 1,
+      "red_meaning": "False green possible",
+      "green_meaning": "Arithmetic/provenance accepted only when exact"
+    }
+  ],
+  "non_goals": [
+    "live Codex deployment",
+    "GitHub API calls from renderer",
+    "raw private data ingestion"
+  ],
+  "evidence_budget": {
+    "checks": [
+      {
+        "id": "CHK-V16",
+        "why_red": "Current requirements fail at a directly affected boundary",
+        "cost": "under one minute",
+        "denominator": 1
+      }
+    ]
+  },
+  "rollback": "Remove V16 files and restore the prior manifest from the commit before this milestone",
+  "stop_conditions": [
+    "unknown denominator",
+    "privacy scan red",
+    "head drift",
+    "required gate red"
+  ],
+  "spark_audits": [
+    {
+      "id": "SPARK-A-DAG",
+      "domain": "mission compiler and readiness DAG",
+      "scope": [
+        "schema linkage",
+        "dependency order",
+        "state transitions"
+      ],
+      "max_findings": 8,
+      "required": true,
+      "request_schema": "spark-audit-request.v16"
+    },
+    {
+      "id": "SPARK-B-EVIDENCE",
+      "domain": "evidence arithmetic privacy identity",
+      "scope": [
+        "counts",
+        "logs",
+        "public rendering"
+      ],
+      "max_findings": 8,
+      "required": true,
+      "request_schema": "spark-audit-request.v16"
+    },
+    {
+      "id": "SPARK-C-METRICS",
+      "domain": "latency roles PR trace metrics",
+      "scope": [
+        "lineage",
+        "trace",
+        "derived metrics"
+      ],
+      "max_findings": 8,
+      "required": true,
+      "request_schema": "spark-audit-request.v16"
+    }
+  ]
+}

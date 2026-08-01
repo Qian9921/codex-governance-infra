@@ -1,0 +1,1 @@
+{"schema":"counterexample.v16","id":"CE-BAD","semantics":"bool-int","description":"bad","entrypoint_id":"EP-BAD","gate_id":"G-BAD","why_red":"bad","cost":"tiny","denominator":true,"expected":"GREEN"}
