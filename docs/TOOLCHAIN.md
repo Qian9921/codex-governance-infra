@@ -186,14 +186,20 @@ A proved fallback may support bounded exploration but remains
 
 The package installs the current Codex hook configuration at
 `~/.codex/hooks.json`; executable handlers remain under `~/.codex/hooks/`.
-`SessionStart` and `SubagentStart` inject the compact route contract,
-`PreToolUse` records policy/route intent, `PostToolUse` records success or
-failure, and `Stop` compares a complete hidden `tool-task-contract.v16` marker
-with successful current-turn receipts.
+`SessionStart` and `SubagentStart` inject compact routing guidance.
+`UserPromptSubmit` persists a privacy-safe prompt-shape hash and injects the
+exact task/shape hashes needed by the one-time contract recorder.
+`PreToolUse` denies hook-observable repository calls until that validated,
+prompt-bound, immutable `tool-task-contract.v16` exists, then records the exact
+expected call id. `PostToolUse` records only explicit supported success shapes.
+`Stop` compares the contract and expected ids with successful current-turn,
+current-hook-snapshot receipts. Assistant-authored message text is not trusted.
 
 The Stop gate applies to hook-observable local repository activity. It requires
 a successful current strict preflight or maintenance receipt and every route
-declared `required`. It does not require irrelevant routes. On the first
+derived as `required` by the bound contract. It does not require irrelevant
+routes. Missing intake, contract, expected-call, PostToolUse, or hook-snapshot
+state fails closed. On the first
 failure it returns `decision=block`, which asks Codex to continue once. When
 `stop_hook_active=true`, it emits `TOOL_ENFORCEMENT_BLOCKED` and does not request
 another continuation. This is a circuit breaker, not a false pass.

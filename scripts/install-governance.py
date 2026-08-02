@@ -15,6 +15,7 @@ from typing import Any
 
 FORBIDDEN = ("sessions", "hook-receipts", "plugins", "connections", "models_cache.json", ".env")
 BACKUP_NAME = ".governance-v16-backup"
+PREVIOUS_BACKUP_NAME = BACKUP_NAME + ".previous"
 
 
 def sha(path: pathlib.Path) -> str:
@@ -79,58 +80,15 @@ def _write_json(path: pathlib.Path, value: Any) -> None:
     os.chmod(path, 0o600)
 
 
-def install(entries: list[tuple[str, pathlib.Path]], destination: pathlib.Path) -> None:
-    destination.mkdir(mode=0o700, parents=True, exist_ok=True)
-    backup = destination / BACKUP_NAME
-    targets = [(relative, source, _target(destination, relative)) for relative, source in entries]
-    for relative, _source, target in targets:
-        if target.exists() and (target.is_symlink() or not target.is_file()):
-            raise SystemExit("unsafe existing target:" + relative)
-    if backup.exists() and (backup.is_symlink() or not backup.is_dir()):
-        raise SystemExit("unsafe backup target")
-    temporary = pathlib.Path(tempfile.mkdtemp(prefix="governance-v16-", dir=destination))
-    previous: list[str] = []
-    try:
-        files_backup = temporary / "files"
-        for relative, _source, target in targets:
-            if target.is_file():
-                previous.append(relative)
-                saved = files_backup.joinpath(*pathlib.PurePosixPath(relative).parts)
-                saved.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(target, saved)
-        _write_json(temporary / "metadata.json", {
-            "schema": "governance-overlay-backup.v16",
-            "managed": [relative for relative, _source, _target_path in targets],
-            "previous": previous,
-        })
-        if backup.exists():
-            shutil.rmtree(backup)
-        temporary.rename(backup)
-        for relative, source, target in targets:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            staged = target.with_name(target.name + ".governance-v16.tmp")
-            if staged.exists():
-                if staged.is_symlink() or not staged.is_file():
-                    raise SystemExit("unsafe staged target:" + relative)
-                staged.unlink()
-            shutil.copy2(source, staged)
-            os.chmod(staged, 0o600 if staged.suffix == ".json" else 0o644)
-            os.replace(staged, target)
-    except BaseException:
-        if temporary.exists():
-            shutil.rmtree(temporary, ignore_errors=True)
-        if backup.exists():
-            try:
-                rollback(destination)
-            except BaseException as rollback_error:
-                raise SystemExit("install failed and rollback failed") from rollback_error
-        raise
+def _replace_json(path: pathlib.Path, value: Any) -> None:
+    staged = path.with_name(path.name + ".tmp")
+    _write_json(staged, value)
+    os.replace(staged, path)
 
 
-def rollback(destination: pathlib.Path) -> None:
-    backup = destination / BACKUP_NAME
+def _backup_metadata(backup: pathlib.Path) -> dict[str, Any]:
     metadata_path = backup / "metadata.json"
-    if backup.is_symlink() or not metadata_path.is_file() or metadata_path.is_symlink():
+    if backup.is_symlink() or not backup.is_dir() or metadata_path.is_symlink():
         raise SystemExit("no valid backup")
     try:
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -144,23 +102,138 @@ def rollback(destination: pathlib.Path) -> None:
         or not all(isinstance(item, str) for item in managed)
         or not all(isinstance(item, str) for item in previous)
         or not previous.issubset(set(managed))
+        or (
+            "installed" in metadata
+            and (
+                not isinstance(metadata["installed"], dict)
+                or set(metadata["installed"]) != set(managed)
+                or not all(isinstance(value, str) for value in metadata["installed"].values())
+            )
+        )
+        or ("committed" in metadata and type(metadata["committed"]) is not bool)
     ):
         raise SystemExit("invalid backup metadata")
+    return metadata
+
+
+def _backup_committed(backup: pathlib.Path) -> bool:
+    metadata = _backup_metadata(backup)
+    return metadata.get("committed", True) is True
+
+
+def _apply_backup(destination: pathlib.Path, backup: pathlib.Path) -> None:
+    metadata = _backup_metadata(backup)
+    managed = metadata["managed"]
+    previous = set(metadata["previous"])
     for relative in managed:
         target = _target(destination, relative)
         if target.exists() and (target.is_symlink() or not target.is_file()):
             raise SystemExit("unsafe rollback target:" + relative)
-    for relative in managed:
-        target = _target(destination, relative)
         if relative in previous:
             source = backup / "files" / pathlib.PurePosixPath(relative)
             if source.is_symlink() or not source.is_file():
                 raise SystemExit("missing backup file:" + relative)
+    for relative in managed:
+        target = _target(destination, relative)
+        if relative in previous:
+            source = backup / "files" / pathlib.PurePosixPath(relative)
             target.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(source, target)
+            staged = target.with_name(target.name + ".governance-v16.rollback.tmp")
+            shutil.copy2(source, staged)
+            os.replace(staged, target)
         elif target.exists():
             target.unlink()
     shutil.rmtree(backup)
+
+
+def _recover_interrupted_rotation(destination: pathlib.Path) -> None:
+    backup = destination / BACKUP_NAME
+    previous = destination / PREVIOUS_BACKUP_NAME
+    for path in (backup, previous):
+        if path.exists() and (path.is_symlink() or not path.is_dir()):
+            raise SystemExit("unsafe backup target")
+    if previous.exists() and not backup.exists():
+        previous.rename(backup)
+    elif previous.exists() and backup.exists():
+        if _backup_committed(backup):
+            shutil.rmtree(previous)
+        else:
+            _apply_backup(destination, backup)
+            previous.rename(backup)
+    elif backup.exists() and not _backup_committed(backup):
+        _apply_backup(destination, backup)
+
+
+def install(entries: list[tuple[str, pathlib.Path]], destination: pathlib.Path) -> None:
+    destination.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _recover_interrupted_rotation(destination)
+    backup = destination / BACKUP_NAME
+    previous_backup = destination / PREVIOUS_BACKUP_NAME
+    targets = [(relative, source, _target(destination, relative)) for relative, source in entries]
+    for relative, _source, target in targets:
+        if target.exists() and (target.is_symlink() or not target.is_file()):
+            raise SystemExit("unsafe existing target:" + relative)
+    temporary = pathlib.Path(tempfile.mkdtemp(prefix="governance-v16-", dir=destination))
+    previous: list[str] = []
+    rotated = published = False
+    try:
+        files_backup = temporary / "files"
+        for relative, _source, target in targets:
+            if target.is_file():
+                previous.append(relative)
+                saved = files_backup.joinpath(*pathlib.PurePosixPath(relative).parts)
+                saved.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(target, saved)
+        _write_json(temporary / "metadata.json", {
+            "schema": "governance-overlay-backup.v16",
+            "managed": [relative for relative, _source, _target_path in targets],
+            "previous": previous,
+            "installed": {relative: sha(source) for relative, source, _target in targets},
+            "committed": False,
+        })
+        if backup.exists():
+            backup.rename(previous_backup)
+            rotated = True
+        temporary.rename(backup)
+        published = True
+        for relative, source, target in targets:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            staged = target.with_name(target.name + ".governance-v16.tmp")
+            if staged.exists():
+                if staged.is_symlink() or not staged.is_file():
+                    raise SystemExit("unsafe staged target:" + relative)
+                staged.unlink()
+            shutil.copy2(source, staged)
+            os.chmod(staged, 0o600 if staged.suffix == ".json" else 0o644)
+            os.replace(staged, target)
+        metadata = _backup_metadata(backup)
+        metadata["committed"] = True
+        _replace_json(backup / "metadata.json", metadata)
+        if previous_backup.exists():
+            shutil.rmtree(previous_backup)
+    except BaseException:
+        if temporary.exists():
+            shutil.rmtree(temporary, ignore_errors=True)
+        if published and backup.exists():
+            try:
+                _apply_backup(destination, backup)
+            except BaseException as rollback_error:
+                raise SystemExit("install failed and rollback failed") from rollback_error
+        if rotated and previous_backup.exists() and not backup.exists():
+            previous_backup.rename(backup)
+        raise
+
+
+def rollback(destination: pathlib.Path) -> None:
+    backup = destination / BACKUP_NAME
+    previous = destination / PREVIOUS_BACKUP_NAME
+    if previous.exists() and not backup.exists():
+        previous.rename(backup)
+    if not backup.exists():
+        raise SystemExit("no valid backup")
+    _apply_backup(destination, backup)
+    if previous.exists():
+        previous.rename(backup)
 
 
 def main() -> int:

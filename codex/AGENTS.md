@@ -99,9 +99,11 @@ cannot satisfy the route; irrelevant “check-box” calls are violations. Hooks
 reinforce the declared route and store only normalized privacy-safe receipts;
 they do not infer semantics from raw arguments or blanket-deny legitimate
 calls. For hook-observable repository activity, the native Stop gate requires
-one complete hidden four-route marker and current-turn successful PostToolUse
-receipts; it may continue once only, then opens the `stop_hook_active` circuit
-without claiming success. `tool-enforcement.v16` compares actual preferred-tool use with the
+the immutable `UserPromptSubmit`-bound task contract, exact PreToolUse call ids,
+and matching successful current-snapshot PostToolUse receipts. A free-form
+assistant marker is never authority. Missing intake/contract/receipt state
+fails closed; Stop may continue once only, then opens the `stop_hook_active`
+circuit without claiming success. `tool-enforcement.v16` compares actual preferred-tool use with the
 complete four-row task contract; only `completion_eligible=true` supports
 completion. A verified fallback is degraded coverage, never equivalent
 completion. CodeGraph state belongs to the owning child repo, never its parent

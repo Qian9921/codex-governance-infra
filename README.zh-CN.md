@@ -215,10 +215,11 @@ privacy-safe hook receipt hash。
 `tool-enforcement.v16` 要求每个 required preferred route 都有成功且 task-relevant 的实际调用；
 只有 `completion_eligible=true` 才能支持完成声明。
 
-安装后的原生 `PostToolUse` hook 记录成功/失败，原生 `Stop` hook 将完整四行适用性声明与
-current-turn receipts 机械比对。缺少 route 时只续跑一次；仍缺失时依据 `stop_hook_active` 打开
-circuit，只发出终态告警，不再生成无限 continuation。Hook 定义变化后，Codex 会要求通过
-`/hooks` 审阅并信任新 hash，未 trust 前不会执行。
+原生 `UserPromptSubmit` hook 先建立只含 hash 的 turn intake，并把一次性 task-contract recorder
+所需的精确 hash 注入给 Codex；不可变完整 contract 建立前，`PreToolUse` 会拒绝仓库工具，并记录
+每个预期 call id。`PostToolUse` 只接受明确、受支持的成功结构；`Stop` 要求每个预期调用都有同一
+current hook snapshot 下的成功 receipt。缺证据只续跑一次，随后由 `stop_hook_active` 打开 circuit，
+不再死循环。Assistant 自己写的 marker 不具备裁决权。Hook 变化后须用 `/hooks` 审阅并 trust 新 hash。
 
 ### Reliability plane
 

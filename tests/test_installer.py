@@ -68,4 +68,22 @@ class Installer(unittest.TestCase):
    self.assertEqual(agents.read_text(encoding='utf-8'),'previous-agents')
    self.assertFalse((home/'.governance-v16-backup').exists())
    self.assertTrue(staged_collision.is_dir())
+
+ def test_failed_upgrade_preserves_prior_rollback_generation(self):
+  with tempfile.TemporaryDirectory() as d:
+   home=pathlib.Path(d)/'home'; home.mkdir()
+   agents=home/'AGENTS.md'; agents.write_text('original-agents',encoding='utf-8')
+   command=[sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home)]
+   subprocess.check_call(command)
+   self.assertTrue((home/'.governance-v16-backup'/'metadata.json').is_file())
+   agents.write_text('active-before-failed-upgrade',encoding='utf-8')
+   staged_collision=home/'hooks.json.governance-v16.tmp'; staged_collision.mkdir()
+   result=subprocess.run(command,capture_output=True,text=True)
+   self.assertNotEqual(result.returncode,0)
+   self.assertEqual(agents.read_text(encoding='utf-8'),'active-before-failed-upgrade')
+   self.assertTrue((home/'.governance-v16-backup'/'metadata.json').is_file())
+   self.assertFalse((home/'.governance-v16-backup.previous').exists())
+   staged_collision.rmdir()
+   subprocess.check_call(command+['--rollback'])
+   self.assertEqual(agents.read_text(encoding='utf-8'),'original-agents')
 if __name__=='__main__': unittest.main()

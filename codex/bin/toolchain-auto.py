@@ -15,6 +15,12 @@ if str(PACKAGE_ROOT) not in sys.path:
 
 from v16.tool_maintenance import ToolMaintenanceError, maintain_toolchain  # noqa: E402
 from v16.tool_preflight import PreflightError  # noqa: E402
+from v16.tool_runtime import (  # noqa: E402
+    SIGNALS,
+    ToolRuntimeError,
+    compile_task_contract,
+    persist_task_contract,
+)
 
 
 EXIT_BY_STATUS = {
@@ -34,8 +40,8 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
     parser.add_argument("--repo", default=".", help="exact owning Git repository")
-    parser.add_argument("--semantic-query", required=True)
-    parser.add_argument("--expected-path", required=True)
+    parser.add_argument("--semantic-query")
+    parser.add_argument("--expected-path")
     parser.add_argument("--config")
     parser.add_argument("--timeout-sec", type=float, default=30.0)
     parser.add_argument(
@@ -47,7 +53,44 @@ def main(argv: list[str] | None = None) -> int:
         "--state-dir",
         help="private lock state; defaults to ~/.codex/tool-state",
     )
+    parser.add_argument(
+        "--record-task-contract",
+        action="store_true",
+        help="bind one complete route classification to the current hook turn",
+    )
+    parser.add_argument("--task-id-sha256")
+    parser.add_argument("--task-shape-sha256")
+    parser.add_argument("--repository-work", action="store_true")
+    parser.add_argument("--classifier-identity", default="agent-task-classifier.v16")
+    for signal in SIGNALS:
+        parser.add_argument("--" + signal.replace("_", "-"), action="store_true")
     args = parser.parse_args(argv)
+    if args.record_task_contract:
+        if not args.repository_work:
+            parser.error("--record-task-contract requires --repository-work")
+        if not args.task_id_sha256 or not args.task_shape_sha256:
+            parser.error("task and task-shape SHA-256 values are required")
+        try:
+            contract = compile_task_contract(
+                task_id_sha256=args.task_id_sha256,
+                classifier_identity=args.classifier_identity,
+                task_shape_sha256=args.task_shape_sha256,
+                repository_work=True,
+                signals={name: bool(getattr(args, name)) for name in SIGNALS},
+            )
+            recorded = persist_task_contract(contract, state_dir=args.state_dir)
+        except (OSError, ToolRuntimeError) as exc:
+            print(json.dumps({
+                "schema": "tool-task-contract-error.v16",
+                "status": "blocked",
+                "terminal_reason_code": type(exc).__name__,
+                "message": str(exc),
+            }, sort_keys=True))
+            return 5
+        print(json.dumps(recorded, sort_keys=True, separators=(",", ":")))
+        return 0
+    if not args.semantic_query or not args.expected_path:
+        parser.error("maintenance requires --semantic-query and --expected-path")
     try:
         report = maintain_toolchain(
             args.repo,

@@ -28,6 +28,19 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CODEX_HOME:-$HOME/.codex}/hooks/session_context.py\"",
+            "statusMessage": "Binding V16 task intake",
+            "additionalContextLimit": 1600,
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "hooks": [

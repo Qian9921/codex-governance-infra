@@ -121,6 +121,7 @@ class HooksContractTests(unittest.TestCase):
         env = os.environ.copy()
         env["CODEX_HOOK_SOURCE"] = "test"
         env["CODEX_HOOK_RECEIPT_DIR"] = str(directory)
+        env["CODEX_TOOL_STATE_DIR"] = str(pathlib.Path(directory) / "tool-state")
         return subprocess.run(
             [sys.executable, str(pathlib.Path(__file__).with_name(name))],
             input=json.dumps(payload), text=True, capture_output=True, check=False, env=env,
@@ -199,6 +200,27 @@ class HooksContractTests(unittest.TestCase):
             parsed = json.loads(proc.stdout)
             self.assertEqual(parsed["hookSpecificOutput"]["permissionDecision"], "allow")
             self.assertIn("receipt write failed", parsed["systemMessage"])
+
+    def test_repo_tool_fails_closed_without_bound_turn_contract(self):
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as repo:
+            pathlib.Path(repo, ".git").mkdir()
+            proc = self._run_entrypoint(
+                "pre_tool_use_policy.py",
+                {
+                    "session_id": "session", "turn_id": "turn", "cwd": repo,
+                    "tool_name": "apply_patch", "tool_use_id": "call",
+                    "tool_input": {"command": "*** Begin Patch"},
+                },
+                pathlib.Path(directory),
+            )
+            parsed = json.loads(proc.stdout)
+            self.assertEqual(
+                parsed["hookSpecificOutput"]["permissionDecision"], "deny"
+            )
+            self.assertIn(
+                "bound V16 task contract",
+                parsed["hookSpecificOutput"]["permissionDecisionReason"],
+            )
 
     def test_symlink_destination_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -285,7 +307,10 @@ class HooksContractTests(unittest.TestCase):
         config = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(
             set(config["hooks"]),
-            {"SessionStart", "SubagentStart", "PreToolUse", "PostToolUse", "Stop"},
+            {
+                "SessionStart", "SubagentStart", "UserPromptSubmit",
+                "PreToolUse", "PostToolUse", "Stop",
+            },
         )
         commands = [
             hook["command"]
@@ -300,65 +325,135 @@ class HooksContractTests(unittest.TestCase):
             self.assertTrue(any(name in command for command in commands), name)
 
     def test_post_receipts_and_stop_gate_are_success_bound_and_one_shot(self):
-        marker = (
-            "<!-- tool-task-contract.v16 semantic_discovery=not_applicable "
-            "structural_analysis=required exact_lookup=not_applicable "
-            "shell_context=not_applicable machine_exact_only=false -->"
-        )
         with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as repo:
             root = pathlib.Path(directory)
             pathlib.Path(repo, ".git").mkdir()
-            common = {"turn_id": "turn-1", "model": "gpt-5.6-luna"}
-            maintenance = self._run_entrypoint(
-                "post_tool_use_receipt.py",
-                {
-                    **common,
-                    "hook_event_name": "PostToolUse",
-                    "tool_name": "Bash",
-                    "tool_use_id": "maintenance-call",
-                    "tool_input": {"command": "rtk python3 codex/bin/toolchain-auto.py --repo ."},
-                    "tool_response": {"exit_code": 0},
-                },
+            common = {
+                "session_id": "session-1", "turn_id": "turn-1",
+                "model": "gpt-5.6-luna", "cwd": repo,
+            }
+            prompt = "inspect the impact of a known symbol"
+            intake = self._run_entrypoint(
+                "session_context.py",
+                {**common, "hook_event_name": "UserPromptSubmit", "prompt": prompt},
                 root,
             )
-            structural = self._run_entrypoint(
-                "post_tool_use_receipt.py",
-                {
-                    **common,
-                    "hook_event_name": "PostToolUse",
-                    "tool_name": "Bash",
-                    "tool_use_id": "codegraph-call",
-                    "tool_input": {"command": "rtk codegraph impact symbol -p ."},
-                    "tool_response": {"exit_code": 0},
-                },
+            self.assertEqual(intake.returncode, 0, intake.stderr)
+            intake_context = json.loads(intake.stdout)["hookSpecificOutput"]["additionalContext"]
+            for flag in (
+                "--unknown-semantic-entrypoint", "--similar-implementation",
+                "--known-symbol-or-call", "--dependency-or-blast-radius",
+                "--exact-text-error-config-log", "--shell-output-for-model",
+                "--machine-exact-only",
+            ):
+                self.assertIn(flag, intake_context)
+            task_id = hashlib.sha256(b"session-1\0turn-1").hexdigest()
+            shape_id = hashlib.sha256(prompt.encode()).hexdigest()
+            recorder_command = (
+                "rtk python3 codex/bin/toolchain-auto.py --record-task-contract "
+                f"--repository-work --task-id-sha256 {task_id} "
+                f"--task-shape-sha256 {shape_id} --known-symbol-or-call"
+            )
+
+            calls = (
+                ("contract-call", recorder_command),
+                ("maintenance-call", "rtk python3 codex/bin/toolchain-auto.py --repo ."),
+                ("codegraph-call", "rtk codegraph impact symbol -p ."),
+            )
+            recorder_pre = self._run_entrypoint(
+                "pre_tool_use_policy.py",
+                {**common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                 "tool_use_id": calls[0][0], "tool_input": {"command": calls[0][1]}},
                 root,
             )
-            self.assertEqual(maintenance.returncode, 0, maintenance.stderr)
-            self.assertEqual(structural.returncode, 0, structural.stderr)
+            self.assertEqual(
+                json.loads(recorder_pre.stdout)["hookSpecificOutput"]["permissionDecision"],
+                "allow",
+            )
+            env = os.environ.copy()
+            env["CODEX_TOOL_STATE_DIR"] = str(root / "tool-state")
+            recorded = subprocess.run(
+                [
+                    sys.executable,
+                    str(pathlib.Path(__file__).parents[1] / "bin" / "toolchain-auto.py"),
+                    "--record-task-contract", "--repository-work",
+                    "--task-id-sha256", task_id, "--task-shape-sha256", shape_id,
+                    "--known-symbol-or-call",
+                ],
+                text=True, capture_output=True, check=False, env=env,
+            )
+            self.assertEqual(recorded.returncode, 0, recorded.stderr)
+            for call_id, command in calls:
+                if call_id != "contract-call":
+                    pre = self._run_entrypoint(
+                        "pre_tool_use_policy.py",
+                        {**common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                         "tool_use_id": call_id, "tool_input": {"command": command}},
+                        root,
+                    )
+                    self.assertEqual(
+                        json.loads(pre.stdout)["hookSpecificOutput"]["permissionDecision"],
+                        "allow", pre.stdout,
+                    )
+                post = self._run_entrypoint(
+                    "post_tool_use_receipt.py",
+                    {**common, "hook_event_name": "PostToolUse", "tool_name": "Bash",
+                     "tool_use_id": call_id, "tool_input": {"command": command},
+                     "tool_response": {"exit_code": 0}},
+                    root,
+                )
+                self.assertEqual(post.returncode, 0, post.stderr)
             passed = self._run_entrypoint(
                 "stop_tool_enforcement.py",
                 {
                     **common,
                     "hook_event_name": "Stop",
-                    "cwd": repo,
                     "stop_hook_active": False,
-                    "last_assistant_message": marker,
                 },
                 root,
             )
             self.assertEqual(json.loads(passed.stdout), {})
 
-            missing_marker = marker.replace(
-                "semantic_discovery=not_applicable", "semantic_discovery=required"
+            missing_common = {**common, "turn_id": "turn-2"}
+            missing_intake = self._run_entrypoint(
+                "session_context.py",
+                {**missing_common, "hook_event_name": "UserPromptSubmit", "prompt": prompt},
+                root,
             )
+            self.assertEqual(missing_intake.returncode, 0, missing_intake.stderr)
+            missing_task = hashlib.sha256(b"session-1\0turn-2").hexdigest()
+            missing_recorder = recorder_command.replace(task_id, missing_task)
+            pre = self._run_entrypoint(
+                "pre_tool_use_policy.py",
+                {**missing_common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                 "tool_use_id": "contract-2", "tool_input": {"command": missing_recorder}},
+                root,
+            )
+            self.assertEqual(json.loads(pre.stdout)["hookSpecificOutput"]["permissionDecision"], "allow")
+            recorded = subprocess.run(
+                [
+                    sys.executable,
+                    str(pathlib.Path(__file__).parents[1] / "bin" / "toolchain-auto.py"),
+                    "--record-task-contract", "--repository-work",
+                    "--task-id-sha256", missing_task, "--task-shape-sha256", shape_id,
+                    "--unknown-semantic-entrypoint",
+                ], text=True, capture_output=True, check=False, env=env,
+            )
+            self.assertEqual(recorded.returncode, 0, recorded.stderr)
+            post = self._run_entrypoint(
+                "post_tool_use_receipt.py",
+                {**missing_common, "hook_event_name": "PostToolUse", "tool_name": "Bash",
+                 "tool_use_id": "contract-2", "tool_input": {"command": missing_recorder},
+                 "tool_response": {"exit_code": 0}},
+                root,
+            )
+            self.assertEqual(post.returncode, 0, post.stderr)
             first = self._run_entrypoint(
                 "stop_tool_enforcement.py",
                 {
-                    **common,
+                    **missing_common,
                     "hook_event_name": "Stop",
-                    "cwd": repo,
                     "stop_hook_active": False,
-                    "last_assistant_message": missing_marker,
                 },
                 root,
             )
@@ -366,11 +461,9 @@ class HooksContractTests(unittest.TestCase):
             second = self._run_entrypoint(
                 "stop_tool_enforcement.py",
                 {
-                    **common,
+                    **missing_common,
                     "hook_event_name": "Stop",
-                    "cwd": repo,
                     "stop_hook_active": True,
-                    "last_assistant_message": missing_marker,
                 },
                 root,
             )
@@ -381,7 +474,12 @@ class HooksContractTests(unittest.TestCase):
     def test_post_tool_failure_is_not_accepted_as_success(self):
         self.assertFalse(post_tool_use_receipt.tool_succeeded({"exit_code": 7}))
         self.assertFalse(post_tool_use_receipt.tool_succeeded({"isError": True}))
+        self.assertFalse(post_tool_use_receipt.tool_succeeded(None))
+        self.assertFalse(post_tool_use_receipt.tool_succeeded("success"))
+        self.assertFalse(post_tool_use_receipt.tool_succeeded({"output": "ok"}))
         self.assertTrue(post_tool_use_receipt.tool_succeeded({"exit_code": 0}))
+        self.assertTrue(post_tool_use_receipt.tool_succeeded({"status": "completed"}))
+        self.assertTrue(post_tool_use_receipt.tool_succeeded({"content": []}))
 
 
 if __name__ == '__main__': unittest.main()

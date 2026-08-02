@@ -1,12 +1,21 @@
 import copy
 import hashlib
+import tempfile
 import unittest
+from unittest import mock
 
 from codex.v16.tool_runtime import (
     ROUTES,
     ToolRuntimeError,
+    ValidatedToolUsage,
+    begin_turn_state,
     build_enforcement_report,
     compile_task_contract,
+    load_expected_tool_calls,
+    load_turn_contract,
+    persist_task_contract,
+    record_expected_tool_call,
+    validate_and_bind_usage_report,
     validate_enforcement_report,
     validate_task_contract,
 )
@@ -52,6 +61,16 @@ def usage(*, tools=(), routes=(), compliant=True, equivalent=True):
         ],
         "routes": list(routes),
     }
+
+
+def bound_usage(test, value):
+    with mock.patch(
+        "codex.v16.tool_runtime.validate_usage_report", return_value=value
+    ) as validator:
+        bound = validate_and_bind_usage_report(value, authority="caller-bound")
+    validator.assert_called_once_with(value, authority="caller-bound")
+    test.assertEqual(bound.report, value)
+    return bound
 
 
 class ToolRuntimeTests(unittest.TestCase):
@@ -116,15 +135,16 @@ class ToolRuntimeTests(unittest.TestCase):
 
     def test_required_preferred_tool_is_completion_gate(self):
         task = contract(unknown_semantic_entrypoint=True)
-        report = build_enforcement_report(task, usage(tools=("semble",)))
+        evidence = bound_usage(self, usage(tools=("semble",)))
+        report = build_enforcement_report(task, evidence)
         self.assertEqual(report["status"], "compliant")
         self.assertTrue(report["completion_eligible"])
         self.assertEqual(report["counts"]["passed"], 4)
-        self.assertEqual(validate_enforcement_report(report, task, usage(tools=("semble",))), report)
+        self.assertEqual(validate_enforcement_report(report, task, evidence), report)
 
     def test_missing_required_tool_is_blocking_not_a_skip(self):
         task = contract(known_symbol_or_call=True)
-        report = build_enforcement_report(task, usage())
+        report = build_enforcement_report(task, bound_usage(self, usage()))
         self.assertEqual(report["status"], "blocked")
         self.assertFalse(report["completion_eligible"])
         self.assertEqual(
@@ -137,11 +157,11 @@ class ToolRuntimeTests(unittest.TestCase):
         task = contract(unknown_semantic_entrypoint=True)
         report = build_enforcement_report(
             task,
-            usage(
+            bound_usage(self, usage(
                 tools=("rg",),
                 routes=({"preferred_tool": "semble", "fallback": True},),
                 equivalent=False,
-            ),
+            )),
         )
         self.assertEqual(report["status"], "degraded")
         self.assertFalse(report["completion_eligible"])
@@ -154,7 +174,7 @@ class ToolRuntimeTests(unittest.TestCase):
         task = contract(exact_text_error_config_log=True)
         report = build_enforcement_report(
             task,
-            usage(tools=("rg",), compliant=False, equivalent=False),
+            bound_usage(self, usage(tools=("rg",), compliant=False, equivalent=False)),
         )
         self.assertEqual(report["status"], "blocked")
         self.assertFalse(report["completion_eligible"])
@@ -163,7 +183,8 @@ class ToolRuntimeTests(unittest.TestCase):
     def test_validator_rejects_a_self_consistent_but_forged_green_report(self):
         task = contract(known_symbol_or_call=True)
         actual_usage = usage()
-        forged = build_enforcement_report(task, actual_usage)
+        bound = bound_usage(self, actual_usage)
+        forged = build_enforcement_report(task, bound)
         forged = copy.deepcopy(forged)
         forged["status"] = "compliant"
         forged["completion_eligible"] = True
@@ -172,7 +193,54 @@ class ToolRuntimeTests(unittest.TestCase):
         forged["counts"]["passed"] = 4
         forged["counts"]["failed"] = 0
         with self.assertRaises(ToolRuntimeError):
-            validate_enforcement_report(forged, task, actual_usage)
+            validate_enforcement_report(forged, task, bound)
+
+    def test_plain_or_self_constructed_usage_cannot_enter_enforcement(self):
+        task = contract(known_symbol_or_call=True)
+        with self.assertRaises(ToolRuntimeError):
+            build_enforcement_report(task, usage())
+        with self.assertRaises(ToolRuntimeError):
+            ValidatedToolUsage(usage(), object())
+
+    def test_turn_contract_is_prompt_bound_immutable_and_activity_bound(self):
+        with tempfile.TemporaryDirectory() as directory:
+            intake = begin_turn_state(
+                session_id="session", turn_id="turn", prompt="inspect symbol",
+                state_dir=directory,
+            )
+            value = compile_task_contract(
+                task_id_sha256=intake["task_id_sha256"],
+                classifier_identity="test-classifier",
+                task_shape_sha256=intake["task_shape_sha256"],
+                repository_work=True,
+                signals=signals(known_symbol_or_call=True),
+            )
+            self.assertEqual(persist_task_contract(value, state_dir=directory), value)
+            self.assertEqual(
+                load_turn_contract(
+                    session_id="session", turn_id="turn", state_dir=directory
+                ),
+                value,
+            )
+            changed = compile_task_contract(
+                task_id_sha256=intake["task_id_sha256"],
+                classifier_identity="test-classifier",
+                task_shape_sha256=intake["task_shape_sha256"],
+                repository_work=True,
+                signals=signals(unknown_semantic_entrypoint=True),
+            )
+            with self.assertRaises(ToolRuntimeError):
+                persist_task_contract(changed, state_dir=directory)
+            self.assertTrue(record_expected_tool_call(
+                session_id="session", turn_id="turn", tool_use_id="call-1",
+                state_dir=directory,
+            ))
+            self.assertEqual(
+                load_expected_tool_calls(
+                    session_id="session", turn_id="turn", state_dir=directory
+                ),
+                [hashlib.sha256(b"call-1").hexdigest()],
+            )
 
 
 if __name__ == "__main__":

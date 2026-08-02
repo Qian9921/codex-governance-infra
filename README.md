@@ -231,12 +231,15 @@ evidence reference, and privacy-safe hook receipt hash.
 successful task-relevant call. Only `completion_eligible=true` supports
 completion.
 
-The installed native `PostToolUse` hook records success/failure, while the
-native `Stop` hook checks the complete four-route declaration against
-current-turn receipts. A missing required route continues the task once; if it
-is still missing, `stop_hook_active` opens the circuit and emits a terminal
-warning instead of creating an infinite continuation loop. Codex requires the
-changed hook hash to be reviewed and trusted with `/hooks` before it will run.
+The native `UserPromptSubmit` hook creates a privacy-safe turn intake and gives
+Codex the exact hashes for a one-time task-contract recorder. `PreToolUse`
+denies repository tools until that immutable complete contract exists and
+records each expected call id. `PostToolUse` accepts only explicit supported
+success shapes. `Stop` requires every expected call to have a matching,
+successful, current-snapshot receipt. Missing evidence continues once;
+`stop_hook_active` then opens the circuit instead of looping. Assistant text is
+never applicability authority. Review and trust each changed hook hash with
+`/hooks` before it can run.
 
 ### Reliability plane
 

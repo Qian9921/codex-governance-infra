@@ -22,24 +22,33 @@ except ImportError:  # pragma: no cover - direct hook execution.
 
 
 def tool_succeeded(response: Any) -> bool:
-    """Conservatively classify stable error/status fields in a tool response."""
+    """Accept only explicit supported success shapes; unknown/scalar is failure."""
 
-    if isinstance(response, Mapping):
-        if response.get("isError") is True or response.get("is_error") is True:
+    if not isinstance(response, Mapping):
+        return False
+    if response.get("isError") is True or response.get("is_error") is True:
+        return False
+    exit_fields = [
+        response[key]
+        for key in ("exit_code", "exitCode", "returncode")
+        if key in response
+    ]
+    if exit_fields:
+        return all(type(value) is int and value == 0 for value in exit_fields)
+    status = response.get("status")
+    if isinstance(status, str):
+        normalized = status.lower()
+        if normalized in {"error", "failed", "failure", "blocked", "denied"}:
             return False
-        for key in ("exit_code", "exitCode", "returncode"):
-            value = response.get(key)
-            if type(value) is int and value != 0:
-                return False
-        status = response.get("status")
-        if isinstance(status, str) and status.lower() in {
-            "error", "failed", "failure", "blocked", "denied",
-        }:
-            return False
-        return all(tool_succeeded(value) for value in response.values())
-    if isinstance(response, Sequence) and not isinstance(response, (str, bytes)):
-        return all(tool_succeeded(value) for value in response)
-    return True
+        if normalized in {"ok", "success", "succeeded", "complete", "completed"}:
+            return True
+        return False
+    if type(response.get("success")) is bool:
+        return response["success"] is True
+    content = response.get("content")
+    if isinstance(content, Sequence) and not isinstance(content, (str, bytes)):
+        return response.get("isError", response.get("is_error", False)) is False
+    return False
 
 
 def main() -> int:
@@ -64,7 +73,9 @@ def main() -> int:
     )
     written = hook_receipt.write_receipt(value)
     output = {} if written else {
-        "systemMessage": "V16 hook receipt write failed; runtime-proof acceptance is unavailable."
+        "decision": "block",
+        "reason": "V16 PostToolUse receipt persistence failed; runtime proof is unavailable.",
+        "systemMessage": "V16 hook receipt write failed; current-turn evidence is incomplete.",
     }
     print(json.dumps(output, sort_keys=True))
     return 0

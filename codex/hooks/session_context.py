@@ -10,12 +10,19 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import sys
 
 try:  # Support both direct hook execution and package-based test discovery.
     from . import hook_receipt
 except ImportError:  # pragma: no cover - exercised by direct script invocation.
     import hook_receipt
+
+PACKAGE_ROOT = pathlib.Path(__file__).resolve().parents[1]
+if str(PACKAGE_ROOT) not in sys.path:
+    sys.path.insert(0, str(PACKAGE_ROOT))
+
+from v16.tool_runtime import ToolRuntimeError, begin_turn_state  # noqa: E402
 
 
 ROUTING_GUIDANCE = {
@@ -74,10 +81,9 @@ def build_context(event: str | None = None, model: str | None = None) -> dict[st
         "receipt-backed tool-usage.v16 and tool-enforcement.v16 completion. "
         "On repairable index failure the execution lane is tool_maintainer: one "
         "locked exact-repo init/sync and recheck; never loop or label ordinary "
-        "stale indexes EXEC_INFRA_BLOCKED."
-        " STOP-GATE: repository-tool turns end with exactly one hidden complete "
-        "tool-task-contract.v16 marker; the Stop hook checks successful current-"
-        "turn receipts and continues at most once."
+        "stale indexes EXEC_INFRA_BLOCKED. STOP-GATE: current-turn intake, "
+        "validated bound contract, expected tool calls and successful PostToolUse "
+        "receipts are mandatory; Stop continues at most once."
     )
     return {
         "event": event or "SessionStart",
@@ -102,6 +108,34 @@ if __name__ == "__main__":
     event = raw_event if isinstance(raw_event, str) else "SessionStart"
     model = payload.get("model") if isinstance(payload.get("model"), str) else None
     context = build_context(event, model)
+    intake_error: str | None = None
+    if event == "UserPromptSubmit":
+        try:
+            intake = begin_turn_state(
+                session_id=payload.get("session_id"),
+                turn_id=payload.get("turn_id"),
+                prompt=payload.get("prompt"),
+            )
+            choices = " ".join("--" + name.replace("_", "-") for name in (
+                "unknown_semantic_entrypoint", "similar_implementation",
+                "known_symbol_or_call", "dependency_or_blast_radius",
+                "exact_text_error_config_log", "shell_output_for_model",
+                "machine_exact_only",
+            ))
+            intake_context = (
+                "V16 TOOL-TASK-INTAKE. Route known symbol/call/impact to CodeGraph; "
+                "unknown semantics/similar code to Semble; exact text/error/config/log "
+                "to rg; shell output shown to the model through rtk. Before the first "
+                "hook-observable repository tool, run once: rtk python3 "
+                "\"${CODEX_HOME:-$HOME/.codex}/bin/toolchain-auto.py\" "
+                "--record-task-contract --repository-work "
+                f"--task-id-sha256 {intake['task_id_sha256']} "
+                f"--task-shape-sha256 {intake['task_shape_sha256']} "
+                "plus only the applicable flags from: " + choices + "."
+            )
+            context["additionalContext"] = intake_context[:1600]
+        except (OSError, ToolRuntimeError) as exc:
+            intake_error = type(exc).__name__
     receipt_value = hook_receipt.receipt(
         event,
         model or os.environ.get("CODEX_MODEL", "unknown"),
@@ -120,5 +154,10 @@ if __name__ == "__main__":
     if not written:
         output["systemMessage"] = (
             "V16 hook receipt write failed; runtime-proof acceptance is unavailable."
+        )
+    elif intake_error:
+        output["systemMessage"] = (
+            "V16 turn intake state failed (" + intake_error
+            + "); repository tools will fail closed until the next turn."
         )
     print(json.dumps(output, sort_keys=True))

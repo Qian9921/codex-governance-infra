@@ -22,6 +22,16 @@ try:  # Support both direct hook execution and package-based test discovery.
 except ImportError:  # pragma: no cover - exercised by direct script invocation.
     import hook_receipt
 
+PACKAGE_ROOT = pathlib.Path(__file__).resolve().parents[1]
+if str(PACKAGE_ROOT) not in sys.path:
+    sys.path.insert(0, str(PACKAGE_ROOT))
+
+from v16.tool_runtime import (  # noqa: E402
+    ToolRuntimeError,
+    load_turn_contract,
+    record_expected_tool_call,
+)
+
 
 FORBIDDEN_CHILD = frozenset({"git", "github", "merge", "review", "approve"})
 ROUTE_BY_TOOL = {
@@ -43,6 +53,9 @@ ROUTE_BY_TOOL = {
     "ripgrep": "rg",
     "grep": "rg",
 }
+REPO_ACTIVITY_TOOLS = frozenset({
+    "bash", "exec_command", "functions.exec_command", "apply_patch", "edit", "write",
+})
 
 
 def _tool_key(tool: Any) -> str:
@@ -76,7 +89,7 @@ def _direct_shell_route(tool: Any, args: Any) -> str | None:
     if nested in {"python", "python3"} and len(tokens) >= 3:
         script = pathlib.PurePosixPath(tokens[2]).name.lower()
         if script in {"toolchain-auto.py", "toolchain_auto.py"}:
-            return "maintenance"
+            return "contract" if "--record-task-contract" in tokens else "maintenance"
         if script in {"toolchain-doctor.py", "tool_preflight.py"}:
             return "preflight"
     return {
@@ -84,6 +97,41 @@ def _direct_shell_route(tool: Any, args: Any) -> str | None:
         "semble": "Semble",
         "rg": "rg",
     }.get(nested, "rtk")
+
+
+def _inside_repo(cwd: Any) -> bool:
+    if not isinstance(cwd, str) or not cwd:
+        return False
+    try:
+        current = pathlib.Path(cwd).resolve(strict=True)
+    except (OSError, RuntimeError):
+        return False
+    return any((parent / ".git").exists() for parent in (current, *current.parents))
+
+
+def _contract_recorder(tool: Any, args: Any) -> bool:
+    if _tool_key(tool) not in {"bash", "exec_command", "functions.exec_command", "shell"}:
+        return False
+    if not isinstance(args, Mapping):
+        return False
+    command = args.get("cmd", args.get("command"))
+    if not isinstance(command, str):
+        return False
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return False
+    return "--record-task-contract" in tokens and any(
+        pathlib.PurePosixPath(token).name in {"toolchain-auto.py", "toolchain_auto.py"}
+        for token in tokens
+    )
+
+
+def _repo_activity(payload: Mapping[str, Any], tool: Any, route: str) -> bool:
+    return _inside_repo(payload.get("cwd")) and (
+        _tool_key(tool) in REPO_ACTIVITY_TOOLS
+        or route.lower() in {"preflight", "maintenance", "codegraph", "semble", "rtk", "rg"}
+    )
 
 
 def route_for(tool: Any, args: Any = None) -> str:
@@ -135,6 +183,31 @@ if __name__ == "__main__":
     tool_name = x.get("tool_name", x.get("tool", ""))
     tool_input = x.get("tool_input", x.get("args"))
     result = decide(tool_name, tool_input)
+    repo_activity = _repo_activity(x, tool_name, result["route"])
+    if result["decision"] == "allow" and repo_activity:
+        if not _contract_recorder(tool_name, tool_input):
+            try:
+                load_turn_contract(
+                    session_id=x.get("session_id"), turn_id=x.get("turn_id")
+                )
+            except (OSError, ToolRuntimeError):
+                result = {
+                    **result,
+                    "decision": "deny",
+                    "reason": "record the bound V16 task contract before repository tools",
+                    "reason_code": "task_contract_required",
+                }
+        if result["decision"] == "allow" and not record_expected_tool_call(
+            session_id=x.get("session_id"),
+            turn_id=x.get("turn_id"),
+            tool_use_id=x.get("tool_use_id", x.get("tool_call_id")),
+        ):
+            result = {
+                **result,
+                "decision": "deny",
+                "reason": "current-turn tool activity state is unavailable",
+                "reason_code": "tool_activity_state_unavailable",
+            }
     receipt_value = hook_receipt.receipt(
         "PreToolUse",
         x.get("model", os.environ.get("CODEX_MODEL", "unknown")),
@@ -145,6 +218,13 @@ if __name__ == "__main__":
         identifiers=x,
     )
     written = hook_receipt.write_receipt(receipt_value)
+    if repo_activity and not written:
+        result = {
+            **result,
+            "decision": "deny",
+            "reason": "V16 runtime-proof receipt persistence failed",
+            "reason_code": "hook_receipt_write_failed",
+        }
     specific = {
         "hookEventName": "PreToolUse",
         "permissionDecision": result["decision"],
@@ -153,6 +233,8 @@ if __name__ == "__main__":
     output = {"hookSpecificOutput": specific}
     if not written:
         output["systemMessage"] = (
-            "V16 hook receipt write failed; runtime-proof acceptance is unavailable."
+            "V16 hook receipt write failed; "
+            + ("repository tool call denied fail-closed." if repo_activity else
+               "runtime-proof acceptance is unavailable.")
         )
     print(json.dumps(output, sort_keys=True))

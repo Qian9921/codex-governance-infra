@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""One-shot Stop gate for task applicability and successful tool use.
+"""One-shot Stop gate bound to current-turn contract and tool-call evidence.
 
-The semantic applicability decision remains explicit and reviewable; this hook
-does not guess intent from prompts.  It mechanically checks the complete four-
-route declaration in a hidden final-message marker against privacy-safe,
-current-turn PostToolUse receipts.  A failing first Stop continues once.  A
-second Stop never continues again, which is the dead-loop circuit breaker.
+Applicability comes only from the validated task contract persisted against the
+UserPromptSubmit intake hash.  PreToolUse records the exact expected tool-call
+ids; Stop requires a successful current-snapshot PostToolUse receipt for each
+one.  The second Stop opens the circuit instead of creating a retry loop.
 """
 
 from __future__ import annotations
@@ -14,7 +13,6 @@ import hashlib
 import json
 import os
 import pathlib
-import re
 import sys
 from collections.abc import Mapping
 from typing import Any
@@ -24,6 +22,16 @@ try:
 except ImportError:  # pragma: no cover - direct hook execution.
     import hook_receipt
 
+PACKAGE_ROOT = pathlib.Path(__file__).resolve().parents[1]
+if str(PACKAGE_ROOT) not in sys.path:
+    sys.path.insert(0, str(PACKAGE_ROOT))
+
+from v16.tool_runtime import (  # noqa: E402
+    ToolRuntimeError,
+    load_expected_tool_calls,
+    load_turn_contract,
+)
+
 
 ROUTE_TO_RECEIPT = {
     "semantic_discovery": "semble",
@@ -31,18 +39,6 @@ ROUTE_TO_RECEIPT = {
     "exact_lookup": "rg",
     "shell_context": "rtk",
 }
-MARKER = re.compile(
-    r"<!--\s*tool-task-contract\.v16\s+"
-    r"semantic_discovery=(required|not_applicable)\s+"
-    r"structural_analysis=(required|not_applicable)\s+"
-    r"exact_lookup=(required|not_applicable)\s+"
-    r"shell_context=(required|not_applicable)\s+"
-    r"machine_exact_only=(true|false)\s*-->",
-    re.IGNORECASE,
-)
-REPO_ACTIVITY_TOOLS = frozenset({
-    "bash", "exec_command", "functions.exec_command", "apply_patch", "edit", "write",
-})
 
 
 def _receipt_directory() -> pathlib.Path:
@@ -75,55 +71,64 @@ def _current_records(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
     return records
 
 
-def _inside_repo(cwd: Any) -> bool:
-    if not isinstance(cwd, str) or not cwd:
-        return False
-    try:
-        current = pathlib.Path(cwd).resolve(strict=True)
-    except (OSError, RuntimeError):
-        return False
-    return any((parent / ".git").exists() for parent in (current, *current.parents))
-
-
 def evaluate(payload: Mapping[str, Any]) -> dict[str, Any]:
-    records = _current_records(payload)
-    repo_activity = _inside_repo(payload.get("cwd")) and any(
-        record.get("event") == "PostToolUse"
-        and (
-            str(record.get("tool_name", "")).lower() in REPO_ACTIVITY_TOOLS
-            or record.get("route_code") in {"preflight", "maintenance", "codegraph", "semble", "rtk", "rg"}
+    try:
+        expected = load_expected_tool_calls(
+            session_id=payload.get("session_id"), turn_id=payload.get("turn_id")
         )
-        for record in records
-    )
-    if not repo_activity:
+    except (OSError, ToolRuntimeError):
+        return {"status": "blocked", "missing": ["current_turn_activity_state"]}
+    if not expected:
         return {"status": "not_applicable", "missing": []}
-    message = payload.get("last_assistant_message")
-    matches = list(MARKER.finditer(message)) if isinstance(message, str) else []
-    if len(matches) != 1:
-        return {"status": "blocked", "missing": ["complete_tool_task_contract_marker"]}
-    choices = [item.lower() for item in matches[0].groups()]
-    declarations = dict(zip(ROUTE_TO_RECEIPT, choices[:4]))
-    machine_exact_only = choices[4] == "true"
+    try:
+        contract = load_turn_contract(
+            session_id=payload.get("session_id"), turn_id=payload.get("turn_id")
+        )
+    except (OSError, ToolRuntimeError):
+        return {"status": "blocked", "missing": ["validated_bound_task_contract"]}
+
+    expected_set = set(expected)
+    post_records = [
+        record for record in _current_records(payload)
+        if record.get("event") == "PostToolUse"
+        and record.get("tool_call_id_sha256") in expected_set
+    ]
+    post_ids = {record.get("tool_call_id_sha256") for record in post_records}
+    missing: list[str] = []
+    absent_count = len(expected_set - post_ids)
+    if absent_count:
+        missing.append(f"post_tool_receipt_count:{absent_count}")
+    if any(
+        record.get("decision") != "allow"
+        or record.get("reason_code") != "tool_success"
+        for record in post_records
+    ):
+        missing.append("successful_post_tool_receipts")
+    current_snapshot = hook_receipt.receipt(
+        "Stop", payload.get("model", "unknown"), identifiers=payload
+    )["snapshot_sha256"]
+    if any(record.get("snapshot_sha256") != current_snapshot for record in post_records):
+        missing.append("current_hook_snapshot_receipts")
+
     successful_routes = {
         str(record.get("route_code"))
-        for record in records
-        if record.get("event") == "PostToolUse"
-        and record.get("decision") == "allow"
+        for record in post_records
+        if record.get("decision") == "allow"
         and record.get("reason_code") == "tool_success"
+        and record.get("snapshot_sha256") == current_snapshot
     }
-    missing: list[str] = []
     if not ({"preflight", "maintenance"} & successful_routes):
         missing.append("strict_tool_preflight_or_maintenance")
-    required_count = sum(value == "required" for value in declarations.values())
-    if required_count == 0 and not machine_exact_only:
-        missing.append("route_or_machine_exact_only")
-    if required_count and machine_exact_only:
-        missing.append("machine_exact_only_conflict")
-    for route, applicability in declarations.items():
-        receipt_route = ROUTE_TO_RECEIPT[route]
-        if applicability == "required" and receipt_route not in successful_routes:
-            missing.append(route)
-    return {"status": "compliant" if not missing else "blocked", "missing": missing}
+    for row in contract["routes"]:
+        if (
+            row["applicability"] == "required"
+            and ROUTE_TO_RECEIPT[row["route"]] not in successful_routes
+        ):
+            missing.append(row["route"])
+    return {
+        "status": "compliant" if not missing else "blocked",
+        "missing": sorted(set(missing)),
+    }
 
 
 def main() -> int:
@@ -149,6 +154,9 @@ def main() -> int:
         identifiers=payload,
     )
     written = hook_receipt.write_receipt(value)
+    if not written:
+        blocked = True
+        result = {"status": "blocked", "missing": ["stop_hook_receipt"]}
     if not blocked:
         output: dict[str, Any] = {}
     elif active:
@@ -162,20 +170,15 @@ def main() -> int:
         output = {
             "decision": "block",
             "reason": (
-                "Complete V16 tool enforcement before stopping. Missing: "
+                "Complete current-turn V16 tool enforcement before stopping. Missing: "
                 + ",".join(result["missing"])
-                + ". Add exactly one hidden marker: <!-- tool-task-contract.v16 "
-                "semantic_discovery=required|not_applicable "
-                "structural_analysis=required|not_applicable "
-                "exact_lookup=required|not_applicable "
-                "shell_context=required|not_applicable "
-                "machine_exact_only=true|false -->. Replace each choice "
-                "with one value and use every required preferred tool successfully."
+                + ". Record the bound task contract, run strict preflight/one-shot "
+                "maintenance, and use every applicable preferred route successfully."
             ),
         }
     if not written:
         output["systemMessage"] = (
-            "V16 hook receipt write failed; runtime-proof acceptance is unavailable."
+            "V16 Stop receipt write failed; runtime-proof acceptance is unavailable."
         )
     print(json.dumps(output, sort_keys=True))
     return 0

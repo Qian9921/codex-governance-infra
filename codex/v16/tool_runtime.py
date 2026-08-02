@@ -15,9 +15,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import pathlib
 import re
+import stat
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
+
+from .tool_routing import validate_usage_report
 
 
 TASK_SCHEMA = "tool-task-contract.v16"
@@ -55,6 +61,7 @@ COUNT_FIELDS = frozenset(
     {"total", "ran", "passed", "failed", "skipped", "xfail", "unknown"}
 )
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_VALIDATED_USAGE_TOKEN = object()
 
 
 class ToolRuntimeError(ValueError):
@@ -81,6 +88,189 @@ def _require_text(value: Any, field: str) -> str:
     if not isinstance(value, str) or not value.strip() or len(value) > 160:
         raise ToolRuntimeError(f"{field} must be bounded non-empty text")
     return value.strip()
+
+
+def _state_dir(value: str | os.PathLike[str] | None = None) -> pathlib.Path:
+    if value is None:
+        codex_home = pathlib.Path(
+            os.environ.get("CODEX_HOME", os.fspath(pathlib.Path.home() / ".codex"))
+        ).expanduser()
+        value = os.environ.get("CODEX_TOOL_STATE_DIR", os.fspath(codex_home / "tool-state"))
+    root = pathlib.Path(value).expanduser()
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    metadata = root.lstat()
+    if root.is_symlink() or not root.is_dir() or metadata.st_uid != os.geteuid():
+        raise ToolRuntimeError("tool runtime state directory ownership/type invalid")
+    if stat.S_IMODE(metadata.st_mode) != 0o700:
+        os.chmod(root, 0o700)
+    return root
+
+
+def turn_task_id(session_id: Any, turn_id: Any) -> str:
+    if not isinstance(session_id, (str, int)) or not str(session_id):
+        raise ToolRuntimeError("session_id required for task state")
+    if not isinstance(turn_id, (str, int)) or not str(turn_id):
+        raise ToolRuntimeError("turn_id required for task state")
+    return _sha256(f"{session_id}\0{turn_id}")
+
+
+def _state_path(root: pathlib.Path, task_id: str, suffix: str) -> pathlib.Path:
+    return root / f"{_require_sha(task_id, 'task_id_sha256')}.{suffix}.json"
+
+
+def _write_private_json(path: pathlib.Path, value: Mapping[str, Any]) -> None:
+    if path.exists() and path.is_symlink():
+        raise ToolRuntimeError("tool runtime state symlink rejected")
+    temporary = path.with_name(path.name + f".{os.getpid()}.tmp")
+    descriptor = os.open(
+        temporary,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(_canonical_json(value) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        os.chmod(path, 0o600)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _read_private_json(path: pathlib.Path) -> dict[str, Any]:
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        raise ToolRuntimeError("tool runtime state unavailable") from exc
+    if path.is_symlink() or not path.is_file() or metadata.st_uid != os.geteuid():
+        raise ToolRuntimeError("tool runtime state ownership/type invalid")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ToolRuntimeError("tool runtime state unreadable") from exc
+    if not isinstance(value, dict):
+        raise ToolRuntimeError("tool runtime state must be an object")
+    return value
+
+
+def begin_turn_state(
+    *, session_id: Any, turn_id: Any, prompt: Any,
+    state_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, str]:
+    if not isinstance(prompt, str):
+        raise ToolRuntimeError("prompt required for task shape binding")
+    task_id = turn_task_id(session_id, turn_id)
+    intake = {
+        "schema": "tool-turn-intake.v16",
+        "task_id_sha256": task_id,
+        "task_shape_sha256": _sha256(prompt),
+    }
+    _write_private_json(_state_path(_state_dir(state_dir), task_id, "intake"), intake)
+    return intake
+
+
+def persist_task_contract(
+    contract: Mapping[str, Any], *,
+    state_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    validated = validate_task_contract(contract)
+    root = _state_dir(state_dir)
+    intake = _read_private_json(_state_path(root, validated["task_id_sha256"], "intake"))
+    if intake.get("schema") != "tool-turn-intake.v16":
+        raise ToolRuntimeError("task intake schema mismatch")
+    if intake.get("task_shape_sha256") != validated["task_shape_sha256"]:
+        raise ToolRuntimeError("task contract is not bound to current prompt shape")
+    path = _state_path(root, validated["task_id_sha256"], "contract")
+    if path.exists():
+        existing = validate_task_contract(_read_private_json(path))
+        if existing != validated:
+            raise ToolRuntimeError("current-turn task contract is immutable")
+        return existing
+    _write_private_json(path, validated)
+    return validated
+
+
+def load_turn_contract(
+    *, session_id: Any, turn_id: Any,
+    state_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    task_id = turn_task_id(session_id, turn_id)
+    root = _state_dir(state_dir)
+    intake = _read_private_json(_state_path(root, task_id, "intake"))
+    contract = validate_task_contract(
+        _read_private_json(_state_path(root, task_id, "contract"))
+    )
+    if contract["task_id_sha256"] != task_id:
+        raise ToolRuntimeError("turn contract identity mismatch")
+    if contract["task_shape_sha256"] != intake.get("task_shape_sha256"):
+        raise ToolRuntimeError("turn contract shape mismatch")
+    return contract
+
+
+def record_expected_tool_call(
+    *, session_id: Any, turn_id: Any, tool_use_id: Any,
+    state_dir: str | os.PathLike[str] | None = None,
+) -> bool:
+    if not isinstance(tool_use_id, (str, int)) or not str(tool_use_id):
+        return False
+    try:
+        task_id = turn_task_id(session_id, turn_id)
+        root = _state_dir(state_dir)
+        _read_private_json(_state_path(root, task_id, "intake"))
+        path = _state_path(root, task_id, "activity")
+        existing: list[str] = []
+        if path.exists():
+            value = _read_private_json(path)
+            if value.get("schema") != "tool-turn-activity.v16" or not isinstance(value.get("tool_use_ids_sha256"), list):
+                return False
+            existing = [item for item in value["tool_use_ids_sha256"] if isinstance(item, str)]
+        call_id = _sha256(str(tool_use_id))
+        _write_private_json(path, {
+            "schema": "tool-turn-activity.v16",
+            "task_id_sha256": task_id,
+            "tool_use_ids_sha256": sorted(set(existing + [call_id])),
+        })
+        return True
+    except (OSError, ToolRuntimeError):
+        return False
+
+
+def load_expected_tool_calls(
+    *, session_id: Any, turn_id: Any,
+    state_dir: str | os.PathLike[str] | None = None,
+) -> list[str]:
+    task_id = turn_task_id(session_id, turn_id)
+    path = _state_path(_state_dir(state_dir), task_id, "activity")
+    if not path.exists():
+        return []
+    value = _read_private_json(path)
+    calls = value.get("tool_use_ids_sha256")
+    if value.get("schema") != "tool-turn-activity.v16" or not isinstance(calls, list):
+        raise ToolRuntimeError("tool activity state invalid")
+    if any(not isinstance(item, str) or _SHA256.fullmatch(item) is None for item in calls):
+        raise ToolRuntimeError("tool activity call identity invalid")
+    return sorted(set(calls))
+
+
+@dataclass(frozen=True)
+class ValidatedToolUsage:
+    report: Mapping[str, Any]
+    _token: object
+
+    def __post_init__(self) -> None:
+        if self._token is not _VALIDATED_USAGE_TOKEN:
+            raise ToolRuntimeError("validated tool usage cannot be constructed directly")
+
+
+def validate_and_bind_usage_report(
+    usage_report: Mapping[str, Any], **authority: Any
+) -> ValidatedToolUsage:
+    validated = validate_usage_report(usage_report, **authority)
+    return ValidatedToolUsage(validated, _VALIDATED_USAGE_TOKEN)
 
 
 def _required_routes(signals: Mapping[str, bool]) -> set[str]:
@@ -234,19 +424,20 @@ def validate_task_contract(value: Mapping[str, Any]) -> dict[str, Any]:
 
 def build_enforcement_report(
     task_contract: Mapping[str, Any],
-    usage_report: Mapping[str, Any],
+    usage: ValidatedToolUsage,
 ) -> dict[str, Any]:
     """Require actual preferred-tool use for every applicable route.
 
-    ``usage_report`` must already have passed its caller-bound validator.  This
-    function binds its task identity and successful calls to the complete task
-    applicability denominator.  A verified fallback is visible as degraded,
-    never as equivalent completion.
+    ``usage`` is an opaque value created only by
+    :func:`validate_and_bind_usage_report`, which invokes the caller-bound
+    authoritative validator.  A plain author-supplied mapping is rejected.
     """
 
     contract = validate_task_contract(task_contract)
-    report = _derive_enforcement_report(contract, usage_report)
-    return validate_enforcement_report(report, contract, usage_report)
+    if not isinstance(usage, ValidatedToolUsage) or usage._token is not _VALIDATED_USAGE_TOKEN:
+        raise ToolRuntimeError("enforcement requires caller-bound validated tool usage")
+    report = _derive_enforcement_report(contract, usage.report)
+    return validate_enforcement_report(report, contract, usage)
 
 
 def _derive_enforcement_report(
@@ -326,7 +517,7 @@ def _derive_enforcement_report(
 def validate_enforcement_report(
     value: Mapping[str, Any],
     task_contract: Mapping[str, Any],
-    usage_report: Mapping[str, Any],
+    usage: ValidatedToolUsage,
 ) -> dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != ENFORCEMENT_FIELDS:
         raise ToolRuntimeError("enforcement fields must match the exact v16 schema")
@@ -347,6 +538,9 @@ def validate_enforcement_report(
     if result["denominator"] != len(ROUTES) or result["denominator_known"] is not True:
         raise ToolRuntimeError("enforcement denominator mismatch")
     contract = validate_task_contract(task_contract)
+    if not isinstance(usage, ValidatedToolUsage) or usage._token is not _VALIDATED_USAGE_TOKEN:
+        raise ToolRuntimeError("enforcement requires caller-bound validated tool usage")
+    usage_report = usage.report
     if result["task_contract_sha256"] != contract["contract_sha256"]:
         raise ToolRuntimeError("enforcement task contract mismatch")
     if result["task_id_sha256"] != contract["task_id_sha256"]:
@@ -376,6 +570,9 @@ def validate_enforcement_report(
 
 __all__ = [
     "ENFORCEMENT_SCHEMA", "ROUTES", "ROUTE_TO_TOOL", "SIGNALS", "TASK_SCHEMA",
-    "ToolRuntimeError", "build_enforcement_report", "compile_task_contract",
-    "validate_enforcement_report", "validate_task_contract",
+    "ToolRuntimeError", "ValidatedToolUsage", "begin_turn_state",
+    "build_enforcement_report", "compile_task_contract", "load_expected_tool_calls",
+    "load_turn_contract", "persist_task_contract", "record_expected_tool_call",
+    "turn_task_id", "validate_and_bind_usage_report", "validate_enforcement_report",
+    "validate_task_contract",
 ]
