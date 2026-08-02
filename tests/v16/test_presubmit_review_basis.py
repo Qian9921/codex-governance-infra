@@ -10,7 +10,7 @@ from codex.v16.contracts import (
     build_pre_execution_closure_authority,
     canonical_sha256,
 )
-from codex.v16.presubmit import build_review_decision_basis
+from codex.v16.presubmit import _json_object_from_stdout, build_review_decision_basis
 from codex.v16.trace import render_pr_trace
 
 
@@ -83,6 +83,16 @@ def _closure_receipt(compiled_plan_sha256):
 
 
 class ReviewDecisionBasisTests(unittest.TestCase):
+    def test_json_object_uses_final_record_and_rejects_invalid_tail(self):
+        setup = b'{"schema":"installer-result.v16","files":44}\n'
+        checker = b'{"schema":"checker-result.v16","total":23}\n'
+        self.assertEqual(
+            _json_object_from_stdout(setup + checker)["schema"],
+            "checker-result.v16",
+        )
+        with self.assertRaises((json.JSONDecodeError, ValueError)):
+            _json_object_from_stdout(checker + b'{"status":"RED"\n')
+
     def _basis(self, *, compiled=None, evidence=None, base=BASE, head=HEAD, tree=TREE, scope=None, identity_mode="git-exact-object", snapshot_sha256="", prior_snapshot_sha256=None, prior_head_sha=None, delta_sha256=None, closure_authority=None):
         return build_review_decision_basis(
             ROOT,

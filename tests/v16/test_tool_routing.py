@@ -9,11 +9,13 @@ from codex.v16.tool_routing import (
     RoutingError,
     ToolObservation,
     ToolRouter,
+    build_usage_report,
     health_report,
     route_tool,
     tooling_doctor,
     validate_health_report,
     validate_route_decision,
+    validate_usage_report,
 )
 
 
@@ -214,6 +216,97 @@ class ToolRoutingTests(unittest.TestCase):
         self.assertEqual(semble["evidence_ref"], "probe:semble:mcp-unverified")
         self.assertEqual(report["counts"]["failed"], 0)
         self.assertIn("MCP capability unverified", report["probe_sources"]["semble"])
+
+    def test_usage_report_requires_actual_receipt_backed_matching_calls(self):
+        routes = [
+            route_tool("known_symbol", observations={"codegraph": True}),
+            route_tool("semantic_entry", observations={"semble": True}),
+            route_tool("shell_output", observations={"rtk": True}),
+        ]
+        calls = [
+            {
+                "intent": "known_symbol",
+                "tool": "codegraph",
+                "status": "success",
+                "evidence_ref": "graph:impact:1",
+                "receipt_sha256": "a" * 64,
+                "used_for": "structure",
+            },
+            {
+                "intent": "semantic_entry",
+                "tool": "semble",
+                "status": "success",
+                "evidence_ref": "search:entry:1",
+                "receipt_sha256": "b" * 64,
+                "used_for": "discovery",
+            },
+            {
+                "intent": "shell_output",
+                "tool": "rtk",
+                "status": "success",
+                "evidence_ref": "context:test:1",
+                "receipt_sha256": "c" * 64,
+                "used_for": "context_display",
+            },
+        ]
+        report = build_usage_report(
+            preflight_cache_key_sha256="d" * 64,
+            routes=routes,
+            calls=calls,
+        )
+        self.assertEqual(report["status"], "compliant")
+        self.assertTrue(report["routing_compliant"])
+        self.assertTrue(report["coverage_equivalent"])
+        self.assertEqual(report["counts"]["passed"], 3)
+        self.assertEqual(validate_usage_report(report), report)
+
+    def test_usage_report_blocks_noop_or_wrong_tool_and_marks_fallback_degraded(self):
+        route = route_tool("known_symbol", observations={"codegraph": True})
+        wrong = build_usage_report(
+            preflight_cache_key_sha256="d" * 64,
+            routes=[route],
+            calls=[
+                {
+                    "intent": "known_symbol",
+                    "tool": "rg",
+                    "status": "success",
+                    "evidence_ref": "noop:1",
+                    "receipt_sha256": "e" * 64,
+                    "used_for": "structure",
+                }
+            ],
+        )
+        self.assertEqual(wrong["status"], "blocked")
+        self.assertEqual(wrong["violations"], ["ROUTE_TOOL_MISMATCH:known_symbol"])
+
+        fallback_route = route_tool(
+            "known_symbol",
+            observations={
+                "codegraph": {
+                    "available": False,
+                    "reason_code": "CODEGRAPH_DOWN",
+                    "evidence_ref": "probe:cg:down",
+                },
+                "rg": True,
+            },
+        )
+        fallback = build_usage_report(
+            preflight_cache_key_sha256="f" * 64,
+            routes=[fallback_route],
+            calls=[
+                {
+                    "intent": "known_symbol",
+                    "tool": "rg",
+                    "status": "success",
+                    "evidence_ref": "fallback:literal:1",
+                    "receipt_sha256": "1" * 64,
+                    "used_for": "structure",
+                }
+            ],
+        )
+        self.assertEqual(fallback["status"], "degraded")
+        self.assertTrue(fallback["routing_compliant"])
+        self.assertFalse(fallback["coverage_equivalent"])
 
 
 if __name__ == "__main__":

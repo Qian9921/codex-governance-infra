@@ -45,9 +45,32 @@ is not a capability declaration.
 
 ## Tool routing sidecar
 
-Declare only the inspection intents the mission actually needs. Resolve every
-declared row through `codex.v16.tool_routing.route_tool`; do not hand-author a
-successful decision.
+Before declaring routes, bind a strict read-only preflight to the exact
+repo/head/worktree/Codex-config identity:
+
+```json
+{
+  "schema": "tool-preflight.v16",
+  "status": "ready",
+  "strict": true,
+  "preflight_cache_key_sha256": "<doctor cache.key_sha256>",
+  "mandatory_tools": ["codegraph", "semble", "rtk"],
+  "semantic_sentinel": {
+    "query": "<behavior description, not only a filename>",
+    "expected_path": "<repo-relative current source>"
+  }
+}
+```
+
+Directory/binary presence is not readiness. CodeGraph must prove correct
+project/index/revision plus a sentinel; Semble must prove configured live
+repo-scoped retrieval; `rtk` must prove positive output and non-zero failure
+preservation. Reuse is allowed only while host/runtime/tool/config/repo/head/
+worktree/index/sentinel identity remains unchanged.
+
+Then declare only the inspection intents the mission actually needs. Resolve
+every declared row through `codex.v16.tool_routing.route_tool`; do not
+hand-author a successful decision.
 
 ```json
 {
@@ -75,6 +98,31 @@ missing intent is `not_declared`, not a fabricated blocker. A declared
 preferred tool may fall back only after a real failure/unavailable observation
 with a stable reason code and evidence reference; the fallback does not claim
 equivalent structural or semantic coverage.
+
+At closure, bind every declared decision to actual use:
+
+```json
+{
+  "schema": "tool-usage.v16",
+  "status": "compliant",
+  "routing_compliant": true,
+  "coverage_equivalent": true,
+  "preflight_cache_key_sha256": "<same current preflight>",
+  "calls": [{
+    "intent": "semantic_entry",
+    "tool": "semble",
+    "status": "success",
+    "evidence_ref": "<candidate path/line artifact>",
+    "receipt_sha256": "<privacy-safe hook receipt line hash>",
+    "used_for": "discovery"
+  }],
+  "violations": []
+}
+```
+
+One irrelevant call to each tool is not compliance. Each call must match the
+selected tool, succeed, carry receipt/evidence references, and materially
+determine discovery, structure/impact, context display, or literal truth.
 
 ## Routing and usage sidecar
 

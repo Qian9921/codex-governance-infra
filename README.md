@@ -2,190 +2,154 @@
 
 [简体中文](README.zh-CN.md) · English
 
-A portable, privacy-safe governance layer for **OpenAI Codex users** who want
-faster development and review without weakening correctness, evidence, or
-approval boundaries.
+A Codex-only starter that makes development and review faster without turning
+correctness, evidence, or GitHub approval into guesswork.
 
-This repository packages Codex-wide instructions, mission contracts,
-affected-first evidence gates, deterministic tool routing, bounded multi-agent
-audits, risk-routed independent review, privacy-safe hooks, and a reproducible
-presubmit. It is a Codex-only project. It does not claim compatibility with
-Claude Code, Kimi Code, Zcode, or other agent runtimes.
+V16 provides:
 
-> **Preview status**
+- durable Codex rules and mission briefs;
+- affected-first tests instead of automatic full rebuilds;
+- mandatory CodeGraph, Semble, and `rtk` readiness plus actual-use evidence;
+- one risk-routed independent reviewer with delta-only follow-up;
+- privacy-safe hook receipts;
+- deterministic package verification and an isolated trial installer.
+
+It does **not** claim compatibility with Claude Code, Kimi Code, Zcode, or other
+agent runtimes.
+
+> **Safety boundary**
 >
-> V16 is suitable for source review, isolated installation, deterministic
-> verification, and controlled team trials. The included installer replaces
-> the destination it is given. For a trial, point it only at a newly created
-> isolated `CODEX_HOME`—never at your active `~/.codex`. Live adoption requires
-> a separately reviewed merge/deployment procedure that preserves local
-> authentication, sessions, plugins, memories, and machine-specific settings.
+> The installer replaces the destination passed to it. Use only a newly created
+> isolated `CODEX_HOME`. Never point it at an active `~/.codex`. This repository
+> never copies credentials, sessions, memories, plugins, connections, model
+> caches, or private user data.
 
-## Why this exists
+## Ten-minute teammate setup
 
-Coding-agent governance often fails in one of two directions:
-
-- it is too loose, so results are fast but unsupported, unauditable, or unsafe;
-- it is too heavy, so every review rebuilds everything, repeats prior work, and
-  spends time and tokens without improving the decision.
-
-V16 treats correctness and evidence as hard gates, then optimizes:
-
-1. time to a correct decision or merge;
-2. monotonic review closure with no repeated full-scope review;
-3. token and call cost.
-
-The design is intentionally evidence-based. A green claim must be falsifiable,
-current, independently checkable, and backed by a known non-zero denominator.
-Skipped, stale, copied, unknown, NaN/Inf, or identity-mismatched evidence is not
-a pass.
-
-## What you get
-
-| Layer | What it provides |
-|---|---|
-| Global policy | `codex/AGENTS.md` defines authorization, evidence, Git, review, model-role, and tool-routing boundaries. |
-| Mission briefs | `codex/BRIEF-TEMPLATES.md` turns work into explicit scope, owner, model, permissions, invariants, non-goals, gates, budgets, and stop conditions. |
-| Contracts | `codex/v16/contracts.py` and the registry enforce strict mission, evidence, review, lineage, runtime, and metrics shapes. |
-| Execution engine | FAST, CANDIDATE, and FINAL stages run content-addressed affected gates against exact identities. |
-| Review engine | One risk-routed independent reviewer performs the formal gate; stable fixes reuse the same reviewer for delta-only closure. |
-| Tool routing | Known structure uses CodeGraph, semantic discovery uses Semble, exact text uses `rg`, and shell output shown to the model uses `rtk`. |
-| Hooks | Session and pre-tool hooks emit bounded guidance and privacy-safe receipts without storing prompts, raw arguments, cwd, tokens, or credentials. |
-| Verification | The manifest verifier, unit/negative fixtures, and full presubmit make package claims reproducible. |
-| Privacy | Sessions, credentials, tokens, receipts, plugin/cache state, model caches, memories, and user data are excluded from the package. |
-
-## What this repository does not do
-
-- It does not install or authenticate Codex.
-- It does not make a model available when the current Codex control plane or
-  account does not expose that model.
-- It does not vendor or silently install CodeGraph, Semble, `rtk`, or `rg`.
-- It does not modify GitHub accounts, create PRs, approve, or merge.
-- It does not copy sessions, memories, plugins, connections, tokens, or
-  machine-specific configuration.
-- It does not provide a safe one-command overlay onto an existing live
-  `~/.codex` yet.
-- It does not replace repository-local `AGENTS.md`, tests, domain contracts, or
-  project ownership rules.
-
-## Prerequisites
-
-Required for the source and isolated trial:
-
-- Git;
-- Python 3.9 or newer;
-- an OpenAI Codex installation for eventual interactive use.
-
-Required before accepting the full tool-routing contract on a workstation:
-
-- a revision-matching, project-local CodeGraph capability;
-- a current Semble agent/MCP capability;
-- `rtk` on `PATH`;
-- `rg` on `PATH`.
-
-The package is implemented with the Python standard library only. The current
-trial is verified on Linux. Other platforms should be treated as unverified
-until their installer, hook, path, permission, and process behavior has been
-tested explicitly.
-
-Official Codex references:
-
-- [Codex CLI](https://developers.openai.com/codex/cli)
-- [Codex configuration basics](https://developers.openai.com/codex/config-basic)
-- [Codex configuration reference](https://developers.openai.com/codex/config-reference)
-- [AGENTS.md and customization](https://developers.openai.com/codex/concepts/customization)
-- [Hooks](https://developers.openai.com/codex/config-advanced#hooks)
-
-## Five-minute safe trial
-
-### 1. Clone the preview branch
+### 1. Clone and verify
 
 ```bash
-git clone \
-  --branch codex/v16-productivity-engine \
-  --single-branch \
-  https://github.com/Qian9921/codex-governance-infra.git
+git clone https://github.com/Qian9921/codex-governance-infra.git
 cd codex-governance-infra
+
 git rev-parse HEAD
 git status --short
-```
-
-Record the 40-character commit. Review and evidence are meaningful only for the
-exact snapshot you tested.
-
-### 2. Verify the source package before installation
-
-```bash
 python3 scripts/verify-governance.py --repo .
 python3 -m unittest discover -s tests -p 'test_*.py'
 python3 -m unittest discover -s tests/v16 -p 'test_*.py'
 ```
 
-The verifier must report `"status": "GREEN"` with an empty error list. The test
-suite must report zero failures and zero errors. Do not install a package with a
-manifest mismatch or privacy-scan failure.
+Continue only when the verifier reports `"status":"GREEN"` and the tests have
+zero failures and errors.
 
-### 3. Preview the install plan
+### 2. Install the three tools if missing
+
+Review upstream instructions before installing software:
+
+```bash
+# CodeGraph
+npm install -g @colbymchenry/codegraph
+
+# Semble
+uv tool install semble
+
+# rtk
+cargo install --git https://github.com/rtk-ai/rtk
+```
+
+Upstream projects:
+
+- [CodeGraph](https://github.com/colbymchenry/codegraph)
+- [Semble](https://github.com/MinishLab/semble)
+- [rtk](https://github.com/rtk-ai/rtk)
+
+### 3. Configure Codex
+
+```bash
+codegraph install --target codex --location global --yes
+semble install --agent codex --type mcp --yes
+
+rtk init --codex --global --dry-run
+rtk init --codex --global
+```
+
+The Semble command installs only MCP configuration, avoiding a second long
+instruction block. Review configuration changes, restart the affected Codex
+CLI/Desktop/app-server, and open a fresh task.
+
+### 4. Prepare this repository's CodeGraph index
+
+```bash
+codegraph status --json .
+```
+
+If the repository is not initialized and indexing is authorized:
+
+```bash
+codegraph init .
+```
+
+After structural edits, synchronize only when authorized:
+
+```bash
+codegraph sync .
+```
+
+An index belongs to its owning repository. Never use a parent workspace graph
+as child-repository truth.
+
+### 5. Run the strict toolchain doctor
+
+```bash
+python3 scripts/toolchain-doctor.py \
+  --repo . \
+  --semantic-query "deterministic inspection intent router" \
+  --expected-path codex/v16/tool_routing.py
+```
+
+The only passing result is exit `0`, `"status":"ready"`, and `3/3`:
+
+- CodeGraph is configured, bound to this repo, complete, fresh, and finds the
+  expected current source;
+- Semble is configured, callable, repo-scoped, and returns the expected source
+  from a semantic query;
+- `rtk` reproduces the current Git identity and preserves a deterministic
+  non-zero failure.
+
+Binary presence alone is not readiness. The doctor is read-only and stores only
+hashes/reason codes, never raw output, absolute paths, prompts, environment
+variables, or credentials.
+
+### 6. Try the governance package in isolation
 
 ```bash
 GOV_TRIAL_ROOT="$(mktemp -d)"
 GOV_TRIAL_HOME="$GOV_TRIAL_ROOT/.codex"
-mkdir -p "$GOV_TRIAL_HOME"
 
 python3 scripts/install-governance.py \
   --source . \
   --codex-home "$GOV_TRIAL_HOME" \
   --dry-run
-```
 
-The dry run prints a JSON plan with the destination placeholder, file count,
-and SHA-256 for every managed file. It does not write the destination.
-
-### 4. Install only into the isolated trial home
-
-```bash
 python3 scripts/install-governance.py \
   --source . \
   --codex-home "$GOV_TRIAL_HOME"
 
-test -f "$GOV_TRIAL_HOME/AGENTS.md"
-test -f "$GOV_TRIAL_HOME/BRIEF-TEMPLATES.md"
-test -f "$GOV_TRIAL_HOME/hooks/hooks.json"
-test -f "$GOV_TRIAL_HOME/v16/contracts.py"
-test ! -e "$GOV_TRIAL_HOME/codex"
-```
-
-The package contents under repository `codex/` are intentionally flattened
-into the isolated `CODEX_HOME`. Repository contribution instructions,
-documentation, tests, Git state, and generated `__pycache__` files are not
-installed.
-
-### 5. Smoke-test the hooks without exposing real task data
-
-```bash
-GOV_RECEIPTS="$GOV_TRIAL_ROOT/receipts"
-mkdir -p "$GOV_RECEIPTS"
-
 CODEX_HOOK_SOURCE=test \
-CODEX_HOOK_RECEIPT_DIR="$GOV_RECEIPTS" \
-python3 "$GOV_TRIAL_HOME/hooks/session_context.py" </dev/null
-
-printf '%s\n' '{"tool_name":"rg","model":"trial"}' |
-  CODEX_HOOK_SOURCE=test \
-  CODEX_HOOK_RECEIPT_DIR="$GOV_RECEIPTS" \
-  python3 "$GOV_TRIAL_HOME/hooks/pre_tool_use_policy.py"
+CODEX_HOOK_RECEIPT_DIR="$GOV_TRIAL_ROOT/receipts" \
+python3 "$GOV_TRIAL_HOME/hooks/session_context.py" <<'JSON'
+{"hook_event_name":"SessionStart","model":"trial"}
+JSON
 ```
 
-Expected results:
+Expected:
 
-- `session_context.py` returns bounded V16 context and
-  `"receipt_status": "success"`;
-- the `rg` probe returns `"decision": "allow"` and route `"rg"`;
-- receipt files are written only under the temporary trial directory;
-- no real prompt, command arguments, cwd, credential, or session identifier is
-  supplied.
+- dry-run reports the managed file denominator;
+- installed files live only under the isolated directory;
+- hook output contains `"receipt_status":"success"`;
+- no active Codex home is modified.
 
-### 6. Roll back the isolated installation
+Rollback:
 
 ```bash
 python3 scripts/install-governance.py \
@@ -194,270 +158,135 @@ python3 scripts/install-governance.py \
   --rollback
 ```
 
-Rollback restores the destination state saved in the sibling
-`.codex.v16-backup`. It is part of the isolated installer test; it is not a
-substitute for a reviewed live-home migration.
+Rollback is available only when an earlier destination was backed up.
 
-## Do not install directly into your live Codex home
+### 7. Give Codex this one prompt
 
-This is deliberately unsupported during the preview:
-
-```bash
-# Do not run this during the trial.
-python3 scripts/install-governance.py --source . --codex-home "$HOME/.codex"
+```text
+Read this repository's README and AGENTS.md. Verify the package, inspect the
+current CodeGraph/Semble/rtk configuration, prepare the owning-repo CodeGraph
+index only with my authorization, run the strict toolchain doctor with a
+repository-specific semantic sentinel, and use the resulting current preflight
+receipt. For the task, use Semble for unknown semantic discovery, CodeGraph for
+known structure/impact, rtk for shell output shown to context, rg for exact
+text, and raw commands for hashes/parsers/exact denominators. Record actual
+receipt-backed tool usage; do not perform irrelevant check-box calls.
 ```
 
-The installer performs destination replacement. Pointing it at an active home
-would temporarily replace unrelated Codex state. A live deployment must
-instead preserve and verify, at minimum:
+That is enough for a teammate to let Codex drive the remaining setup while
+keeping mutations and failures visible.
 
-- authentication and account state;
-- `config.toml` and machine-specific project trust;
-- installed plugins, skills, MCP servers, and connector state;
-- sessions, memories, caches, and shell state;
-- existing hooks and locally owned rules;
-- file ownership, modes, rollback identity, and the active Codex process.
+## What “mandatory tools” means
 
-Until a dedicated overlay installer has its own acceptance lock, negative
-fixtures, independent review, and rollback proof, use only the isolated flow.
+There are two separate gates.
 
-## Operating model
+### Gate 1: readiness
 
-### Model roles are task-routed, not capability bans
+`tool-preflight.v16` is bound to the current host/runtime, tool versions, Codex
+configuration, repository root, Git head, worktree, CodeGraph index, and
+semantic sentinel. Any identity change invalidates the cached receipt.
 
-All models remain subject to the same authorization and evidence rules. The
-mission chooses a writer from models actually available and authorized in the
-current Codex runtime. V16 does not pretend that editing a local model list can
-grant provider or control-plane access.
+### Gate 2: actual use
 
-Default formal-review routes are:
+`tool-usage.v16` binds each declared route to a successful task-relevant call,
+evidence reference, and privacy-safe hook receipt hash.
 
-| Frozen risk | Formal reviewer | Context |
-|---|---|---|
-| Low or medium | `gpt-5.6-terra`, high effort | fresh `independent_clean_room` |
-| High or unresolved | `gpt-5.6-sol`, xhigh effort | fresh `independent_clean_room` |
-| Stable fix after complete coverage | same reviewer and model, high effort | `delta_continuation` |
-
-High risk includes math/numerics, exact parity, security/privacy, public
-contracts, schemas/data formats, irreversible migrations, supply-chain or
-installer changes, production runtime, formal research/release, and
-hook/reviewer/model-routing governance.
-
-V16 may select zero to three bounded, report-only
-`gpt-5.3-codex-spark` inner audits when Spark is available. These audits find
-risks before the formal gate; they do not approve, merge, or replace the single
-independent reviewer.
-
-### Review convergence
-
-The first formal review receives a compact, hash-bound clean-room packet rather
-than the author’s full conversation. It reviews the exact diff/snapshot, direct
-dependencies, affected tests, evidence denominators, invariants, non-goals,
-limitations, and acceptance envelope.
-
-Ordinary fixes keep reviewer continuity and send only:
-
-- the old and new exact identities;
-- the exact delta;
-- prior findings and author dispositions;
-- new or reused evidence;
-- directly affected boundaries.
-
-A fresh reviewer is used only for explicit escalation: contract/domain/scope
-drift, material rewrite, independence or lineage loss, new falsifiable P1
-evidence, non-convergence, governance changes, or invalidated evidence.
-
-`APPROVE` requires complete coverage, an empty unreviewed scope, no active P1
-or `BLOCKING` finding, matching lineage, and a matching independent artifact.
-`APPROVE` is not permission to merge and is not a readiness `GO`.
-
-### Affected-first evidence
-
-| Stage | Purpose |
+| Task intent | Required route |
 |---|---|
-| FAST | Small, targeted checks that can turn red because of the current change. |
-| CANDIDATE | The remaining frozen affected route on a clean exact candidate. |
-| FINAL | Any still-required fresh portability evidence plus the single formal review gate. |
+| Unknown semantic entrypoint or similar implementation | Semble |
+| Known symbol, call, dependency, or blast radius | CodeGraph |
+| Shell output shown to the model | `rtk` |
+| Exact string, error, config, or log | `rg`/bounded exact read |
+| Hash, parser input, byte identity, exact denominator | Raw command |
 
-Every executable check declares WHY-RED, expected cost, denominator, and what
-red or green proves. Valid evidence is content-addressed and may be reused only
-when the complete identity still matches.
+Calling every tool once without using its result is a violation. Fallback is
+allowed only after a real preferred-tool failure with a reason code and evidence
+reference; it never claims equivalent semantic or structural coverage.
 
-### Tool routing
+Detailed contract and remediation:
+[Mandatory toolchain](docs/TOOLCHAIN.md).
 
-| Intent | First tool | Important boundary |
-|---|---|---|
-| Known symbol, call, dependency, impact | CodeGraph | Use the revision-matching child-repository index. Building/syncing an index is an authorized mutation. |
-| Unknown semantic entrypoint, similar implementation | Semble | Treat results as candidate recall; confirm important structure in source or CodeGraph. |
-| Exact string, error, config, log | `rg` or bounded exact read | Use it for literal truth, not semantic or dependency claims. |
-| Shell output shown to the model | `rtk` | Raw output is reserved for downstream machine input or exact denominators. |
+## Development and review model
 
-Fallback is allowed only after a real preferred-tool failure or unavailability,
-with a stable reason code and evidence reference. A fallback never claims
-equivalent semantic or structural coverage.
+1. Freeze objective, scope, invariants, non-goals, exact identity, and evidence
+   budget.
+2. Run only affected checks with a concrete WHY-RED and known denominator.
+3. Use one independent reviewer:
+   - low/medium risk: Terra high;
+   - high risk: fresh Sol xhigh.
+4. Stable fixes return to the same reviewer for delta-only closure.
+5. Approve only with complete coverage, empty unreviewed scope, no active P1 or
+   `BLOCKING` finding, matching evidence, and exact-head identity.
+6. Merge with an expected-head/match-head guard.
 
-## Full repository validation
+Correctness and evidence are hard gates. The first optimization target is time
+to the correct decision or merge; token/call cost is second.
 
-Run the complete presubmit only on a frozen, clean candidate:
+## Full validation
+
+During development, run the smallest affected checks. On a frozen clean
+candidate:
 
 ```bash
 git status --short
 python3 scripts/presubmit.py --repo .
-```
-
-The presubmit compiles the mission, runs positive and mandatory negative
-contracts, checks ordering and identity drift, validates evidence arithmetic
-and privacy, renders sanitized trace artifacts, derives metrics, and verifies a
-fresh archive. It does not call GitHub or switch GitHub identity.
-
-For a documentation-only working-tree change, use affected checks first:
-
-```bash
-python3 scripts/verify-governance.py --repo .
-python3 -m unittest tests.test_installer tests.test_privacy -v
 git diff --check
 ```
 
-The manifest is an exact path-and-hash boundary. Any tracked file addition,
-deletion, or content change requires a corresponding manifest update before the
-verifier can be green.
+The manifest is an exact tracked path-and-hash boundary. Every tracked addition,
+deletion, or content change requires a matching manifest update.
 
-## Hooks and receipts
+## Privacy and limitations
 
-The package contains:
+Never commit:
 
-- `SessionStart` and `SubagentStart` context generation;
-- `PreToolUse` allow/deny and normalized route signaling;
-- parent pre-dispatch, subagent mission-lock, post-result, and dispatch
-  transcript checks for nested delegation;
-- best-effort privacy-safe JSONL receipts.
-
-Receipts contain normalized event/model/tool/decision/reason codes, a combined
-hook snapshot hash, source, PID/PPID, and hashed identifiers. They exclude raw
-prompts, tool arguments, cwd, tokens, credentials, and private identifiers.
-Receipt-write failure remains visible and cannot support runtime-proof
-acceptance.
-
-Review the exact commit and hook source before trusting hooks in Codex. After a
-trusted hook or global-rule change, start a fresh Codex task; existing tasks may
-retain creation-time context.
-
-## Security and privacy
-
-Never add:
-
-- API keys, GitHub tokens, OAuth state, cookies, or provider credentials;
-- Codex sessions, prompts, histories, transcripts, memories, or shell
-  snapshots;
-- hook receipt JSONL;
-- plugin caches, connections, model caches, browser profiles, or user data;
+- API/GitHub tokens, OAuth state, cookies, or credentials;
+- Codex sessions, prompts, transcripts, memories, or receipts;
+- plugin/connection/model caches or browser profiles;
 - personal absolute paths or private repository content.
 
-Before sharing a change, run:
-
-```bash
-python3 scripts/verify-governance.py --repo .
-git diff --check
-```
+The package cannot grant a model or tool that the current Codex surface does not
+expose. CLI, Desktop, remote hosts, and app-server processes may refresh on
+different lifecycles. Restart the affected surface and create a fresh task after
+governance, MCP, hook, or model-routing changes.
 
 See [SECURITY.md](SECURITY.md), [PRIVACY.md](PRIVACY.md), and
 [the privacy threat model](docs/privacy-threat-model.md).
 
-## Updating a trial clone
-
-Treat every update as a new evidence identity:
-
-```bash
-git fetch origin
-git status --short
-git log --oneline --decorate HEAD..origin/codex/v16-productivity-engine
-git pull --ff-only
-python3 scripts/verify-governance.py --repo .
-python3 -m unittest discover -s tests -p 'test_*.py'
-python3 -m unittest discover -s tests/v16 -p 'test_*.py'
-```
-
-Do not pull over local changes without reviewing them. Do not reuse old
-evidence after the commit, file set, manifest, hook snapshot, acceptance
-envelope, command, runtime, or denominator changes. Codex CLI, Codex Desktop,
-and a remote app-server may refresh on different lifecycles; this repository
-does not manage their upgrades or model catalogs. Restart the affected Codex
-surface and begin a fresh task after changing installed governance.
-
 ## Troubleshooting
 
-| Symptom | Meaning | Action |
-|---|---|---|
-| `Unknown model ...` | The current runtime/catalog does not expose that model. | Use an available model allowed by the frozen mission, or stop as an infrastructure blocker when the contract requires an unavailable exact model. The repository cannot grant access. |
-| Luna or Spark appears in one surface but not another | CLI, Desktop, remote host, or app-server catalog state differs. | Check the catalog on the exact host/surface, refresh that process, and repeat a fresh exact probe. |
-| Hook is not loaded | The surface has not trusted/reloaded it, or its hook configuration differs. | Review the hook source, trust it, restart the affected Codex surface, and start a new task. |
-| `receipt_status=write_failed` | Runtime receipt persistence failed. | Check the isolated receipt directory, ownership, permissions, and no-follow constraints; do not claim runtime-proof acceptance. |
-| CodeGraph is missing or stale | Structural evidence is unavailable or not revision-matching. | Obtain authorization to build/sync the child-repository index, then query that index. |
-| Semble is `unknown` | CLI probing cannot prove an MCP/agent capability. | Supply a current orchestrator capability observation; do not silently treat it as installed. |
-| Manifest verifier is RED | A tracked path/hash, privacy rule, UTF-8 rule, or required file failed. | Stop installation, inspect every reported error, update the package and manifest through review, then rerun. |
-| FINAL/presubmit rejects a dirty tree | The frozen clean identity is not satisfied. | Use affected checks during development; create a clean candidate before FINAL. |
-| Review repeats the whole repository | The review packet or continuity mode is wrong. | Freeze one exact scope; use `delta_continuation` for ordinary fixes and escalate only on declared triggers. |
-
-## Trial acceptance checklist
-
-A teammate trial is successful only when all applicable items are recorded:
-
-- exact repository commit and clean/dirty state;
-- verifier status and file denominator;
-- unit-test total, failures, errors, skips, and expected failures;
-- isolated installer file count and destination;
-- hook smoke-test decisions and receipt status;
-- current availability/health for CodeGraph, Semble, `rtk`, and `rg`;
-- models actually exposed by the tested Codex surface;
-- limitations, unknowns, and rollback result.
-
-Source presence is not proof that runtime routing occurred. A successful local
-review is not a GitHub approval. A green synthetic fixture is not a production
-or research claim.
+| Symptom | Action |
+|---|---|
+| `CODEGRAPH_WRONG_PROJECT` | Stop and point the doctor/query at the owning child repo. |
+| `CODEGRAPH_STALE` | Review the changes, authorize, and run `codegraph sync .`. |
+| `SEMBLE_MCP_NOT_CONFIGURED` | Run the reviewed Semble MCP configuration command and restart Codex. |
+| `SEMBLE_SENTINEL_MISMATCH` | Improve the semantic query or repair repo/index scope; do not claim readiness. |
+| `RTK_FALSE_GREEN` | Hard stop; repair rtk before accepting shell evidence. |
+| `receipt_status=write_failed` | Repair the private receipt directory; runtime-proof acceptance is blocked. |
+| `Unknown model ...` | Check the exact host/surface catalog; this repo cannot grant model access. |
+| Manifest verifier is RED | Stop, inspect every mismatch, update through review, and rerun. |
 
 ## Repository map
 
 ```text
-.
-├── codex/
-│   ├── AGENTS.md
-│   ├── BRIEF-TEMPLATES.md
-│   ├── hooks/
-│   ├── contracts/
-│   └── v16/
-├── docs/
-├── scripts/
-│   ├── install-governance.py
-│   ├── verify-governance.py
-│   └── presubmit.py
-├── tests/
-├── manifest.json
-├── SECURITY.md
-└── PRIVACY.md
+codex/                     installable governance package
+  AGENTS.md
+  BRIEF-TEMPLATES.md
+  hooks/
+  v16/
+docs/TOOLCHAIN.md          detailed tool readiness and routing contract
+scripts/toolchain-doctor.py
+scripts/install-governance.py
+scripts/verify-governance.py
+scripts/presubmit.py
+tests/
+manifest.json              exact tracked path/hash boundary
 ```
 
-Detailed design documents:
+## Official Codex references
 
-- [Architecture](docs/architecture.md)
-- [Deployment model](docs/deployment.md)
-- [Review workflow](docs/review-workflow.md)
-- [V16 contract registry](codex/v16/contracts/README.md)
-
-## Contribution and release policy
-
-- Keep changes small, coherent, portable, and privacy-safe.
-- Use the repository’s exact manifest and mandatory negative fixtures.
-- `Qian9921` owns development commits and PR authoring.
-- `Liang9921` owns independent governance review, approval, and merge.
-- The author must not review or approve their own change.
-- Do not push directly to `main`.
-- Do not publish a release from a dirty tree, incomplete review, unknown
-  denominator, or stale evidence.
-
-The current package is a private preview. Public release requires a separate
-security, privacy, licensing, binary/artifact, portability, support, and
-documentation review.
-
-## License
-
-See [LICENSE](LICENSE).
+- [Codex CLI](https://developers.openai.com/codex/cli)
+- [Configuration basics](https://developers.openai.com/codex/config-basic)
+- [Configuration reference](https://developers.openai.com/codex/config-reference)
+- [AGENTS.md and customization](https://developers.openai.com/codex/concepts/customization)
+- [Hooks](https://developers.openai.com/codex/config-advanced#hooks)

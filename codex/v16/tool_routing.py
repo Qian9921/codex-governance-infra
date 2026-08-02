@@ -11,6 +11,7 @@ code, and has an evidence reference.
 from __future__ import annotations
 
 import enum
+import re
 import shutil
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
@@ -18,6 +19,7 @@ from typing import Any, Mapping, Sequence
 
 ROUTE_SCHEMA = "tool-route-decision.v16"
 HEALTH_SCHEMA = "tool-health.v16"
+USAGE_SCHEMA = "tool-usage.v16"
 # Compatibility name for older callers that imported SCHEMA.  New producers
 # and validators use the distinct schema constants above.
 SCHEMA = ROUTE_SCHEMA
@@ -43,6 +45,16 @@ CHECK_FIELDS = frozenset(
     {"tool", "status", "available", "healthy", "reason_code", "evidence_ref"}
 )
 COUNT_FIELDS = frozenset({"total", "ran", "passed", "failed", "skipped", "xfail", "unknown"})
+USAGE_FIELDS = frozenset(
+    {
+        "schema", "status", "routing_compliant", "coverage_equivalent",
+        "preflight_cache_key_sha256", "routes", "calls", "counts",
+        "denominator", "denominator_known", "violations",
+    }
+)
+CALL_FIELDS = frozenset(
+    {"intent", "tool", "status", "evidence_ref", "receipt_sha256", "used_for"}
+)
 
 
 class RoutingError(ValueError):
@@ -100,6 +112,18 @@ PREFERRED_TOOL = {
     Intent.EXACT_ERROR.value: "rg",
     Intent.CONFIG.value: "rg",
     Intent.LOG.value: "rg",
+}
+USAGE_PURPOSE = {
+    Intent.KNOWN_SYMBOL.value: "structure",
+    Intent.KNOWN_CALL.value: "structure",
+    Intent.BLAST_RADIUS.value: "structure",
+    Intent.SEMANTIC_ENTRY.value: "discovery",
+    Intent.SIMILAR_IMPLEMENTATION.value: "discovery",
+    Intent.SHELL_OUTPUT.value: "context_display",
+    Intent.EXACT_STRING.value: "literal",
+    Intent.EXACT_ERROR.value: "literal",
+    Intent.CONFIG.value: "literal",
+    Intent.LOG.value: "literal",
 }
 
 # These are deliberately conservative.  rg can confirm text when either
@@ -667,6 +691,148 @@ class ToolRouter:
 ToolRoutingContract = ToolRouter
 
 
+def build_usage_report(
+    *,
+    preflight_cache_key_sha256: str,
+    routes: Sequence[Mapping[str, Any]],
+    calls: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Bind declared route decisions to actual, receipt-backed tool use.
+
+    A successful decision is not usage evidence.  Every declared route must
+    have one successful call to the selected tool, a hook receipt hash, an
+    evidence reference, and a task-relevant purpose.  Fallbacks can be routing
+    compliant, but they never claim equivalent semantic or structural coverage.
+    """
+
+    if not isinstance(preflight_cache_key_sha256, str) or not re.fullmatch(
+        r"[0-9a-f]{64}", preflight_cache_key_sha256
+    ):
+        raise RoutingError("preflight_cache_key_sha256 must be a SHA-256 digest")
+    if isinstance(routes, (str, bytes)) or not isinstance(routes, Sequence):
+        raise RoutingError("routes must be a sequence")
+    if isinstance(calls, (str, bytes)) or not isinstance(calls, Sequence):
+        raise RoutingError("calls must be a sequence")
+
+    normalized_routes: list[dict[str, Any]] = []
+    route_by_intent: dict[str, dict[str, Any]] = {}
+    for raw in routes:
+        route = validate_route_decision(raw)
+        if route["declared"] is not True:
+            raise RoutingError("usage report accepts declared routes only")
+        intent = _canonical_intent(route["intent"])
+        if intent in route_by_intent:
+            raise RoutingError("duplicate route intent")
+        route_by_intent[intent] = route
+        normalized_routes.append(route)
+
+    normalized_calls: list[dict[str, Any]] = []
+    call_by_intent: dict[str, dict[str, Any]] = {}
+    for raw in calls:
+        if not isinstance(raw, Mapping) or set(raw) != CALL_FIELDS:
+            raise RoutingError("tool call fields must match the exact v16 schema")
+        call = dict(raw)
+        intent = _canonical_intent(call["intent"])
+        if intent in call_by_intent:
+            raise RoutingError("duplicate tool call intent")
+        if not isinstance(call["tool"], str) or call["tool"] not in set(TOOLS) | {"shell"}:
+            raise RoutingError("tool call uses an unsupported tool")
+        if call["status"] not in {"success", "failure"}:
+            raise RoutingError("tool call status invalid")
+        for field in ("evidence_ref", "receipt_sha256"):
+            if not isinstance(call[field], str) or not call[field]:
+                raise RoutingError(f"tool call {field} required")
+        if re.fullmatch(r"[0-9a-f]{64}", call["receipt_sha256"]) is None:
+            raise RoutingError("tool call receipt_sha256 must be a SHA-256 digest")
+        if call["used_for"] != USAGE_PURPOSE[intent]:
+            raise RoutingError("tool call purpose does not match intent")
+        call["intent"] = intent
+        call_by_intent[intent] = call
+        normalized_calls.append(call)
+
+    violations: list[str] = []
+    passed = failed = 0
+    coverage_equivalent = True
+    for intent, route in route_by_intent.items():
+        call = call_by_intent.get(intent)
+        if route["decision"] == "blocked":
+            violations.append(f"ROUTE_BLOCKED:{intent}")
+            failed += 1
+            continue
+        if call is None:
+            violations.append(f"ROUTE_NOT_USED:{intent}")
+            failed += 1
+            continue
+        if call["tool"] != route["selected_tool"]:
+            violations.append(f"ROUTE_TOOL_MISMATCH:{intent}")
+            failed += 1
+            continue
+        if call["status"] != "success":
+            violations.append(f"ROUTE_CALL_FAILED:{intent}")
+            failed += 1
+            continue
+        passed += 1
+        if route["fallback"]:
+            coverage_equivalent = False
+    for intent in call_by_intent:
+        if intent not in route_by_intent:
+            violations.append(f"UNDECLARED_TOOL_CALL:{intent}")
+            failed += 1
+
+    total = len(route_by_intent)
+    ran = passed + sum(
+        1
+        for intent in route_by_intent
+        if intent in call_by_intent and call_by_intent[intent]["status"] == "failure"
+    )
+    routing_compliant = not violations
+    status = (
+        "blocked"
+        if violations
+        else ("compliant" if coverage_equivalent else "degraded")
+    )
+    report = {
+        "schema": USAGE_SCHEMA,
+        "status": status,
+        "routing_compliant": routing_compliant,
+        "coverage_equivalent": coverage_equivalent and routing_compliant,
+        "preflight_cache_key_sha256": preflight_cache_key_sha256,
+        "routes": normalized_routes,
+        "calls": normalized_calls,
+        "counts": {
+            "total": total,
+            "ran": ran,
+            "passed": passed,
+            "failed": total - passed,
+            "skipped": 0,
+            "xfail": 0,
+            "unknown": 0,
+        },
+        "denominator": total,
+        "denominator_known": True,
+        "violations": violations,
+    }
+    return report
+
+
+def validate_usage_report(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate a usage report by recomputing it from decisions and calls."""
+
+    if not isinstance(value, Mapping) or set(value) != USAGE_FIELDS:
+        raise RoutingError("usage report fields must match the exact v16 schema")
+    result = dict(value)
+    if result["schema"] != USAGE_SCHEMA:
+        raise RoutingError("usage report schema mismatch")
+    recomputed = build_usage_report(
+        preflight_cache_key_sha256=result["preflight_cache_key_sha256"],
+        routes=result["routes"],
+        calls=result["calls"],
+    )
+    if recomputed != result:
+        raise RoutingError("usage report does not match routes and calls")
+    return result
+
+
 __all__ = [
     "FALLBACK_TOOL",
     "INTENT_ALIASES",
@@ -675,6 +841,7 @@ __all__ = [
     "RoutingError",
     "ROUTE_SCHEMA",
     "HEALTH_SCHEMA",
+    "USAGE_SCHEMA",
     "SCHEMA",
     "TOOL_PREFERENCE",
     "TOOLS",
@@ -683,11 +850,13 @@ __all__ = [
     "ToolRoutingContract",
     "doctor",
     "build_health_report",
+    "build_usage_report",
     "health_report",
     "validate_health_report",
     "validate_health",
     "validate_route_decision",
     "validate_route",
+    "validate_usage_report",
     "route",
     "route_intent",
     "route_tool",

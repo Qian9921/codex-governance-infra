@@ -22,6 +22,9 @@ except ImportError:  # pragma: no cover - exercised by direct script invocation.
 
 FORBIDDEN_CHILD = frozenset({"git", "github", "merge", "review", "approve"})
 ROUTE_BY_TOOL = {
+    "toolchain-doctor": "preflight",
+    "toolchain_doctor": "preflight",
+    "tool_preflight": "preflight",
     "codegraph": "CodeGraph",
     "codegraph_explore": "CodeGraph",
     "mcp__codegraph__codegraph_explore": "CodeGraph",

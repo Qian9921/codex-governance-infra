@@ -56,20 +56,34 @@ and reviewer-continuity expectations; a self-rehashed payload is never its own
 authority.
 
 ## TOOLING-1
-Tool routing is a contract, not a stylistic suggestion. Known symbols, calls,
-dependencies, and blast radius use the revision-matching child CodeGraph;
-unknown semantic entrypoints and similar implementations use Semble; exact
-strings/errors/configuration/logs use `rg` or bounded exact reads; shell output
-shown to the model uses `rtk`. Raw output remains legal for exact denominators
-or downstream machine input. A preferred tool may be bypassed only after a real
-failed/unavailable attempt with a stable reason code and evidence reference.
+Tool readiness precedes tool routing. Before repository analysis, implementation,
+review, or completion, run strict `tool-preflight.v16` for the exact repo/head/
+worktree/config identity. `ready` requires all three mandatory tools: CodeGraph
+must be configured for Codex, bound to the owning repo, complete, revision-
+matching, uncontaminated, and pass a current sentinel; Semble must be configured,
+callable, repo-scoped, and return the expected live-source sentinel; `rtk` must
+be callable, match the current Git identity, and preserve a deterministic
+non-zero failure. Directory/binary presence or a historical pass is insufficient.
+Reuse a matching cache receipt; invalidate it on host/runtime/tool/config/repo/
+head/worktree/index/sentinel change. The doctor is read-only; install/config/
+index build or sync remains an assigned, authorized mutation.
 
-Use `codex.v16.tool_routing` for deterministic selection and a denominator-known
-health report. Hooks reinforce the route and record only normalized,
-privacy-safe receipts; they do not infer semantics strongly enough to blanket
-deny legitimate calls. CodeGraph indexes are local generated state: build/sync
-only in the owning repository with explicit authorization, refresh after edits,
-and never use a parent/workspace graph as child truth.
+After readiness, routing is mandatory rather than stylistic. Known symbols,
+calls, dependencies, and blast radius use the revision-matching child
+CodeGraph; unknown semantic entrypoints and similar implementations use Semble;
+exact strings/errors/configuration/logs use `rg` or bounded exact reads; shell
+output shown to the model uses `rtk`. Raw output remains mandatory for parsers,
+cryptographic hashes, exact denominators, and byte identity. A preferred tool
+may be bypassed only after a real failed/unavailable attempt with a stable
+reason code and evidence reference; fallback never claims equivalent coverage.
+
+Use `codex.v16.tool_routing` for decisions and `tool-usage.v16` to bind every
+declared route to one successful, task-relevant call, evidence ref, and hook
+receipt hash. Unused, wrong-tool, failed, undeclared, or receipt-free calls
+cannot satisfy the route; irrelevant “check-box” calls are violations. Hooks
+reinforce the declared route and store only normalized privacy-safe receipts;
+they do not infer semantics from raw arguments or blanket-deny legitimate
+calls. CodeGraph state belongs to the owning child repo, never its parent graph.
 
 ## DELEGATE-1
 Persistent parent remains accountable. Nested delegation defaults:

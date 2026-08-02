@@ -764,6 +764,54 @@
       "injected_inputs": [
         "observations"
       ]
+    },
+    "tool-preflight.v16": {
+      "validator": "tool_preflight.validate_preflight",
+      "validation_mode": "source-bound",
+      "required": [
+        "schema",
+        "status",
+        "strict",
+        "repo_identity",
+        "config_identity",
+        "tools",
+        "counts",
+        "denominator",
+        "denominator_known",
+        "cache",
+        "mutations"
+      ],
+      "optional": [],
+      "external_inputs": [
+        "repo",
+        "Codex config",
+        "tool binaries",
+        "CodeGraph index",
+        "semantic sentinel"
+      ]
+    },
+    "tool-usage.v16": {
+      "validator": "tool_routing.validate_usage_report",
+      "validation_mode": "caller-bound",
+      "required": [
+        "schema",
+        "status",
+        "routing_compliant",
+        "coverage_equivalent",
+        "preflight_cache_key_sha256",
+        "routes",
+        "calls",
+        "counts",
+        "denominator",
+        "denominator_known",
+        "violations"
+      ],
+      "optional": [],
+      "external_inputs": [
+        "tool-preflight.v16",
+        "tool-route-decision.v16",
+        "hook receipts"
+      ]
     }
   }
 }

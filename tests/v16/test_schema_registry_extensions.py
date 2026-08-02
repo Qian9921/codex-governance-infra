@@ -3,7 +3,8 @@ import pathlib
 import unittest
 
 from codex.v16.contracts import SCHEMA_REGISTRY
-from codex.v16.tool_routing import HEALTH_FIELDS, ROUTE_FIELDS
+from codex.v16.tool_preflight import REPORT_FIELDS as PREFLIGHT_FIELDS
+from codex.v16.tool_routing import HEALTH_FIELDS, ROUTE_FIELDS, USAGE_FIELDS
 
 
 ROOT = pathlib.Path(__file__).parents[2]
@@ -180,6 +181,16 @@ class SchemaRegistryExtensionTests(unittest.TestCase):
         self.assertEqual(health["observation_mode"], "injected-observation")
         self.assertEqual(health["injected_inputs"], ["observations"])
         self.assertEqual(set(health["required"]), set(HEALTH_FIELDS))
+
+        preflight = SCHEMA_REGISTRY["tool-preflight.v16"]
+        self.assertEqual(preflight["validator"], "tool_preflight.validate_preflight")
+        self.assertEqual(preflight["validation_mode"], "source-bound")
+        self.assertEqual(set(preflight["required"]), set(PREFLIGHT_FIELDS))
+
+        usage = SCHEMA_REGISTRY["tool-usage.v16"]
+        self.assertEqual(usage["validator"], "tool_routing.validate_usage_report")
+        self.assertEqual(usage["validation_mode"], "caller-bound")
+        self.assertEqual(set(usage["required"]), set(USAGE_FIELDS))
 
     def test_readiness_inventory_carries_approval_and_policy_bindings(self):
         state = SCHEMA_REGISTRY["readiness-state.v16"]

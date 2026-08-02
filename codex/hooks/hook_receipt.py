@@ -27,7 +27,9 @@ _SENSITIVE_LABEL = re.compile(
     r"(?:gh[pso]_|sk-|xox[baprs]-|akia[0-9a-z]|bearer|credential|password|prompt|secret|token)",
     re.IGNORECASE,
 )
-_ROUTE_CODES = frozenset({"codegraph", "semble", "rtk", "rg", "unspecified"})
+_ROUTE_CODES = frozenset(
+    {"preflight", "codegraph", "semble", "rtk", "rg", "unspecified"}
+)
 _ROUTE_ALIASES = {"CodeGraph": "codegraph", "Semble": "semble"}
 _DECISIONS = frozenset({"allow", "deny"})
 _RECEIPT_STATUSES = frozenset({"not_written", "written", "write_failed"})
@@ -42,6 +44,8 @@ SNAPSHOT_FILES = (
     _ROOT / "codex" / "hooks" / "pre_tool_use_policy.py",
     _ROOT / "codex" / "hooks" / "hook_receipt.py",
     _ROOT / "codex" / "hooks" / "hooks_contract_test.py",
+    _ROOT / "codex" / "v16" / "tool_preflight.py",
+    _ROOT / "codex" / "v16" / "tool_routing.py",
 )
 _SAFE_FIELDS = frozenset(
     {

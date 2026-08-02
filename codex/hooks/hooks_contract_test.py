@@ -43,6 +43,18 @@ class HooksContractTests(unittest.TestCase):
         guidance = context["additionalContext"]
         for route in ("CodeGraph", "Semble", "rtk", "rg"):
             self.assertIn(route, guidance)
+        self.assertEqual(
+            context["tool_preflight"],
+            {
+                "required_before_repo_work": True,
+                "schema": "tool-preflight.v16",
+                "strict_ready_status": "ready",
+                "mandatory_tools": ["codegraph", "semble", "rtk"],
+                "usage_schema": "tool-usage.v16",
+                "receipt_backed_usage_required": True,
+            },
+        )
+        self.assertIn("TOOL-PREFLIGHT", guidance)
         self.assertEqual(context["review_runtime"]["formal_review_calls"], 1)
         self.assertEqual(
             context["review_runtime"]["duplicate_full_scope_reviews"], 0
@@ -184,6 +196,9 @@ class HooksContractTests(unittest.TestCase):
         self.assertEqual(first["route"], "unspecified")
         self.assertEqual(pre_tool_use_policy.decide("git")["decision"], "deny")
         self.assertEqual(pre_tool_use_policy.decide("rg")["decision"], "allow")
+        self.assertEqual(
+            pre_tool_use_policy.decide("toolchain-doctor")["route"], "preflight"
+        )
 
 
 if __name__ == '__main__': unittest.main()

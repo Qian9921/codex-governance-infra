@@ -46,6 +46,42 @@ def _git(root: pathlib.Path, *argv: str) -> str:
     return proc.stdout.strip()
 
 
+def _checker_counts_from_stdout(raw: str) -> dict[str, int]:
+    """Parse one checker envelope, allowing setup receipts before the final line.
+
+    A checker may run after an isolated installer that emits its own JSONL
+    receipts.  The final non-empty stdout line is the only admissible fallback:
+    searching arbitrary earlier lines could turn trailing failures or noise
+    into a false GREEN.
+    """
+    candidates = [raw]
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    if len(lines) > 1 and lines[-1] != raw:
+        candidates.append(lines[-1])
+
+    error: Exception | None = None
+    for candidate in candidates:
+        try:
+            checker = json.loads(candidate)
+            # The standalone checker emits a typed envelope while the gate
+            # receipt stores only its exact arithmetic fields. Strip that one
+            # documented schema tag before the strict count validator; every
+            # other extra key remains a hard RED.
+            if isinstance(checker, dict) and checker.get("schema") == "checker-result.v16":
+                checker = {key: value for key, value in checker.items() if key != "schema"}
+            elif isinstance(checker, dict) and isinstance(checker.get("files"), int) and checker.get("status") in {"GREEN", "RED"} and isinstance(checker.get("errors"), list):
+                # ``verify-governance.py`` reports an exact file denominator
+                # rather than checker count keys.
+                total = checker["files"]
+                passed = total if checker["status"] == "GREEN" and not checker["errors"] else 0
+                checker = {"total": total, "ran": total, "passed": passed, "failed": total - passed, "skipped": 0, "xfail": 0, "unknown": 0}
+            return validate_counts(checker, require_green=False)
+        except (ValueError, json.JSONDecodeError, EvidenceError) as exc:
+            error = exc
+    assert error is not None
+    raise error
+
+
 def git_identity(root: pathlib.Path) -> tuple[str, str, bool]:
     head = _git(root, "rev-parse", "HEAD")
     tree = _git(root, "rev-parse", "HEAD^{tree}")
@@ -664,24 +700,9 @@ class GateRunner:
                 privacy_error = ""
             raw = out.decode("utf-8", errors="replace").strip()
             try:
-                checker = json.loads(raw)
-                # The standalone checker emits a typed envelope while the
-                # gate receipt stores only its exact arithmetic fields.  Strip
-                # that one documented schema tag before the strict count
-                # validator; every other extra key remains a hard RED.
-                if isinstance(checker, dict) and checker.get("schema") == "checker-result.v16":
-                    checker = {key: value for key, value in checker.items() if key != "schema"}
-                elif isinstance(checker, dict) and isinstance(checker.get("files"), int) and checker.get("status") in {"GREEN", "RED"} and isinstance(checker.get("errors"), list):
-                    # ``verify-governance.py`` reports an exact file
-                    # denominator rather than checker count keys.  Preserve
-                    # its source payload for _run_json while binding the gate
-                    # row to the verifier's known file count and status.
-                    total = checker["files"]
-                    passed = total if checker["status"] == "GREEN" and not checker["errors"] else 0
-                    checker = {"total": total, "ran": total, "passed": passed, "failed": total - passed, "skipped": 0, "xfail": 0, "unknown": 0}
-                counts = validate_counts(checker, require_green=False)
+                counts = _checker_counts_from_stdout(raw)
             except (ValueError, json.JSONDecodeError, EvidenceError) as exc:
-                checker = {}; counts = {"total": 0, "ran": 0, "passed": 0, "failed": 1, "skipped": 0, "xfail": 0, "unknown": 0}; parse_error = str(exc)
+                counts = {"total": 0, "ran": 0, "passed": 0, "failed": 1, "skipped": 0, "xfail": 0, "unknown": 0}; parse_error = str(exc)
             else:
                 parse_error = ""
             try:

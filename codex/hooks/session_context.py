@@ -24,6 +24,14 @@ ROUTING_GUIDANCE = {
     "shell_display": "rtk",
     "exact_text_log_config": "rg",
 }
+TOOL_PREFLIGHT_GUIDANCE = {
+    "required_before_repo_work": True,
+    "schema": "tool-preflight.v16",
+    "strict_ready_status": "ready",
+    "mandatory_tools": ["codegraph", "semble", "rtk"],
+    "usage_schema": "tool-usage.v16",
+    "receipt_backed_usage_required": True,
+}
 REVIEW_RUNTIME_GUIDANCE = {
     "initial_high": "fresh Sol xhigh",
     "delta_continuation": (
@@ -54,8 +62,11 @@ def build_context(event: str | None = None, model: str | None = None) -> dict[st
         "risk -> fresh Sol xhigh; contract-stable delta -> same reviewer/model "
         "(high-risk Sol high; low/medium Terra high), delta-only, 90s report/"
         "240s replan; one review call, zero "
-        "duplicate full-scope reviews. Choose by task shape; do not infer "
-        "intent from raw command arguments."
+        "duplicate full-scope reviews. TOOL-PREFLIGHT: before repository work "
+        "require tool-preflight.v16 status=ready for CodeGraph/Semble/rtk, "
+        "bound to current repo/head/worktree/config; then require receipt-backed "
+        "tool-usage.v16. Choose by task shape; do not infer intent from raw "
+        "command arguments."
     )
     return {
         "event": event or "SessionStart",
@@ -63,6 +74,7 @@ def build_context(event: str | None = None, model: str | None = None) -> dict[st
         "model": model or os.environ.get("CODEX_MODEL", "unknown"),
         "spark_supported": True,
         "routing": dict(ROUTING_GUIDANCE),
+        "tool_preflight": dict(TOOL_PREFLIGHT_GUIDANCE),
         "review_runtime": dict(REVIEW_RUNTIME_GUIDANCE),
         "additionalContext": guidance[:1200],
     }
