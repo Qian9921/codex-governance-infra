@@ -1,7 +1,13 @@
+import copy
+import hashlib
 import json
+import os
+import pathlib
+import tempfile
 import unittest
 from unittest import mock
 
+from codex.hooks import hook_receipt
 from codex.v16.tool_routing import (
     HEALTH_SCHEMA,
     Intent,
@@ -17,6 +23,114 @@ from codex.v16.tool_routing import (
     validate_route_decision,
     validate_usage_report,
 )
+
+TASK_SHA = hashlib.sha256(b"task").hexdigest()
+SNAPSHOT_SHA = hashlib.sha256(b"hook-snapshot").hexdigest()
+
+
+def _preflight():
+    tools = []
+    for tool in ("codegraph", "semble", "rtk"):
+        tools.append({
+            "tool": tool,
+            "status": "pass",
+            "reason_code": f"{tool.upper()}_READY",
+            "version": "1",
+            "checks": [{
+                "name": "ready",
+                "status": "pass",
+                "reason_code": f"{tool.upper()}_READY",
+            }],
+            "evidence_sha256": hashlib.sha256(tool.encode()).hexdigest(),
+        })
+    return {
+        "schema": "tool-preflight.v16",
+        "status": "ready",
+        "strict": True,
+        "repo_identity": {
+            "root_sha256": "1" * 64,
+            "head_sha": "2" * 40,
+            "dirty": False,
+            "worktree_sha256": "3" * 64,
+        },
+        "config_identity": {
+            "path_sha256": "4" * 64,
+            "content_sha256": "5" * 64,
+            "present": True,
+        },
+        "tools": tools,
+        "counts": {
+            "total": 3, "ran": 3, "passed": 3, "failed": 0,
+            "skipped": 0, "xfail": 0, "unknown": 0,
+        },
+        "denominator": 3,
+        "denominator_known": True,
+        "cache": {
+            "key_sha256": "6" * 64,
+            "invalidated_by": ["host_or_runtime_change"],
+        },
+        "mutations": [],
+    }
+
+
+def _receipt(tool, tool_call_id, *, task=TASK_SHA, snapshot=SNAPSHOT_SHA):
+    value = {
+        "schema": "hook-receipt.v16",
+        "schema_version": "hook-receipt.v16",
+        "utc": "2026-08-02T00:00:00Z",
+        "event": "PreToolUse",
+        "model": "gpt-5.6-luna",
+        "tool_name": f"test_{tool}",
+        "decision": "allow",
+        "reason": "policy_pass",
+        "reason_code": "policy_pass",
+        "route": tool,
+        "route_code": tool,
+        "snapshot_sha256": snapshot,
+        "identifiers_sha256": task,
+        "session_id_sha256": None,
+        "turn_id_sha256": None,
+        "tool_call_id_sha256": tool_call_id,
+        "source": "test",
+        "pid": 1,
+        "ppid": 1,
+        "receipt_status": "written",
+    }
+    digest = hashlib.sha256(
+        (json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n").encode()
+    ).hexdigest()
+    return value, digest
+
+
+def _usage_inputs(routes):
+    purpose = {
+        "known_symbol": "structure",
+        "semantic_entry": "discovery",
+        "shell_output": "context_display",
+    }
+    calls = []
+    receipts = []
+    evidence = {}
+    for route in routes:
+        intent = route["intent"]
+        tool = route["selected_tool"]
+        call_id = hashlib.sha256(f"call:{intent}".encode()).hexdigest()
+        receipt, receipt_sha = _receipt(tool, call_id)
+        evidence_ref = f"evidence:{intent}"
+        evidence_sha = hashlib.sha256(evidence_ref.encode()).hexdigest()
+        receipts.append(receipt)
+        evidence[evidence_ref] = evidence_sha
+        calls.append({
+            "intent": intent,
+            "tool": tool,
+            "status": "success",
+            "evidence_ref": evidence_ref,
+            "evidence_sha256": evidence_sha,
+            "receipt_sha256": receipt_sha,
+            "tool_call_id_sha256": call_id,
+            "used_for": purpose[intent],
+        })
+    return calls, receipts, evidence
 
 
 class ToolRoutingTests(unittest.TestCase):
@@ -223,58 +337,154 @@ class ToolRoutingTests(unittest.TestCase):
             route_tool("semantic_entry", observations={"semble": True}),
             route_tool("shell_output", observations={"rtk": True}),
         ]
-        calls = [
-            {
-                "intent": "known_symbol",
-                "tool": "codegraph",
-                "status": "success",
-                "evidence_ref": "graph:impact:1",
-                "receipt_sha256": "a" * 64,
-                "used_for": "structure",
-            },
-            {
-                "intent": "semantic_entry",
-                "tool": "semble",
-                "status": "success",
-                "evidence_ref": "search:entry:1",
-                "receipt_sha256": "b" * 64,
-                "used_for": "discovery",
-            },
-            {
-                "intent": "shell_output",
-                "tool": "rtk",
-                "status": "success",
-                "evidence_ref": "context:test:1",
-                "receipt_sha256": "c" * 64,
-                "used_for": "context_display",
-            },
-        ]
+        calls, receipts, evidence = _usage_inputs(routes)
+        preflight = _preflight()
         report = build_usage_report(
-            preflight_cache_key_sha256="d" * 64,
+            preflight=preflight,
+            hook_snapshot_sha256=SNAPSHOT_SHA,
+            task_id_sha256=TASK_SHA,
             routes=routes,
             calls=calls,
+            receipts=receipts,
+            evidence=evidence,
         )
         self.assertEqual(report["status"], "compliant")
         self.assertTrue(report["routing_compliant"])
         self.assertTrue(report["coverage_equivalent"])
         self.assertEqual(report["counts"]["passed"], 3)
-        self.assertEqual(validate_usage_report(report), report)
+        self.assertEqual(
+            validate_usage_report(
+                report,
+                preflight=preflight,
+                receipts=receipts,
+                evidence=evidence,
+            ),
+            report,
+        )
+
+        negative_cases = []
+        missing_receipt_calls = copy.deepcopy(calls)
+        missing_receipt_calls[0]["receipt_sha256"] = "a" * 64
+        negative_cases.append(("missing receipt", missing_receipt_calls, receipts, evidence))
+
+        unwritten = copy.deepcopy(receipts)
+        unwritten[0]["receipt_status"] = "not_written"
+        negative_cases.append(("unwritten receipt", calls, unwritten, evidence))
+
+        stale_snapshot = copy.deepcopy(receipts)
+        stale_snapshot[0]["snapshot_sha256"] = "b" * 64
+        negative_cases.append(("stale snapshot", calls, stale_snapshot, evidence))
+
+        wrong_task = copy.deepcopy(receipts)
+        wrong_task[0]["identifiers_sha256"] = "c" * 64
+        negative_cases.append(("wrong task", calls, wrong_task, evidence))
+
+        wrong_call = copy.deepcopy(receipts)
+        wrong_call[0]["tool_call_id_sha256"] = "d" * 64
+        negative_cases.append(("wrong tool call", calls, wrong_call, evidence))
+
+        unspecified = copy.deepcopy(receipts)
+        unspecified[0]["route"] = unspecified[0]["route_code"] = "unspecified"
+        negative_cases.append(("unspecified route", calls, unspecified, evidence))
+
+        negative_cases.append(("absent evidence", calls, receipts, {}))
+
+        mismatched_evidence = dict(evidence)
+        mismatched_evidence[calls[0]["evidence_ref"]] = "e" * 64
+        negative_cases.append(("mismatched evidence", calls, receipts, mismatched_evidence))
+
+        for label, candidate_calls, candidate_receipts, candidate_evidence in negative_cases:
+            with self.subTest(label=label), self.assertRaises(RoutingError):
+                build_usage_report(
+                    preflight=preflight,
+                    hook_snapshot_sha256=SNAPSHOT_SHA,
+                    task_id_sha256=TASK_SHA,
+                    routes=routes,
+                    calls=candidate_calls,
+                    receipts=candidate_receipts,
+                    evidence=candidate_evidence,
+                )
+
+        forged = copy.deepcopy(report)
+        forged["preflight_cache_key_sha256"] = "f" * 64
+        with self.assertRaises(RoutingError):
+            validate_usage_report(
+                forged,
+                preflight=preflight,
+                receipts=receipts,
+                evidence=evidence,
+            )
+
+    def test_usage_report_accepts_exact_persisted_receipt_record(self):
+        route = route_tool("known_symbol", observations={"codegraph": True})
+        raw_call_id = "call:known_symbol"
+        call_id = hashlib.sha256(raw_call_id.encode()).hexdigest()
+        with tempfile.TemporaryDirectory() as directory, mock.patch.dict(
+            os.environ,
+            {"CODEX_TASK_ID": "task", "CODEX_HOOK_SOURCE": "test"},
+        ):
+            destination = pathlib.Path(directory) / "receipt.jsonl"
+            value = hook_receipt.receipt(
+                "PreToolUse",
+                "gpt-5.6-luna",
+                tool="mcp__codegraph__codegraph_explore",
+                decision="allow",
+                reason_code="policy_pass",
+                route_code="codegraph",
+                snapshot_sha256=SNAPSHOT_SHA,
+                identifiers={"tool_call_id": raw_call_id},
+            )
+            self.assertTrue(hook_receipt.write_receipt(value, destination))
+            line = destination.read_bytes()
+        persisted = json.loads(line)
+        receipt_sha = hashlib.sha256(line).hexdigest()
+        evidence_ref = "evidence:persisted"
+        evidence_sha = hashlib.sha256(evidence_ref.encode()).hexdigest()
+        report = build_usage_report(
+            preflight=_preflight(),
+            hook_snapshot_sha256=SNAPSHOT_SHA,
+            task_id_sha256=TASK_SHA,
+            routes=[route],
+            calls=[{
+                "intent": "known_symbol",
+                "tool": "codegraph",
+                "status": "success",
+                "evidence_ref": evidence_ref,
+                "evidence_sha256": evidence_sha,
+                "receipt_sha256": receipt_sha,
+                "tool_call_id_sha256": call_id,
+                "used_for": "structure",
+            }],
+            receipts=[persisted],
+            evidence={evidence_ref: evidence_sha},
+        )
+        self.assertEqual(report["status"], "compliant")
 
     def test_usage_report_blocks_noop_or_wrong_tool_and_marks_fallback_degraded(self):
         route = route_tool("known_symbol", observations={"codegraph": True})
+        call_id = hashlib.sha256(b"call:wrong-tool").hexdigest()
+        receipt, receipt_sha = _receipt("rg", call_id)
+        evidence_ref = "evidence:wrong-tool"
+        evidence_sha = hashlib.sha256(evidence_ref.encode()).hexdigest()
         wrong = build_usage_report(
-            preflight_cache_key_sha256="d" * 64,
+            preflight=_preflight(),
+            hook_snapshot_sha256=SNAPSHOT_SHA,
+            task_id_sha256=TASK_SHA,
             routes=[route],
             calls=[
                 {
                     "intent": "known_symbol",
                     "tool": "rg",
                     "status": "success",
-                    "evidence_ref": "noop:1",
-                    "receipt_sha256": "e" * 64,
+                    "evidence_ref": evidence_ref,
+                    "evidence_sha256": evidence_sha,
+                    "receipt_sha256": receipt_sha,
+                    "tool_call_id_sha256": call_id,
                     "used_for": "structure",
                 }
             ],
+            receipts=[receipt],
+            evidence={evidence_ref: evidence_sha},
         )
         self.assertEqual(wrong["status"], "blocked")
         self.assertEqual(wrong["violations"], ["ROUTE_TOOL_MISMATCH:known_symbol"])
@@ -290,19 +500,17 @@ class ToolRoutingTests(unittest.TestCase):
                 "rg": True,
             },
         )
+        fallback_calls, fallback_receipts, fallback_evidence = _usage_inputs(
+            [fallback_route]
+        )
         fallback = build_usage_report(
-            preflight_cache_key_sha256="f" * 64,
+            preflight=_preflight(),
+            hook_snapshot_sha256=SNAPSHOT_SHA,
+            task_id_sha256=TASK_SHA,
             routes=[fallback_route],
-            calls=[
-                {
-                    "intent": "known_symbol",
-                    "tool": "rg",
-                    "status": "success",
-                    "evidence_ref": "fallback:literal:1",
-                    "receipt_sha256": "1" * 64,
-                    "used_for": "structure",
-                }
-            ],
+            calls=fallback_calls,
+            receipts=fallback_receipts,
+            evidence=fallback_evidence,
         )
         self.assertEqual(fallback["status"], "degraded")
         self.assertTrue(fallback["routing_compliant"])

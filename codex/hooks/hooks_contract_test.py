@@ -194,6 +194,24 @@ class HooksContractTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(first["decision"], "allow")
         self.assertEqual(first["route"], "unspecified")
+        self.assertEqual(
+            pre_tool_use_policy.decide(
+                "functions.exec_command", {"cmd": "rtk git status --short"}
+            )["route"],
+            "rtk",
+        )
+        self.assertEqual(
+            pre_tool_use_policy.decide(
+                "exec_command", {"command": "/usr/bin/rg -n pattern file"}
+            )["route"],
+            "rg",
+        )
+        self.assertEqual(
+            pre_tool_use_policy.decide(
+                "exec_command", {"cmd": "printf x | rtk rg pattern"}
+            )["route"],
+            "unspecified",
+        )
         self.assertEqual(pre_tool_use_policy.decide("git")["decision"], "deny")
         self.assertEqual(pre_tool_use_policy.decide("rg")["decision"], "allow")
         self.assertEqual(

@@ -4,6 +4,7 @@ import pathlib
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 from codex.v16.tool_preflight import (
     PreflightError,
@@ -21,17 +22,28 @@ class FakeRunner:
         self.rtk_false_green = False
         self.stale = False
         self.wrong_semble_path = False
+        self.head = HEAD
+        self.codegraph_version = "1.5.0"
 
     def __call__(self, argv, cwd, timeout):
         del cwd, timeout
         argv = list(argv)
         command = pathlib.Path(argv[0]).name
         if command == "git" and argv[1:3] == ["rev-parse", "HEAD"]:
-            return subprocess.CompletedProcess(argv, 0, HEAD + "\n", "")
+            return subprocess.CompletedProcess(argv, 0, self.head + "\n", "")
         if command == "git" and argv[1:3] == ["status", "--porcelain=v1"]:
             return subprocess.CompletedProcess(argv, 0, "", "")
+        if command == "git" and argv[1] == "ls-files":
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                "config.toml\0src/other.py\0src/router.py\0",
+                "",
+            )
         if command == "codegraph" and argv[1] == "version":
-            return subprocess.CompletedProcess(argv, 0, "1.5.0\n", "")
+            return subprocess.CompletedProcess(
+                argv, 0, self.codegraph_version + "\n", ""
+            )
         if command == "codegraph" and argv[1:3] == ["status", "--json"]:
             payload = {
                 "initialized": True,
@@ -77,7 +89,7 @@ class FakeRunner:
         if command == "rtk" and argv[1:] == ["--version"]:
             return subprocess.CompletedProcess(argv, 0, "rtk 0.44.1\n", "")
         if command == "rtk" and argv[1:4] == ["git", "rev-parse", "HEAD"]:
-            return subprocess.CompletedProcess(argv, 0, HEAD + "\n", "")
+            return subprocess.CompletedProcess(argv, 0, self.head + "\n", "")
         if command == "rtk" and any(
             "__codex_toolchain_missing__" in item for item in argv
         ):
@@ -196,6 +208,96 @@ class ToolPreflightTests(unittest.TestCase):
         forged["repo_identity"]["root"] = str(self.root)
         with self.assertRaises(PreflightError):
             validate_preflight(forged)
+
+    def test_cache_key_binds_every_declared_invalidator(self):
+        runtime_patch = mock.patch(
+            "codex.v16.tool_preflight._runtime_identity_sha256",
+            return_value="1" * 64,
+        )
+        runtime_patch.start()
+        self.addCleanup(runtime_patch.stop)
+        baseline = self.report()
+        unchanged = self.report()
+        self.assertEqual(
+            baseline["cache"]["key_sha256"],
+            unchanged["cache"]["key_sha256"],
+        )
+
+        changed_keys = []
+        with mock.patch(
+            "codex.v16.tool_preflight._runtime_identity_sha256",
+            return_value="2" * 64,
+        ):
+            changed_keys.append(self.report()["cache"]["key_sha256"])
+
+        self.runner.codegraph_version = "1.5.1"
+        changed_keys.append(self.report()["cache"]["key_sha256"])
+        self.runner.codegraph_version = "1.5.0"
+
+        original_config = self.config.read_text(encoding="utf-8")
+        self.config.write_text(original_config + "\n# changed\n", encoding="utf-8")
+        changed_keys.append(self.report()["cache"]["key_sha256"])
+        self.config.write_text(original_config, encoding="utf-8")
+
+        self.runner.head = "b" * 40
+        changed_keys.append(self.report()["cache"]["key_sha256"])
+        self.runner.head = HEAD
+
+        router = self.root / "src" / "router.py"
+        original_router = router.read_text(encoding="utf-8")
+        router.write_text(original_router + "# changed bytes\n", encoding="utf-8")
+        changed_keys.append(self.report()["cache"]["key_sha256"])
+        router.write_text(original_router, encoding="utf-8")
+
+        self.runner.stale = True
+        changed_keys.append(self.report()["cache"]["key_sha256"])
+        self.runner.stale = False
+
+        changed_keys.append(run_preflight(
+            self.root,
+            semantic_query="different semantic query",
+            expected_path="src/router.py",
+            config_path=self.config,
+            runner=self.runner,
+            which=self.which,
+        )["cache"]["key_sha256"])
+        changed_keys.append(run_preflight(
+            self.root,
+            semantic_query="deterministic inspection intent router",
+            expected_path="src/other.py",
+            config_path=self.config,
+            runner=self.runner,
+            which=self.which,
+        )["cache"]["key_sha256"])
+
+        self.runner.wrong_semble_path = True
+        changed_keys.append(self.report()["cache"]["key_sha256"])
+        self.runner.wrong_semble_path = False
+
+        with tempfile.TemporaryDirectory(prefix="tool-preflight-other-") as other:
+            other_root = pathlib.Path(other)
+            (other_root / "src").mkdir()
+            (other_root / "src" / "router.py").write_text(
+                original_router, encoding="utf-8"
+            )
+            (other_root / "src" / "other.py").write_text(
+                "pass\n", encoding="utf-8"
+            )
+            other_config = other_root / "config.toml"
+            other_config.write_text(original_config, encoding="utf-8")
+            changed_keys.append(run_preflight(
+                other_root,
+                semantic_query="deterministic inspection intent router",
+                expected_path="src/router.py",
+                config_path=other_config,
+                runner=FakeRunner(other_root),
+                which=self.which,
+            )["cache"]["key_sha256"])
+
+        self.assertEqual(len(changed_keys), 10)
+        self.assertTrue(all(
+            key != baseline["cache"]["key_sha256"] for key in changed_keys
+        ))
 
 
 if __name__ == "__main__":

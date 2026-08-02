@@ -16,10 +16,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import pathlib
 import re
 import shutil
+import stat
 import subprocess
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
@@ -77,6 +80,24 @@ def _sha256(value: bytes | str) -> str:
 
 def _canonical_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def _runtime_identity_sha256() -> str:
+    """Hash runtime/host identity without publishing host-specific values."""
+
+    try:
+        machine_id = pathlib.Path("/etc/machine-id").read_bytes()
+    except OSError:
+        machine_id = b"<unavailable>"
+    return _sha256(_canonical_json({
+        "machine_id_sha256": _sha256(machine_id),
+        "os_name": os.name,
+        "platform_system": platform.system(),
+        "platform_machine": platform.machine(),
+        "python_implementation": platform.python_implementation(),
+        "python_version": list(sys.version_info[:3]),
+        "python_executable_sha256": _sha256(os.fspath(pathlib.Path(sys.executable).resolve())),
+    }))
 
 
 def _default_runner(
@@ -210,18 +231,67 @@ def _git_identity(
     )
     status_ok = status_result.returncode == 0
     evidence.extend((status_result.stdout, status_result.stderr))
-    status_bytes = status_result.stdout.encode("utf-8", errors="surrogatepass")
+    files_result = _run(
+        runner,
+        ("git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"),
+        repo,
+        timeout_sec,
+    )
+    evidence.extend((files_result.stdout, files_result.stderr))
+    worktree = hashlib.sha256()
+    worktree.update(b"tool-preflight-worktree-v16\0")
+    contents_ok = files_result.returncode == 0
+    if contents_ok:
+        for raw_path in sorted(item for item in files_result.stdout.split("\0") if item):
+            path = _safe_relative_path(raw_path, repo)
+            if path is None:
+                contents_ok = False
+                break
+            encoded_path = raw_path.encode("utf-8", errors="surrogatepass")
+            try:
+                metadata = path.lstat()
+            except FileNotFoundError:
+                kind = b"missing"
+                mode = 0
+                payload = b""
+            except OSError:
+                contents_ok = False
+                break
+            else:
+                mode = stat.S_IMODE(metadata.st_mode)
+                if stat.S_ISREG(metadata.st_mode):
+                    kind = b"file"
+                    try:
+                        payload = path.read_bytes()
+                    except OSError:
+                        contents_ok = False
+                        break
+                elif stat.S_ISLNK(metadata.st_mode):
+                    kind = b"symlink"
+                    try:
+                        payload = os.fsencode(os.readlink(path))
+                    except OSError:
+                        contents_ok = False
+                        break
+                else:
+                    contents_ok = False
+                    break
+            for item in (encoded_path, kind, mode.to_bytes(4, "big"), payload):
+                worktree.update(len(item).to_bytes(8, "big"))
+                worktree.update(item)
     identity = {
         "root_sha256": _sha256(os.fspath(repo)),
         "head_sha": head if head_ok else "0" * 40,
         "dirty": bool(status_result.stdout) if status_ok else True,
-        "worktree_sha256": _sha256(status_bytes),
+        "worktree_sha256": (
+            worktree.hexdigest() if contents_ok else _sha256(b"<unavailable>")
+        ),
     }
     checks = [
         _check("git_head", head_ok, "GIT_HEAD_BOUND", "GIT_HEAD_UNAVAILABLE"),
         _check(
             "git_worktree",
-            status_ok,
+            status_ok and contents_ok,
             "GIT_WORKTREE_BOUND",
             "GIT_WORKTREE_UNAVAILABLE",
         ),
@@ -683,10 +753,16 @@ def run_preflight(
     status = "ready" if failed == 0 else ("blocked" if strict else "degraded")
     cache_basis = {
         "schema": SCHEMA,
+        "strict": strict,
+        "timeout_policy_sha256": _sha256(str(float(timeout_sec))),
+        "host_runtime_sha256": _runtime_identity_sha256(),
+        "semantic_query_sha256": _sha256(semantic_query.strip()),
+        "expected_path_sha256": _sha256(expected_path),
         "repo_identity": repo_identity,
         "config_identity": config_identity,
         "tool_versions": {item["tool"]: item["version"] for item in tools},
         "tool_evidence": {item["tool"]: item["evidence_sha256"] for item in tools},
+        "git_evidence_sha256": _sha256("\n".join(git_evidence)),
     }
     report = {
         "schema": SCHEMA,
@@ -706,18 +782,15 @@ def run_preflight(
                 "codex_config_change",
                 "repo_root_change",
                 "git_head_change",
-                "worktree_change",
+                "worktree_bytes_change",
                 "codegraph_index_change",
-                "sentinel_change",
+                "semantic_query_change",
+                "expected_path_change",
+                "sentinel_evidence_change",
             ],
         },
         "mutations": [],
     }
-    # Bind Git probe output without persisting it.  This keeps the cache key
-    # sensitive to command behavior while the public report remains private.
-    report["cache"]["key_sha256"] = _sha256(
-        report["cache"]["key_sha256"] + _sha256("\n".join(git_evidence))
-    )
     return validate_preflight(report)
 
 

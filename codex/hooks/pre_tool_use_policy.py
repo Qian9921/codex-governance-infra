@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """Deterministic pre-tool decision and non-invasive routing signal.
 
-Only the normalized tool name is inspected.  In particular, ``args`` is
-intentionally ignored: raw machine commands may contain words such as
-``git`` without turning an otherwise legitimate ``exec_command`` into a
-blanket denial.
+The normalized tool name owns policy. For a generic execution tool, only a
+direct first executable of ``rtk`` or ``rg`` is classified for a privacy-safe
+routing receipt; raw arguments are never persisted and never change allow/deny.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import pathlib
+import shlex
 import sys
+from collections.abc import Mapping
 from typing import Any
 
 try:  # Support both direct hook execution and package-based test discovery.
@@ -45,23 +47,44 @@ def _tool_key(tool: Any) -> str:
     return tool.strip().lower() if isinstance(tool, str) else ""
 
 
-def route_for(tool: Any) -> str:
+def _direct_shell_route(tool: Any, args: Any) -> str | None:
+    if _tool_key(tool) not in {
+        "exec_command", "functions.exec_command", "bash", "shell",
+    } or not isinstance(args, Mapping):
+        return None
+    command = args.get("cmd", args.get("command"))
+    if not isinstance(command, str) or not command.strip():
+        return None
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return None
+    if not tokens:
+        return None
+    executable = pathlib.PurePosixPath(tokens[0]).name.lower()
+    return executable if executable in {"rtk", "rg"} else None
+
+
+def route_for(tool: Any, args: Any = None) -> str:
     """Return an explicit route hint, or ``unspecified`` when not known."""
 
-    return ROUTE_BY_TOOL.get(_tool_key(tool), "unspecified")
+    return ROUTE_BY_TOOL.get(
+        _tool_key(tool),
+        _direct_shell_route(tool, args) or "unspecified",
+    )
 
 
 def decide(tool: Any, args: Any = None) -> dict[str, str]:
     """Return a stable allow/deny result.
 
-    ``args`` is accepted for hook API compatibility but has no policy effect.
+    ``args`` has no policy effect. It may supply only the direct executable
+    route hint described by :func:`_direct_shell_route`.
     Parent authorization remains required for the explicit child-action tools
     in :data:`FORBIDDEN_CHILD`.
     """
 
-    del args
     key = _tool_key(tool)
-    route = route_for(tool)
+    route = route_for(tool, args)
     if key in FORBIDDEN_CHILD:
         return {
             "decision": "deny",
@@ -87,7 +110,8 @@ if __name__ == "__main__":
     if not isinstance(x, dict):
         x = {}
     tool_name = x.get("tool_name", x.get("tool", ""))
-    result = decide(tool_name, x.get("args"))
+    tool_input = x.get("tool_input", x.get("args"))
+    result = decide(tool_name, tool_input)
     receipt_value = hook_receipt.receipt(
         "PreToolUse",
         x.get("model", os.environ.get("CODEX_MODEL", "unknown")),

@@ -208,14 +208,14 @@ SCHEMA_REGISTRY = {
         "validation_mode": "source-bound",
         "required": ["schema", "status", "strict", "repo_identity", "config_identity", "tools", "counts", "denominator", "denominator_known", "cache", "mutations"],
         "optional": [],
-        "external_inputs": ["repo", "Codex config", "tool binaries", "CodeGraph index", "semantic sentinel"],
+        "external_inputs": ["host/runtime", "repo/head/worktree bytes", "Codex config", "tool binaries", "CodeGraph index", "semantic query", "expected path", "sentinel evidence"],
     },
     "tool-usage.v16": {
         "validator": "tool_routing.validate_usage_report",
         "validation_mode": "caller-bound",
-        "required": ["schema", "status", "routing_compliant", "coverage_equivalent", "preflight_cache_key_sha256", "routes", "calls", "counts", "denominator", "denominator_known", "violations"],
+        "required": ["schema", "status", "routing_compliant", "coverage_equivalent", "preflight_cache_key_sha256", "hook_snapshot_sha256", "task_id_sha256", "receipt_set_sha256", "evidence_set_sha256", "routes", "calls", "counts", "denominator", "denominator_known", "violations"],
         "optional": [],
-        "external_inputs": ["tool-preflight.v16", "tool-route-decision.v16", "hook receipts"],
+        "external_inputs": ["tool-preflight.v16", "tool-route-decision.v16", "persisted hook-receipt.v16 records", "bounded evidence digest set"],
     },
 }
 
