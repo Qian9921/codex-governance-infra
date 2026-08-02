@@ -128,6 +128,16 @@ class ToolMaintenanceTests(unittest.TestCase):
         self.assertEqual(report["mutations"], ["sync"])
         self.assertEqual(runner.calls[1][1], "sync")
 
+    def test_invalid_file_inventory_is_repo_local_auto_repair(self):
+        runner = CommandRunner(initialized=True)
+        report = self.run_case([
+            preflight(failed_tool="codegraph", reason="CODEGRAPH_FILES_INVALID"),
+            preflight(),
+        ], runner)
+        self.assertEqual(report["status"], "ready")
+        self.assertEqual(report["terminal_reason_code"], "REPAIRED_AND_READY")
+        self.assertEqual(report["repair_attempts"], 1)
+
     def test_uninitialized_index_uses_init_not_parent_index(self):
         runner = CommandRunner(initialized=False)
         with tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as state:
