@@ -213,9 +213,9 @@ SCHEMA_REGISTRY = {
     "tool-usage.v16": {
         "validator": "tool_routing.validate_usage_report",
         "validation_mode": "caller-bound",
-        "required": ["schema", "status", "routing_compliant", "coverage_equivalent", "preflight_cache_key_sha256", "hook_snapshot_sha256", "task_id_sha256", "receipt_set_sha256", "evidence_set_sha256", "routes", "calls", "counts", "denominator", "denominator_known", "violations"],
+        "required": ["schema", "status", "routing_compliant", "coverage_equivalent", "preflight_cache_key_sha256", "preflight_artifact_sha256", "hook_snapshot_sha256", "task_id_sha256", "receipt_set_sha256", "evidence_set_sha256", "routes", "calls", "counts", "denominator", "denominator_known", "violations"],
         "optional": [],
-        "external_inputs": ["tool-preflight.v16", "tool-route-decision.v16", "persisted hook-receipt.v16 records", "bounded evidence digest set"],
+        "external_inputs": ["authoritative tool-preflight.v16 artifact/hash", "tool-route-decision.v16", "authoritative persisted hook-receipt.v16 artifact path/hash set", "authoritative bounded evidence path/hash set"],
     },
 }
 

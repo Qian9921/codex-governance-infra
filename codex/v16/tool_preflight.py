@@ -85,12 +85,26 @@ def _canonical_json(value: Any) -> str:
 def _runtime_identity_sha256() -> str:
     """Hash runtime/host identity without publishing host-specific values."""
 
-    try:
-        machine_id = pathlib.Path("/etc/machine-id").read_bytes()
-    except OSError:
-        machine_id = b"<unavailable>"
+    host_source = None
+    host_identity = b""
+    for candidate in (
+        pathlib.Path("/etc/machine-id"),
+        pathlib.Path("/var/lib/dbus/machine-id"),
+        pathlib.Path("/proc/sys/kernel/random/boot_id"),
+    ):
+        try:
+            value = candidate.read_bytes().strip()
+        except OSError:
+            continue
+        if value:
+            host_source = candidate.name
+            host_identity = value
+            break
+    if host_source is None:
+        raise PreflightError("host-specific identity unavailable")
     return _sha256(_canonical_json({
-        "machine_id_sha256": _sha256(machine_id),
+        "host_identity_source": host_source,
+        "host_identity_sha256": _sha256(host_identity),
         "os_name": os.name,
         "platform_system": platform.system(),
         "platform_machine": platform.machine(),

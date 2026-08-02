@@ -13,6 +13,8 @@ from __future__ import annotations
 import enum
 import hashlib
 import json
+import os
+import pathlib
 import re
 import shutil
 from dataclasses import dataclass
@@ -52,9 +54,10 @@ COUNT_FIELDS = frozenset({"total", "ran", "passed", "failed", "skipped", "xfail"
 USAGE_FIELDS = frozenset(
     {
         "schema", "status", "routing_compliant", "coverage_equivalent",
-        "preflight_cache_key_sha256", "hook_snapshot_sha256", "task_id_sha256",
-        "receipt_set_sha256", "evidence_set_sha256", "routes", "calls",
-        "counts", "denominator", "denominator_known", "violations",
+        "preflight_cache_key_sha256", "preflight_artifact_sha256",
+        "hook_snapshot_sha256", "task_id_sha256", "receipt_set_sha256",
+        "evidence_set_sha256", "routes", "calls", "counts", "denominator",
+        "denominator_known", "violations",
     }
 )
 CALL_FIELDS = frozenset(
@@ -95,6 +98,53 @@ def _require_sha(value: Any, field: str) -> str:
     return value
 
 
+def _read_authoritative_artifact(
+    path_value: str | os.PathLike[str],
+    expected_sha256: str,
+    field: str,
+) -> bytes:
+    expected = _require_sha(expected_sha256, f"{field}.expected_sha256")
+    path = pathlib.Path(path_value)
+    try:
+        metadata = path.lstat()
+    except (OSError, ValueError) as exc:
+        raise RoutingError(f"{field} artifact unavailable") from exc
+    if path.is_symlink() or not path.is_file():
+        raise RoutingError(f"{field} artifact must be a regular non-symlink file")
+    if metadata.st_uid != os.geteuid() or metadata.st_mode & 0o077:
+        raise RoutingError(f"{field} artifact ownership/mode invalid")
+    try:
+        payload = path.read_bytes()
+    except OSError as exc:
+        raise RoutingError(f"{field} artifact unreadable") from exc
+    if hashlib.sha256(payload).hexdigest() != expected:
+        raise RoutingError(f"{field} artifact authority hash mismatch")
+    return payload
+
+
+def _receipt_route_matches_tool_name(receipt: Mapping[str, Any]) -> bool:
+    key = str(receipt["tool_name"]).strip().lower()
+    route = receipt["route_code"]
+    direct = {
+        "codegraph": {
+            "codegraph", "codegraph_explore",
+            "mcp__codegraph__codegraph_explore",
+        },
+        "semble": {
+            "semble", "semble_search", "mcp__semble__search",
+            "mcp__semble__find_related",
+        },
+        "rtk": {"rtk"},
+        "rg": {"rg", "ripgrep", "grep"},
+    }
+    generic_execution = {
+        "exec_command", "functions.exec_command", "bash", "shell",
+    }
+    return key in direct[route] or (
+        route in {"rtk", "rg"} and key in generic_execution
+    )
+
+
 def _normalize_evidence(
     evidence: Mapping[str, str],
 ) -> dict[str, str]:
@@ -131,6 +181,8 @@ def _normalize_receipts(
             "codegraph", "semble", "rtk", "rg",
         }:
             raise RoutingError("hook receipt route invalid")
+        if not _receipt_route_matches_tool_name(receipt):
+            raise RoutingError("hook receipt tool_name/route mismatch")
         if receipt["snapshot_sha256"] != hook_snapshot_sha256:
             raise RoutingError("hook receipt governance snapshot mismatch")
         if receipt["identifiers_sha256"] != task_id_sha256:
@@ -785,13 +837,16 @@ ToolRoutingContract = ToolRouter
 
 def build_usage_report(
     *,
-    preflight: Mapping[str, Any],
+    preflight_artifact: str | os.PathLike[str],
+    expected_preflight_artifact_sha256: str,
     hook_snapshot_sha256: str,
     task_id_sha256: str,
     routes: Sequence[Mapping[str, Any]],
     calls: Sequence[Mapping[str, Any]],
-    receipts: Sequence[Mapping[str, Any]],
-    evidence: Mapping[str, str],
+    receipt_artifacts: Sequence[str | os.PathLike[str]],
+    expected_receipt_artifact_sha256s: Sequence[str],
+    evidence_artifacts: Mapping[str, str | os.PathLike[str]],
+    expected_evidence_sha256: Mapping[str, str],
 ) -> dict[str, Any]:
     """Bind declared route decisions to actual, receipt-backed tool use.
 
@@ -801,9 +856,15 @@ def build_usage_report(
     compliant, but they never claim equivalent semantic or structural coverage.
     """
 
+    preflight_bytes = _read_authoritative_artifact(
+        preflight_artifact,
+        expected_preflight_artifact_sha256,
+        "preflight",
+    )
     try:
-        checked_preflight = validate_preflight(preflight)
-    except PreflightError as exc:
+        preflight_value = json.loads(preflight_bytes)
+        checked_preflight = validate_preflight(preflight_value)
+    except (UnicodeDecodeError, json.JSONDecodeError, PreflightError) as exc:
         raise RoutingError("tool usage requires a valid preflight artifact") from exc
     if (
         checked_preflight["strict"] is not True
@@ -819,12 +880,50 @@ def build_usage_report(
         hook_snapshot_sha256, "hook_snapshot_sha256"
     )
     task_id_sha256 = _require_sha(task_id_sha256, "task_id_sha256")
+    if (
+        isinstance(receipt_artifacts, (str, bytes))
+        or not isinstance(receipt_artifacts, Sequence)
+        or isinstance(expected_receipt_artifact_sha256s, (str, bytes))
+        or not isinstance(expected_receipt_artifact_sha256s, Sequence)
+        or len(receipt_artifacts) != len(expected_receipt_artifact_sha256s)
+        or not receipt_artifacts
+    ):
+        raise RoutingError("receipt artifact authority denominator mismatch")
+    receipt_records: list[Mapping[str, Any]] = []
+    receipt_file_hashes: list[str] = []
+    for index, (path, digest) in enumerate(zip(
+        receipt_artifacts, expected_receipt_artifact_sha256s
+    )):
+        payload = _read_authoritative_artifact(path, digest, f"receipt[{index}]")
+        receipt_file_hashes.append(_require_sha(digest, f"receipt[{index}].sha256"))
+        try:
+            lines = [
+                json.loads(line)
+                for line in payload.decode("utf-8").splitlines()
+                if line.strip()
+            ]
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RoutingError("receipt artifact must be canonical JSONL") from exc
+        if not lines or any(not isinstance(item, Mapping) for item in lines):
+            raise RoutingError("receipt artifact contains no receipt records")
+        receipt_records.extend(lines)
     normalized_receipts = _normalize_receipts(
-        receipts,
+        receipt_records,
         task_id_sha256=task_id_sha256,
         hook_snapshot_sha256=hook_snapshot_sha256,
     )
-    normalized_evidence = _normalize_evidence(evidence)
+    normalized_evidence = _normalize_evidence(expected_evidence_sha256)
+    if (
+        not isinstance(evidence_artifacts, Mapping)
+        or set(evidence_artifacts) != set(normalized_evidence)
+    ):
+        raise RoutingError("evidence artifact path set mismatch")
+    for reference, path in evidence_artifacts.items():
+        _read_authoritative_artifact(
+            path,
+            normalized_evidence[reference],
+            f"evidence[{reference}]",
+        )
     if isinstance(routes, (str, bytes)) or not isinstance(routes, Sequence):
         raise RoutingError("routes must be a sequence")
     if isinstance(calls, (str, bytes)) or not isinstance(calls, Sequence):
@@ -923,10 +1022,14 @@ def build_usage_report(
         "routing_compliant": routing_compliant,
         "coverage_equivalent": coverage_equivalent and routing_compliant,
         "preflight_cache_key_sha256": preflight_cache_key_sha256,
+        "preflight_artifact_sha256": _require_sha(
+            expected_preflight_artifact_sha256,
+            "preflight_artifact_sha256",
+        ),
         "hook_snapshot_sha256": hook_snapshot_sha256,
         "task_id_sha256": task_id_sha256,
         "receipt_set_sha256": hashlib.sha256(
-            _canonical_json(sorted(normalized_receipts)).encode("utf-8")
+            _canonical_json(sorted(receipt_file_hashes)).encode("utf-8")
         ).hexdigest(),
         "evidence_set_sha256": hashlib.sha256(
             _canonical_json(normalized_evidence).encode("utf-8")
@@ -952,9 +1055,12 @@ def build_usage_report(
 def validate_usage_report(
     value: Mapping[str, Any],
     *,
-    preflight: Mapping[str, Any],
-    receipts: Sequence[Mapping[str, Any]],
-    evidence: Mapping[str, str],
+    preflight_artifact: str | os.PathLike[str],
+    expected_preflight_artifact_sha256: str,
+    receipt_artifacts: Sequence[str | os.PathLike[str]],
+    expected_receipt_artifact_sha256s: Sequence[str],
+    evidence_artifacts: Mapping[str, str | os.PathLike[str]],
+    expected_evidence_sha256: Mapping[str, str],
 ) -> dict[str, Any]:
     """Validate a usage report by recomputing it from decisions and calls."""
 
@@ -964,13 +1070,16 @@ def validate_usage_report(
     if result["schema"] != USAGE_SCHEMA:
         raise RoutingError("usage report schema mismatch")
     recomputed = build_usage_report(
-        preflight=preflight,
+        preflight_artifact=preflight_artifact,
+        expected_preflight_artifact_sha256=expected_preflight_artifact_sha256,
         hook_snapshot_sha256=result["hook_snapshot_sha256"],
         task_id_sha256=result["task_id_sha256"],
         routes=result["routes"],
         calls=result["calls"],
-        receipts=receipts,
-        evidence=evidence,
+        receipt_artifacts=receipt_artifacts,
+        expected_receipt_artifact_sha256s=expected_receipt_artifact_sha256s,
+        evidence_artifacts=evidence_artifacts,
+        expected_evidence_sha256=expected_evidence_sha256,
     )
     if recomputed != result:
         raise RoutingError("usage report does not match routes and calls")

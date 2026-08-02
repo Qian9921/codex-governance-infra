@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+from codex.v16 import tool_preflight as tool_preflight_module
 from codex.v16.tool_preflight import (
     PreflightError,
     run_preflight,
@@ -298,6 +299,17 @@ class ToolPreflightTests(unittest.TestCase):
         self.assertTrue(all(
             key != baseline["cache"]["key_sha256"] for key in changed_keys
         ))
+
+    def test_strict_preflight_fails_closed_without_host_identity(self):
+        with mock.patch.object(
+            pathlib.Path, "read_bytes", side_effect=OSError("unavailable")
+        ), self.assertRaisesRegex(PreflightError, "host-specific identity"):
+            tool_preflight_module._runtime_identity_sha256()
+        with mock.patch(
+            "codex.v16.tool_preflight._runtime_identity_sha256",
+            side_effect=PreflightError("host-specific identity unavailable"),
+        ), self.assertRaisesRegex(PreflightError, "host-specific identity"):
+            self.report()
 
 
 if __name__ == "__main__":
