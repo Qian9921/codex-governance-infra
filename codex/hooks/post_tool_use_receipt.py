@@ -26,29 +26,37 @@ def tool_succeeded(response: Any) -> bool:
 
     if not isinstance(response, Mapping):
         return False
-    if response.get("isError") is True or response.get("is_error") is True:
-        return False
+    for key in ("isError", "is_error"):
+        if key in response and (type(response[key]) is not bool or response[key] is True):
+            return False
+    status_success = False
+    if "status" in response:
+        status = response["status"]
+        if not isinstance(status, str):
+            return False
+        normalized = status.lower()
+        if normalized in {"error", "failed", "failure", "blocked", "denied"}:
+            return False
+        if normalized not in {"ok", "success", "succeeded", "complete", "completed"}:
+            return False
+        status_success = True
+    declared_success = False
+    if "success" in response:
+        if type(response["success"]) is not bool or response["success"] is False:
+            return False
+        declared_success = True
     exit_fields = [
         response[key]
         for key in ("exit_code", "exitCode", "returncode")
         if key in response
     ]
-    if exit_fields:
-        return all(type(value) is int and value == 0 for value in exit_fields)
-    status = response.get("status")
-    if isinstance(status, str):
-        normalized = status.lower()
-        if normalized in {"error", "failed", "failure", "blocked", "denied"}:
-            return False
-        if normalized in {"ok", "success", "succeeded", "complete", "completed"}:
-            return True
+    if any(type(value) is not int or value != 0 for value in exit_fields):
         return False
-    if type(response.get("success")) is bool:
-        return response["success"] is True
     content = response.get("content")
-    if isinstance(content, Sequence) and not isinstance(content, (str, bytes)):
-        return response.get("isError", response.get("is_error", False)) is False
-    return False
+    content_success = (
+        isinstance(content, Sequence) and not isinstance(content, (str, bytes))
+    )
+    return bool(exit_fields or status_success or declared_success or content_success)
 
 
 def main() -> int:

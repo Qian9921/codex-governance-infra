@@ -414,6 +414,31 @@ class HooksContractTests(unittest.TestCase):
             )
             self.assertEqual(json.loads(passed.stdout), {})
 
+            conflict_id = "codegraph-conflict"
+            conflict_command = "rtk codegraph impact conflict -p ."
+            conflict_pre = self._run_entrypoint(
+                "pre_tool_use_policy.py",
+                {**common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                 "tool_use_id": conflict_id, "tool_input": {"command": conflict_command}},
+                root,
+            )
+            self.assertEqual(json.loads(conflict_pre.stdout)["hookSpecificOutput"]["permissionDecision"], "allow")
+            conflict_post = self._run_entrypoint(
+                "post_tool_use_receipt.py",
+                {**common, "hook_event_name": "PostToolUse", "tool_name": "Bash",
+                 "tool_use_id": conflict_id, "tool_input": {"command": conflict_command},
+                 "tool_response": {"exit_code": 0, "status": "failed"}},
+                root,
+            )
+            self.assertEqual(conflict_post.returncode, 0, conflict_post.stderr)
+            conflicted = self._run_entrypoint(
+                "stop_tool_enforcement.py",
+                {**common, "hook_event_name": "Stop", "stop_hook_active": False},
+                root,
+            )
+            self.assertEqual(json.loads(conflicted.stdout)["decision"], "block")
+            self.assertIn("successful_post_tool_receipts", conflicted.stdout)
+
             missing_common = {**common, "turn_id": "turn-2"}
             missing_intake = self._run_entrypoint(
                 "session_context.py",
@@ -477,6 +502,8 @@ class HooksContractTests(unittest.TestCase):
         self.assertFalse(post_tool_use_receipt.tool_succeeded(None))
         self.assertFalse(post_tool_use_receipt.tool_succeeded("success"))
         self.assertFalse(post_tool_use_receipt.tool_succeeded({"output": "ok"}))
+        self.assertFalse(post_tool_use_receipt.tool_succeeded({"exit_code": 0, "status": "failed"}))
+        self.assertFalse(post_tool_use_receipt.tool_succeeded({"exit_code": 0, "success": False}))
         self.assertTrue(post_tool_use_receipt.tool_succeeded({"exit_code": 0}))
         self.assertTrue(post_tool_use_receipt.tool_succeeded({"status": "completed"}))
         self.assertTrue(post_tool_use_receipt.tool_succeeded({"content": []}))
