@@ -221,18 +221,19 @@ def record_expected_tool_call(
         task_id = turn_task_id(session_id, turn_id)
         root = _state_dir(state_dir)
         _read_private_json(_state_path(root, task_id, "intake"))
-        path = _state_path(root, task_id, "activity")
-        existing: list[str] = []
+        call_id = _sha256(str(tool_use_id))
+        path = _state_path(root, task_id, f"activity.{call_id}")
         if path.exists():
             value = _read_private_json(path)
-            if value.get("schema") != "tool-turn-activity.v16" or not isinstance(value.get("tool_use_ids_sha256"), list):
-                return False
-            existing = [item for item in value["tool_use_ids_sha256"] if isinstance(item, str)]
-        call_id = _sha256(str(tool_use_id))
+            return value == {
+                "schema": "tool-turn-activity.v16",
+                "task_id_sha256": task_id,
+                "tool_use_id_sha256": call_id,
+            }
         _write_private_json(path, {
             "schema": "tool-turn-activity.v16",
             "task_id_sha256": task_id,
-            "tool_use_ids_sha256": sorted(set(existing + [call_id])),
+            "tool_use_id_sha256": call_id,
         })
         return True
     except (OSError, ToolRuntimeError):
@@ -244,15 +245,20 @@ def load_expected_tool_calls(
     state_dir: str | os.PathLike[str] | None = None,
 ) -> list[str]:
     task_id = turn_task_id(session_id, turn_id)
-    path = _state_path(_state_dir(state_dir), task_id, "activity")
-    if not path.exists():
-        return []
-    value = _read_private_json(path)
-    calls = value.get("tool_use_ids_sha256")
-    if value.get("schema") != "tool-turn-activity.v16" or not isinstance(calls, list):
-        raise ToolRuntimeError("tool activity state invalid")
-    if any(not isinstance(item, str) or _SHA256.fullmatch(item) is None for item in calls):
-        raise ToolRuntimeError("tool activity call identity invalid")
+    root = _state_dir(state_dir)
+    calls: list[str] = []
+    for path in root.glob(f"{task_id}.activity.*.json"):
+        value = _read_private_json(path)
+        call_id = value.get("tool_use_id_sha256")
+        if (
+            value.get("schema") != "tool-turn-activity.v16"
+            or value.get("task_id_sha256") != task_id
+            or not isinstance(call_id, str)
+            or _SHA256.fullmatch(call_id) is None
+            or path.name != f"{task_id}.activity.{call_id}.json"
+        ):
+            raise ToolRuntimeError("tool activity state invalid")
+        calls.append(call_id)
     return sorted(set(calls))
 
 

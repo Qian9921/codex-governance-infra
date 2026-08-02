@@ -1,5 +1,6 @@
 import copy
 import hashlib
+import multiprocessing
 import tempfile
 import unittest
 from unittest import mock
@@ -23,6 +24,14 @@ from codex.v16.tool_runtime import (
 
 TASK_SHA = hashlib.sha256(b"task").hexdigest()
 SHAPE_SHA = hashlib.sha256(b"task-shape").hexdigest()
+
+
+def record_worker(state_dir, barrier, results, call_id):
+    barrier.wait()
+    results.put(record_expected_tool_call(
+        session_id="parallel-session", turn_id="parallel-turn",
+        tool_use_id=call_id, state_dir=state_dir,
+    ))
 
 
 def signals(**changes):
@@ -240,6 +249,38 @@ class ToolRuntimeTests(unittest.TestCase):
                     session_id="session", turn_id="turn", state_dir=directory
                 ),
                 [hashlib.sha256(b"call-1").hexdigest()],
+            )
+
+    def test_concurrent_activity_records_preserve_exact_denominator(self):
+        with tempfile.TemporaryDirectory() as directory:
+            begin_turn_state(
+                session_id="parallel-session", turn_id="parallel-turn",
+                prompt="parallel repository calls", state_dir=directory,
+            )
+            context = multiprocessing.get_context("fork")
+            barrier = context.Barrier(9)
+            results = context.Queue()
+            call_ids = [f"parallel-call-{index}" for index in range(8)]
+            workers = [
+                context.Process(
+                    target=record_worker,
+                    args=(directory, barrier, results, call_id),
+                )
+                for call_id in call_ids
+            ]
+            for worker in workers:
+                worker.start()
+            barrier.wait()
+            for worker in workers:
+                worker.join(10)
+                self.assertEqual(worker.exitcode, 0)
+            self.assertEqual([results.get(timeout=2) for _ in workers], [True] * 8)
+            self.assertEqual(
+                load_expected_tool_calls(
+                    session_id="parallel-session", turn_id="parallel-turn",
+                    state_dir=directory,
+                ),
+                sorted(hashlib.sha256(call_id.encode()).hexdigest() for call_id in call_ids),
             )
 
 

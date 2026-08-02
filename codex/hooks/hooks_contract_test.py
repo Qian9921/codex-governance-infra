@@ -414,6 +414,15 @@ class HooksContractTests(unittest.TestCase):
             )
             self.assertEqual(json.loads(passed.stdout), {})
 
+            missing_id = "codegraph-missing-post"
+            missing_pre = self._run_entrypoint(
+                "pre_tool_use_policy.py",
+                {**common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                 "tool_use_id": missing_id,
+                 "tool_input": {"command": "rtk codegraph impact missing -p ."}},
+                root,
+            )
+            self.assertEqual(json.loads(missing_pre.stdout)["hookSpecificOutput"]["permissionDecision"], "allow")
             conflict_id = "codegraph-conflict"
             conflict_command = "rtk codegraph impact conflict -p ."
             conflict_pre = self._run_entrypoint(
@@ -438,6 +447,7 @@ class HooksContractTests(unittest.TestCase):
             )
             self.assertEqual(json.loads(conflicted.stdout)["decision"], "block")
             self.assertIn("successful_post_tool_receipts", conflicted.stdout)
+            self.assertIn("post_tool_receipt_count:1", conflicted.stdout)
 
             missing_common = {**common, "turn_id": "turn-2"}
             missing_intake = self._run_entrypoint(
