@@ -198,6 +198,57 @@ class EvidenceTests(unittest.TestCase):
             self.assertTrue(result["results"][0]["rows"][0]["log_shas"])
             self.assertEqual(result["results"][0]["rows"][0]["log_modes"], [0o600, 0o600])
 
+    def test_runner_uses_only_final_jsonl_record_after_setup_receipts(self):
+        head = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True,
+        ).strip()
+        setup = json.dumps({"schema": "installer-result.v16", "files": 44})
+        checker = json.dumps({
+            "schema": "checker-result.v16",
+            "total": 23,
+            "ran": 23,
+            "passed": 23,
+            "failed": 0,
+            "skipped": 0,
+            "xfail": 0,
+            "unknown": 0,
+        })
+        plan = {
+            "gate_order": ["G-TARGETED"],
+            "gates": [{
+                "id": "G-TARGETED",
+                "stage": "targeted",
+                "depends_on": [],
+                "entrypoint_ids": ["EP"],
+                "blocking": True,
+                "reusable": False,
+            }],
+            "entrypoints": [{
+                "id": "EP",
+                "argv": ["python3", "-c", f"print({setup!r}); print({checker!r})"],
+                "cwd": ".",
+                "env": {},
+                "timeout_sec": 5,
+                "stop_conditions": ["timeout"],
+            }],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            result = GateRunner(ROOT, plan, tmp).run_plan(expected_head=head)
+        gate = result["results"][0]
+        self.assertEqual(gate["decision"], "allow")
+        self.assertEqual(gate["rows"][0]["counts"]["total"], 23)
+
+        invalid_tail = copy.deepcopy(plan)
+        invalid_tail["entrypoints"][0]["argv"] = [
+            "python3", "-c",
+            f"print({checker!r}); print('{{\"status\":\"RED\"}}')",
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            denied = GateRunner(ROOT, invalid_tail, tmp).run_plan(
+                expected_head=head,
+            )
+        self.assertEqual(denied["results"][0]["decision"], "deny")
+
     def test_runner_and_evidence_producer_bind_preexecution_closure_receipt(self):
         head = subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True,
@@ -257,7 +308,7 @@ class EvidenceTests(unittest.TestCase):
                 generated_at=max(row["ended_at"] for row in rows),
                 identity_mode="non-git-snapshot",
                 snapshot_sha256=snapshot,
-                clean=False,
+                clean=not any(row["dirty"] for row in rows),
                 log_root=artifact_root,
                 plan=plan,
                 closure_binding_receipt=receipt,

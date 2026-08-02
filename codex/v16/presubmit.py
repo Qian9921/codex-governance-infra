@@ -56,6 +56,26 @@ def _env(root: pathlib.Path) -> dict[str, str]:
     return {"PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PYTHONUNBUFFERED": "1", "PYTHONDONTWRITEBYTECODE": "1", "PYTHONNOUSERSITE": "1", "PYTHONPATH": str(root)}
 
 
+def _json_object_from_stdout(out: bytes) -> dict[str, Any]:
+    """Return a whole-stream object or the final JSONL object, never an earlier one."""
+    raw = out.decode("utf-8").strip()
+    candidates = [raw]
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    if len(lines) > 1 and lines[-1] != raw:
+        candidates.append(lines[-1])
+    error: Exception | None = None
+    for candidate in candidates:
+        try:
+            payload = json.loads(candidate)
+            if not isinstance(payload, dict):
+                raise ValueError("JSON object required")
+            return payload
+        except (json.JSONDecodeError, ValueError) as exc:
+            error = exc
+    assert error is not None
+    raise error
+
+
 def _run_json(command: list[str], cwd: pathlib.Path, env: Mapping[str, str], *, timeout: float = 180.0, artifact_dir: pathlib.Path | None = None, expected_head: str | None = None, expected_tree: str | None = None, gate_id: str = "G-AUX", stage: str = "targeted") -> tuple[dict[str, Any], bytes, bytes, int, float]:
     """Run auxiliary JSON checks through the same foreground GateRunner."""
     if artifact_dir is None or expected_head is None or expected_tree is None:
@@ -73,9 +93,7 @@ def _run_json(command: list[str], cwd: pathlib.Path, env: Mapping[str, str], *, 
     status = int(row.get("exit_status", 1 if aux.get("decision") != "allow" else 0)) if row else 1
     elapsed = float(aux.get("elapsed_sec", 0.0))
     try:
-        payload = json.loads(out.decode("utf-8"))
-        if not isinstance(payload, dict):
-            raise ValueError("JSON object required")
+        payload = _json_object_from_stdout(out)
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
         payload = {"total": 1, "ran": 1, "passed": 0, "failed": 1, "skipped": 0, "xfail": 0, "unknown": 0, "parse_error": True}
         status = status or 1

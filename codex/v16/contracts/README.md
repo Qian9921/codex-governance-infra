@@ -20,13 +20,21 @@ become mandatory for approval (for example, `review-packet.v16.decision_basis`
 and readiness-state approval hashes) without weakening the author-side packet
 shape.
 
-`tool-route-decision.v16` and `tool-health.v16` are the two read-only
+`tool-route-decision.v16` and `tool-health.v16` are the lightweight read-only
 tool-routing contracts. They are validated by the public
 `codex.v16.tool_routing.validate_route_decision` and
 `codex.v16.tool_routing.validate_health_report` APIs. Both are standalone
 shape/arithmetic checks with `observation_mode: injected-observation`: callers
 may provide deterministic observations to bind a decision/report, but the
 inventory does not claim that either artifact proves a tool was executed.
+
+`tool-preflight.v16` is the strict source-bound readiness gate. Its validator
+binds CodeGraph, Semble, and `rtk` to the current repository/head/worktree,
+Codex configuration, functional sentinels, and a cache invalidation identity
+without persisting raw output or paths. `tool-usage.v16` is caller-bound: it
+binds every declared route to the current preflight key, the selected tool, a
+successful task-relevant use, evidence reference, and hook receipt hash.
+Fallback may remain routing-compliant but cannot claim equivalent coverage.
 
 `review-runtime.v16` is a caller-bound dispatch/SLO contract derived from the
 frozen review policy. It fixes the reviewer route/effort, fresh-versus-

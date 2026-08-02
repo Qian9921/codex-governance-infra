@@ -11,13 +11,21 @@ code, and has an evidence reference.
 from __future__ import annotations
 
 import enum
+import hashlib
+import json
+import os
+import pathlib
+import re
 import shutil
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
+from .tool_preflight import PreflightError, validate_preflight
+
 
 ROUTE_SCHEMA = "tool-route-decision.v16"
 HEALTH_SCHEMA = "tool-health.v16"
+USAGE_SCHEMA = "tool-usage.v16"
 # Compatibility name for older callers that imported SCHEMA.  New producers
 # and validators use the distinct schema constants above.
 SCHEMA = ROUTE_SCHEMA
@@ -43,10 +51,158 @@ CHECK_FIELDS = frozenset(
     {"tool", "status", "available", "healthy", "reason_code", "evidence_ref"}
 )
 COUNT_FIELDS = frozenset({"total", "ran", "passed", "failed", "skipped", "xfail", "unknown"})
+USAGE_FIELDS = frozenset(
+    {
+        "schema", "status", "routing_compliant", "coverage_equivalent",
+        "preflight_cache_key_sha256", "preflight_artifact_sha256",
+        "hook_snapshot_sha256", "task_id_sha256", "receipt_set_sha256",
+        "evidence_set_sha256", "routes", "calls", "counts", "denominator",
+        "denominator_known", "violations",
+    }
+)
+CALL_FIELDS = frozenset(
+    {
+        "intent", "tool", "status", "evidence_ref", "evidence_sha256",
+        "receipt_sha256", "tool_call_id_sha256", "used_for",
+    }
+)
+HOOK_RECEIPT_FIELDS = frozenset(
+    {
+        "schema", "schema_version", "utc", "event", "model", "tool_name",
+        "decision", "reason", "reason_code", "route", "route_code",
+        "snapshot_sha256", "identifiers_sha256", "session_id_sha256",
+        "turn_id_sha256", "tool_call_id_sha256", "source", "pid", "ppid",
+        "receipt_status",
+    }
+)
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 class RoutingError(ValueError):
     """Raised when a routing request or observation violates the contract."""
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def _artifact_sha256(value: Mapping[str, Any]) -> str:
+    """Hash the exact canonical JSONL record written by hook_receipt.py."""
+
+    return hashlib.sha256((_canonical_json(value) + "\n").encode("utf-8")).hexdigest()
+
+
+def _require_sha(value: Any, field: str) -> str:
+    if not isinstance(value, str) or _SHA256.fullmatch(value) is None:
+        raise RoutingError(f"{field} must be a SHA-256 digest")
+    return value
+
+
+def _read_authoritative_artifact(
+    path_value: str | os.PathLike[str],
+    expected_sha256: str,
+    field: str,
+) -> bytes:
+    expected = _require_sha(expected_sha256, f"{field}.expected_sha256")
+    path = pathlib.Path(path_value)
+    try:
+        metadata = path.lstat()
+    except (OSError, ValueError) as exc:
+        raise RoutingError(f"{field} artifact unavailable") from exc
+    if path.is_symlink() or not path.is_file():
+        raise RoutingError(f"{field} artifact must be a regular non-symlink file")
+    if metadata.st_uid != os.geteuid() or metadata.st_mode & 0o077:
+        raise RoutingError(f"{field} artifact ownership/mode invalid")
+    try:
+        payload = path.read_bytes()
+    except OSError as exc:
+        raise RoutingError(f"{field} artifact unreadable") from exc
+    if hashlib.sha256(payload).hexdigest() != expected:
+        raise RoutingError(f"{field} artifact authority hash mismatch")
+    return payload
+
+
+def _receipt_route_matches_tool_name(receipt: Mapping[str, Any]) -> bool:
+    key = str(receipt["tool_name"]).strip().lower()
+    route = receipt["route_code"]
+    direct = {
+        "codegraph": {
+            "codegraph", "codegraph_explore",
+            "mcp__codegraph__codegraph_explore",
+        },
+        "semble": {
+            "semble", "semble_search", "mcp__semble__search",
+            "mcp__semble__find_related",
+        },
+        "rtk": {"rtk"},
+        "rg": {"rg", "ripgrep", "grep"},
+    }
+    generic_execution = {
+        "exec_command", "functions.exec_command", "bash", "shell",
+    }
+    return key in direct[route] or (
+        route in {"rtk", "rg"} and key in generic_execution
+    )
+
+
+def _normalize_evidence(
+    evidence: Mapping[str, str],
+) -> dict[str, str]:
+    if not isinstance(evidence, Mapping) or not evidence:
+        raise RoutingError("bounded evidence set must be a non-empty mapping")
+    normalized: dict[str, str] = {}
+    for reference, digest in evidence.items():
+        if not isinstance(reference, str) or not reference:
+            raise RoutingError("evidence reference must be non-empty")
+        normalized[reference] = _require_sha(digest, f"evidence[{reference}]")
+    return dict(sorted(normalized.items()))
+
+
+def _normalize_receipts(
+    receipts: Sequence[Mapping[str, Any]],
+    *,
+    task_id_sha256: str,
+    hook_snapshot_sha256: str,
+) -> dict[str, dict[str, Any]]:
+    if isinstance(receipts, (str, bytes)) or not isinstance(receipts, Sequence) or not receipts:
+        raise RoutingError("bounded receipt set must be a non-empty sequence")
+    normalized: dict[str, dict[str, Any]] = {}
+    for raw in receipts:
+        if not isinstance(raw, Mapping) or set(raw) != HOOK_RECEIPT_FIELDS:
+            raise RoutingError("hook receipt fields must match the exact v16 schema")
+        receipt = dict(raw)
+        if receipt["schema"] != "hook-receipt.v16" or receipt["schema_version"] != "hook-receipt.v16":
+            raise RoutingError("hook receipt schema mismatch")
+        if receipt["event"] != "PreToolUse" or receipt["decision"] != "allow":
+            raise RoutingError("hook receipt must prove an allowed PreToolUse event")
+        if receipt["receipt_status"] != "written":
+            raise RoutingError("hook receipt was not persisted")
+        if receipt["route"] != receipt["route_code"] or receipt["route_code"] not in {
+            "codegraph", "semble", "rtk", "rg",
+        }:
+            raise RoutingError("hook receipt route invalid")
+        if not _receipt_route_matches_tool_name(receipt):
+            raise RoutingError("hook receipt tool_name/route mismatch")
+        if receipt["snapshot_sha256"] != hook_snapshot_sha256:
+            raise RoutingError("hook receipt governance snapshot mismatch")
+        if receipt["identifiers_sha256"] != task_id_sha256:
+            raise RoutingError("hook receipt task identifier mismatch")
+        _require_sha(receipt["tool_call_id_sha256"], "hook receipt tool_call_id_sha256")
+        for field in ("utc", "model", "tool_name", "reason", "reason_code"):
+            if not isinstance(receipt[field], str) or not receipt[field]:
+                raise RoutingError(f"hook receipt {field} required")
+        for field in ("session_id_sha256", "turn_id_sha256"):
+            if receipt[field] is not None:
+                _require_sha(receipt[field], f"hook receipt {field}")
+        if receipt["source"] not in {"runtime", "test"}:
+            raise RoutingError("hook receipt source invalid")
+        if any(type(receipt[field]) is not int or receipt[field] < 0 for field in ("pid", "ppid")):
+            raise RoutingError("hook receipt pid/ppid invalid")
+        digest = _artifact_sha256(receipt)
+        if digest in normalized:
+            raise RoutingError("duplicate hook receipt")
+        normalized[digest] = receipt
+    return normalized
 
 
 class Intent(str, enum.Enum):
@@ -100,6 +256,18 @@ PREFERRED_TOOL = {
     Intent.EXACT_ERROR.value: "rg",
     Intent.CONFIG.value: "rg",
     Intent.LOG.value: "rg",
+}
+USAGE_PURPOSE = {
+    Intent.KNOWN_SYMBOL.value: "structure",
+    Intent.KNOWN_CALL.value: "structure",
+    Intent.BLAST_RADIUS.value: "structure",
+    Intent.SEMANTIC_ENTRY.value: "discovery",
+    Intent.SIMILAR_IMPLEMENTATION.value: "discovery",
+    Intent.SHELL_OUTPUT.value: "context_display",
+    Intent.EXACT_STRING.value: "literal",
+    Intent.EXACT_ERROR.value: "literal",
+    Intent.CONFIG.value: "literal",
+    Intent.LOG.value: "literal",
 }
 
 # These are deliberately conservative.  rg can confirm text when either
@@ -667,6 +835,257 @@ class ToolRouter:
 ToolRoutingContract = ToolRouter
 
 
+def build_usage_report(
+    *,
+    preflight_artifact: str | os.PathLike[str],
+    expected_preflight_artifact_sha256: str,
+    hook_snapshot_sha256: str,
+    task_id_sha256: str,
+    routes: Sequence[Mapping[str, Any]],
+    calls: Sequence[Mapping[str, Any]],
+    receipt_artifacts: Sequence[str | os.PathLike[str]],
+    expected_receipt_artifact_sha256s: Sequence[str],
+    evidence_artifacts: Mapping[str, str | os.PathLike[str]],
+    expected_evidence_sha256: Mapping[str, str],
+) -> dict[str, Any]:
+    """Bind declared route decisions to actual, receipt-backed tool use.
+
+    A successful decision is not usage evidence.  Every declared route must
+    have one successful call to the selected tool, a hook receipt hash, an
+    evidence reference, and a task-relevant purpose.  Fallbacks can be routing
+    compliant, but they never claim equivalent semantic or structural coverage.
+    """
+
+    preflight_bytes = _read_authoritative_artifact(
+        preflight_artifact,
+        expected_preflight_artifact_sha256,
+        "preflight",
+    )
+    try:
+        preflight_value = json.loads(preflight_bytes)
+        checked_preflight = validate_preflight(preflight_value)
+    except (UnicodeDecodeError, json.JSONDecodeError, PreflightError) as exc:
+        raise RoutingError("tool usage requires a valid preflight artifact") from exc
+    if (
+        checked_preflight["strict"] is not True
+        or checked_preflight["status"] != "ready"
+        or checked_preflight["counts"]["passed"] != checked_preflight["denominator"]
+    ):
+        raise RoutingError("tool usage requires a current strict ready preflight")
+    preflight_cache_key_sha256 = _require_sha(
+        checked_preflight["cache"]["key_sha256"],
+        "preflight.cache.key_sha256",
+    )
+    hook_snapshot_sha256 = _require_sha(
+        hook_snapshot_sha256, "hook_snapshot_sha256"
+    )
+    task_id_sha256 = _require_sha(task_id_sha256, "task_id_sha256")
+    if (
+        isinstance(receipt_artifacts, (str, bytes))
+        or not isinstance(receipt_artifacts, Sequence)
+        or isinstance(expected_receipt_artifact_sha256s, (str, bytes))
+        or not isinstance(expected_receipt_artifact_sha256s, Sequence)
+        or len(receipt_artifacts) != len(expected_receipt_artifact_sha256s)
+        or not receipt_artifacts
+    ):
+        raise RoutingError("receipt artifact authority denominator mismatch")
+    receipt_records: list[Mapping[str, Any]] = []
+    receipt_file_hashes: list[str] = []
+    for index, (path, digest) in enumerate(zip(
+        receipt_artifacts, expected_receipt_artifact_sha256s
+    )):
+        payload = _read_authoritative_artifact(path, digest, f"receipt[{index}]")
+        receipt_file_hashes.append(_require_sha(digest, f"receipt[{index}].sha256"))
+        try:
+            lines = [
+                json.loads(line)
+                for line in payload.decode("utf-8").splitlines()
+                if line.strip()
+            ]
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RoutingError("receipt artifact must be canonical JSONL") from exc
+        if not lines or any(not isinstance(item, Mapping) for item in lines):
+            raise RoutingError("receipt artifact contains no receipt records")
+        receipt_records.extend(lines)
+    normalized_receipts = _normalize_receipts(
+        receipt_records,
+        task_id_sha256=task_id_sha256,
+        hook_snapshot_sha256=hook_snapshot_sha256,
+    )
+    normalized_evidence = _normalize_evidence(expected_evidence_sha256)
+    if (
+        not isinstance(evidence_artifacts, Mapping)
+        or set(evidence_artifacts) != set(normalized_evidence)
+    ):
+        raise RoutingError("evidence artifact path set mismatch")
+    for reference, path in evidence_artifacts.items():
+        _read_authoritative_artifact(
+            path,
+            normalized_evidence[reference],
+            f"evidence[{reference}]",
+        )
+    if isinstance(routes, (str, bytes)) or not isinstance(routes, Sequence):
+        raise RoutingError("routes must be a sequence")
+    if isinstance(calls, (str, bytes)) or not isinstance(calls, Sequence):
+        raise RoutingError("calls must be a sequence")
+
+    normalized_routes: list[dict[str, Any]] = []
+    route_by_intent: dict[str, dict[str, Any]] = {}
+    for raw in routes:
+        route = validate_route_decision(raw)
+        if route["declared"] is not True:
+            raise RoutingError("usage report accepts declared routes only")
+        intent = _canonical_intent(route["intent"])
+        if intent in route_by_intent:
+            raise RoutingError("duplicate route intent")
+        route_by_intent[intent] = route
+        normalized_routes.append(route)
+
+    normalized_calls: list[dict[str, Any]] = []
+    call_by_intent: dict[str, dict[str, Any]] = {}
+    for raw in calls:
+        if not isinstance(raw, Mapping) or set(raw) != CALL_FIELDS:
+            raise RoutingError("tool call fields must match the exact v16 schema")
+        call = dict(raw)
+        intent = _canonical_intent(call["intent"])
+        if intent in call_by_intent:
+            raise RoutingError("duplicate tool call intent")
+        if not isinstance(call["tool"], str) or call["tool"] not in set(TOOLS) | {"shell"}:
+            raise RoutingError("tool call uses an unsupported tool")
+        if call["status"] not in {"success", "failure"}:
+            raise RoutingError("tool call status invalid")
+        for field in ("evidence_ref", "receipt_sha256"):
+            if not isinstance(call[field], str) or not call[field]:
+                raise RoutingError(f"tool call {field} required")
+        _require_sha(call["receipt_sha256"], "tool call receipt_sha256")
+        _require_sha(call["evidence_sha256"], "tool call evidence_sha256")
+        _require_sha(call["tool_call_id_sha256"], "tool call tool_call_id_sha256")
+        receipt = normalized_receipts.get(call["receipt_sha256"])
+        if receipt is None:
+            raise RoutingError("tool call receipt is absent from the bounded receipt set")
+        if receipt["route_code"] != call["tool"]:
+            raise RoutingError("tool call receipt route/tool mismatch")
+        if receipt["tool_call_id_sha256"] != call["tool_call_id_sha256"]:
+            raise RoutingError("tool call identifier mismatch")
+        if normalized_evidence.get(call["evidence_ref"]) != call["evidence_sha256"]:
+            raise RoutingError("tool call evidence is absent or mismatched")
+        if call["used_for"] != USAGE_PURPOSE[intent]:
+            raise RoutingError("tool call purpose does not match intent")
+        call["intent"] = intent
+        call_by_intent[intent] = call
+        normalized_calls.append(call)
+
+    violations: list[str] = []
+    passed = failed = 0
+    coverage_equivalent = True
+    for intent, route in route_by_intent.items():
+        call = call_by_intent.get(intent)
+        if route["decision"] == "blocked":
+            violations.append(f"ROUTE_BLOCKED:{intent}")
+            failed += 1
+            continue
+        if call is None:
+            violations.append(f"ROUTE_NOT_USED:{intent}")
+            failed += 1
+            continue
+        if call["tool"] != route["selected_tool"]:
+            violations.append(f"ROUTE_TOOL_MISMATCH:{intent}")
+            failed += 1
+            continue
+        if call["status"] != "success":
+            violations.append(f"ROUTE_CALL_FAILED:{intent}")
+            failed += 1
+            continue
+        passed += 1
+        if route["fallback"]:
+            coverage_equivalent = False
+    for intent in call_by_intent:
+        if intent not in route_by_intent:
+            violations.append(f"UNDECLARED_TOOL_CALL:{intent}")
+            failed += 1
+
+    total = len(route_by_intent)
+    ran = passed + sum(
+        1
+        for intent in route_by_intent
+        if intent in call_by_intent and call_by_intent[intent]["status"] == "failure"
+    )
+    routing_compliant = not violations
+    status = (
+        "blocked"
+        if violations
+        else ("compliant" if coverage_equivalent else "degraded")
+    )
+    report = {
+        "schema": USAGE_SCHEMA,
+        "status": status,
+        "routing_compliant": routing_compliant,
+        "coverage_equivalent": coverage_equivalent and routing_compliant,
+        "preflight_cache_key_sha256": preflight_cache_key_sha256,
+        "preflight_artifact_sha256": _require_sha(
+            expected_preflight_artifact_sha256,
+            "preflight_artifact_sha256",
+        ),
+        "hook_snapshot_sha256": hook_snapshot_sha256,
+        "task_id_sha256": task_id_sha256,
+        "receipt_set_sha256": hashlib.sha256(
+            _canonical_json(sorted(receipt_file_hashes)).encode("utf-8")
+        ).hexdigest(),
+        "evidence_set_sha256": hashlib.sha256(
+            _canonical_json(normalized_evidence).encode("utf-8")
+        ).hexdigest(),
+        "routes": normalized_routes,
+        "calls": normalized_calls,
+        "counts": {
+            "total": total,
+            "ran": ran,
+            "passed": passed,
+            "failed": total - passed,
+            "skipped": 0,
+            "xfail": 0,
+            "unknown": 0,
+        },
+        "denominator": total,
+        "denominator_known": True,
+        "violations": violations,
+    }
+    return report
+
+
+def validate_usage_report(
+    value: Mapping[str, Any],
+    *,
+    preflight_artifact: str | os.PathLike[str],
+    expected_preflight_artifact_sha256: str,
+    receipt_artifacts: Sequence[str | os.PathLike[str]],
+    expected_receipt_artifact_sha256s: Sequence[str],
+    evidence_artifacts: Mapping[str, str | os.PathLike[str]],
+    expected_evidence_sha256: Mapping[str, str],
+) -> dict[str, Any]:
+    """Validate a usage report by recomputing it from decisions and calls."""
+
+    if not isinstance(value, Mapping) or set(value) != USAGE_FIELDS:
+        raise RoutingError("usage report fields must match the exact v16 schema")
+    result = dict(value)
+    if result["schema"] != USAGE_SCHEMA:
+        raise RoutingError("usage report schema mismatch")
+    recomputed = build_usage_report(
+        preflight_artifact=preflight_artifact,
+        expected_preflight_artifact_sha256=expected_preflight_artifact_sha256,
+        hook_snapshot_sha256=result["hook_snapshot_sha256"],
+        task_id_sha256=result["task_id_sha256"],
+        routes=result["routes"],
+        calls=result["calls"],
+        receipt_artifacts=receipt_artifacts,
+        expected_receipt_artifact_sha256s=expected_receipt_artifact_sha256s,
+        evidence_artifacts=evidence_artifacts,
+        expected_evidence_sha256=expected_evidence_sha256,
+    )
+    if recomputed != result:
+        raise RoutingError("usage report does not match routes and calls")
+    return result
+
+
 __all__ = [
     "FALLBACK_TOOL",
     "INTENT_ALIASES",
@@ -675,6 +1094,7 @@ __all__ = [
     "RoutingError",
     "ROUTE_SCHEMA",
     "HEALTH_SCHEMA",
+    "USAGE_SCHEMA",
     "SCHEMA",
     "TOOL_PREFERENCE",
     "TOOLS",
@@ -683,11 +1103,13 @@ __all__ = [
     "ToolRoutingContract",
     "doctor",
     "build_health_report",
+    "build_usage_report",
     "health_report",
     "validate_health_report",
     "validate_health",
     "validate_route_decision",
     "validate_route",
+    "validate_usage_report",
     "route",
     "route_intent",
     "route_tool",

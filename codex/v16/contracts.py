@@ -203,6 +203,20 @@ SCHEMA_REGISTRY = {
         "optional": [],
         "injected_inputs": ["observations"],
     },
+    "tool-preflight.v16": {
+        "validator": "tool_preflight.validate_preflight",
+        "validation_mode": "source-bound",
+        "required": ["schema", "status", "strict", "repo_identity", "config_identity", "tools", "counts", "denominator", "denominator_known", "cache", "mutations"],
+        "optional": [],
+        "external_inputs": ["host/runtime", "repo/head/worktree bytes", "Codex config", "tool binaries", "CodeGraph index", "semantic query", "expected path", "sentinel evidence"],
+    },
+    "tool-usage.v16": {
+        "validator": "tool_routing.validate_usage_report",
+        "validation_mode": "caller-bound",
+        "required": ["schema", "status", "routing_compliant", "coverage_equivalent", "preflight_cache_key_sha256", "preflight_artifact_sha256", "hook_snapshot_sha256", "task_id_sha256", "receipt_set_sha256", "evidence_set_sha256", "routes", "calls", "counts", "denominator", "denominator_known", "violations"],
+        "optional": [],
+        "external_inputs": ["authoritative tool-preflight.v16 artifact/hash", "tool-route-decision.v16", "authoritative persisted hook-receipt.v16 artifact path/hash set", "authoritative bounded evidence path/hash set"],
+    },
 }
 
 
