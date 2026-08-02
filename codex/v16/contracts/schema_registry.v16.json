@@ -821,6 +821,83 @@
         "authoritative persisted hook-receipt.v16 artifact path/hash set",
         "authoritative bounded evidence path/hash set"
       ]
+    },
+    "tool-task-contract.v16": {
+      "validator": "tool_runtime.validate_task_contract",
+      "validation_mode": "standalone",
+      "required": [
+        "schema",
+        "task_id_sha256",
+        "classifier_identity",
+        "task_shape_sha256",
+        "repository_work",
+        "classification_complete",
+        "signals",
+        "routes",
+        "required_count",
+        "not_applicable_count",
+        "denominator",
+        "denominator_known",
+        "contract_sha256"
+      ],
+      "optional": []
+    },
+    "tool-enforcement.v16": {
+      "validator": "tool_runtime.validate_enforcement_report",
+      "validation_mode": "caller-bound",
+      "required": [
+        "schema",
+        "status",
+        "completion_eligible",
+        "task_contract_sha256",
+        "task_id_sha256",
+        "usage_report_sha256",
+        "required_routes",
+        "satisfied_routes",
+        "not_applicable_routes",
+        "counts",
+        "denominator",
+        "denominator_known",
+        "violations"
+      ],
+      "optional": [],
+      "external_inputs": [
+        "validated tool-task-contract.v16",
+        "caller-bound validated tool-usage.v16"
+      ]
+    },
+    "tool-maintenance.v16": {
+      "validator": "tool_maintenance.validate_maintenance_report",
+      "validation_mode": "source-bound",
+      "required": [
+        "schema",
+        "status",
+        "terminal_reason_code",
+        "repair_owner_role",
+        "repair_budget",
+        "repair_attempts",
+        "initial_preflight_sha256",
+        "final_preflight_sha256",
+        "initial_status",
+        "final_status",
+        "initial_reason_codes",
+        "final_reason_codes",
+        "actions",
+        "counts",
+        "denominator",
+        "denominator_known",
+        "mutations",
+        "failure_fingerprint_sha256",
+        "circuit_state"
+      ],
+      "optional": [],
+      "external_inputs": [
+        "initial strict tool-preflight.v16",
+        "exact owning repository",
+        "allowlisted direct-argv repair result",
+        "owner-only persisted failure circuit",
+        "final strict tool-preflight.v16"
+      ]
     }
   }
 }

@@ -31,6 +31,12 @@ TOOL_PREFLIGHT_GUIDANCE = {
     "mandatory_tools": ["codegraph", "semble", "rtk"],
     "usage_schema": "tool-usage.v16",
     "receipt_backed_usage_required": True,
+    "task_contract_schema": "tool-task-contract.v16",
+    "enforcement_schema": "tool-enforcement.v16",
+    "maintenance_schema": "tool-maintenance.v16",
+    "automatic_repo_index_repair": True,
+    "repair_budget": 1,
+    "repair_owner": "assigned_execution_agent:tool_maintainer",
 }
 REVIEW_RUNTIME_GUIDANCE = {
     "initial_high": "fresh Sol xhigh",
@@ -63,10 +69,15 @@ def build_context(event: str | None = None, model: str | None = None) -> dict[st
         "(high-risk Sol high; low/medium Terra high), delta-only, 90s report/"
         "240s replan; one review call, zero "
         "duplicate full-scope reviews. TOOL-PREFLIGHT: before repository work "
-        "require tool-preflight.v16 status=ready for CodeGraph/Semble/rtk, "
-        "bound to current repo/head/worktree/config; then require receipt-backed "
-        "tool-usage.v16. Choose by task shape; do not infer intent from raw "
-        "command arguments."
+        "require current tool-preflight.v16 for CodeGraph/Semble/rtk. Compile "
+        "the complete tool-task-contract.v16 matrix; each required route needs "
+        "receipt-backed tool-usage.v16 and tool-enforcement.v16 completion. "
+        "On repairable index failure the execution lane is tool_maintainer: one "
+        "locked exact-repo init/sync and recheck; never loop or label ordinary "
+        "stale indexes EXEC_INFRA_BLOCKED."
+        " STOP-GATE: repository-tool turns end with exactly one hidden complete "
+        "tool-task-contract.v16 marker; the Stop hook checks successful current-"
+        "turn receipts and continues at most once."
     )
     return {
         "event": event or "SessionStart",
@@ -76,7 +87,7 @@ def build_context(event: str | None = None, model: str | None = None) -> dict[st
         "routing": dict(ROUTING_GUIDANCE),
         "tool_preflight": dict(TOOL_PREFLIGHT_GUIDANCE),
         "review_runtime": dict(REVIEW_RUNTIME_GUIDANCE),
-        "additionalContext": guidance[:1200],
+        "additionalContext": guidance[:1500],
     }
 
 
@@ -98,5 +109,16 @@ if __name__ == "__main__":
         reason_code="session_context_emitted",
         identifiers=payload,
     )
-    context["receipt_status"] = "success" if hook_receipt.write_receipt(receipt_value) else "write_failed"
-    print(json.dumps(context, sort_keys=True))
+    written = hook_receipt.write_receipt(receipt_value)
+    output = {
+        "continue": True,
+        "hookSpecificOutput": {
+            "hookEventName": event,
+            "additionalContext": context["additionalContext"],
+        },
+    }
+    if not written:
+        output["systemMessage"] = (
+            "V16 hook receipt write failed; runtime-proof acceptance is unavailable."
+        )
+    print(json.dumps(output, sort_keys=True))

@@ -11,12 +11,17 @@ import unittest
 
 try:  # Support both direct hook execution and package-based test discovery.
     from .delegation_contract import ContractError, validate_packet, validate_result
-    from . import hook_receipt, pre_tool_use_policy, session_context
+    from . import (
+        hook_receipt, post_tool_use_receipt, pre_tool_use_policy,
+        session_context, stop_tool_enforcement,
+    )
 except ImportError:  # pragma: no cover - exercised by direct script invocation.
     from delegation_contract import ContractError, validate_packet, validate_result
     import hook_receipt
+    import post_tool_use_receipt
     import pre_tool_use_policy
     import session_context
+    import stop_tool_enforcement
 
 
 class HooksContractTests(unittest.TestCase):
@@ -52,6 +57,12 @@ class HooksContractTests(unittest.TestCase):
                 "mandatory_tools": ["codegraph", "semble", "rtk"],
                 "usage_schema": "tool-usage.v16",
                 "receipt_backed_usage_required": True,
+                "task_contract_schema": "tool-task-contract.v16",
+                "enforcement_schema": "tool-enforcement.v16",
+                "maintenance_schema": "tool-maintenance.v16",
+                "automatic_repo_index_repair": True,
+                "repair_budget": 1,
+                "repair_owner": "assigned_execution_agent:tool_maintainer",
             },
         )
         self.assertIn("TOOL-PREFLIGHT", guidance)
@@ -88,6 +99,14 @@ class HooksContractTests(unittest.TestCase):
         self.assertNotIn("args", persisted)
         self.assertNotIn("cwd", persisted)
         self.assertNotIn("prompt", persisted)
+
+    def test_hook_snapshot_paths_are_package_relative_and_complete(self):
+        missing = [path for path in hook_receipt.SNAPSHOT_FILES if not path.is_file()]
+        self.assertEqual(missing, [])
+        self.assertEqual(
+            hook_receipt.SNAPSHOT_FILES[0],
+            pathlib.Path(__file__).resolve().parents[1] / "AGENTS.md",
+        )
 
     def test_missing_receipt_is_detectable(self):
         value = hook_receipt.receipt("tool_call", "gpt-5.6-luna")
@@ -132,10 +151,22 @@ class HooksContractTests(unittest.TestCase):
             )
             for proc in (session, subagent, allowed, denied):
                 self.assertEqual(proc.returncode, 0, proc.stderr)
-                parsed = json.loads(proc.stdout)
-                self.assertEqual(parsed["receipt_status"], "success")
-            self.assertEqual(json.loads(allowed.stdout)["decision"], "allow")
-            self.assertEqual(json.loads(denied.stdout)["decision"], "deny")
+            self.assertEqual(
+                json.loads(session.stdout)["hookSpecificOutput"]["hookEventName"],
+                "SessionStart",
+            )
+            self.assertEqual(
+                json.loads(subagent.stdout)["hookSpecificOutput"]["hookEventName"],
+                "SubagentStart",
+            )
+            self.assertEqual(
+                json.loads(allowed.stdout)["hookSpecificOutput"]["permissionDecision"],
+                "allow",
+            )
+            self.assertEqual(
+                json.loads(denied.stdout)["hookSpecificOutput"]["permissionDecision"],
+                "deny",
+            )
             files = list(root.glob("*.jsonl"))
             self.assertEqual(len(files), 1)
             self.assertEqual(stat.S_IMODE(root.stat().st_mode), 0o700)
@@ -166,8 +197,8 @@ class HooksContractTests(unittest.TestCase):
             proc = self._run_entrypoint("pre_tool_use_policy.py", {"tool_name": "rg"}, occupied)
             self.assertEqual(proc.returncode, 0)
             parsed = json.loads(proc.stdout)
-            self.assertEqual(parsed["decision"], "allow")
-            self.assertEqual(parsed["receipt_status"], "write_failed")
+            self.assertEqual(parsed["hookSpecificOutput"]["permissionDecision"], "allow")
+            self.assertIn("receipt write failed", parsed["systemMessage"])
 
     def test_symlink_destination_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -178,7 +209,7 @@ class HooksContractTests(unittest.TestCase):
             link.symlink_to(actual, target_is_directory=True)
             proc = self._run_entrypoint("session_context.py", {"hook_event_name": "SessionStart"}, link)
             self.assertEqual(proc.returncode, 0)
-            self.assertEqual(json.loads(proc.stdout)["receipt_status"], "write_failed")
+            self.assertIn("receipt write failed", json.loads(proc.stdout)["systemMessage"])
             self.assertEqual(list(actual.iterdir()), [])
 
     def test_sensitive_labels_are_normalized(self):
@@ -202,6 +233,31 @@ class HooksContractTests(unittest.TestCase):
         )
         self.assertEqual(
             pre_tool_use_policy.decide(
+                "functions.exec_command",
+                {"cmd": "rtk codegraph impact route_tool -p ."},
+            )["route"],
+            "CodeGraph",
+        )
+        self.assertEqual(
+            pre_tool_use_policy.decide(
+                "functions.exec_command",
+                {"cmd": "rtk semble search semantic ."},
+            )["route"],
+            "Semble",
+        )
+        self.assertEqual(
+            pre_tool_use_policy.decide(
+                "functions.exec_command",
+                {"cmd": "rtk rg -n pattern file"},
+            )["route"],
+            "rg",
+        )
+        self.assertEqual(
+            pre_tool_use_policy.decide("mcp__codegraph__callers")["route"],
+            "CodeGraph",
+        )
+        self.assertEqual(
+            pre_tool_use_policy.decide(
                 "exec_command", {"command": "/usr/bin/rg -n pattern file"}
             )["route"],
             "rg",
@@ -217,6 +273,115 @@ class HooksContractTests(unittest.TestCase):
         self.assertEqual(
             pre_tool_use_policy.decide("toolchain-doctor")["route"], "preflight"
         )
+        self.assertEqual(
+            pre_tool_use_policy.decide(
+                "Bash", {"command": "rtk python3 codex/bin/toolchain-auto.py --repo ."}
+            )["route"],
+            "maintenance",
+        )
+
+    def test_native_hooks_config_uses_current_codex_event_shape(self):
+        path = pathlib.Path(__file__).parents[1] / "hooks.json"
+        config = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            set(config["hooks"]),
+            {"SessionStart", "SubagentStart", "PreToolUse", "PostToolUse", "Stop"},
+        )
+        commands = [
+            hook["command"]
+            for groups in config["hooks"].values()
+            for group in groups
+            for hook in group["hooks"]
+        ]
+        for name in (
+            "session_context.py", "pre_tool_use_policy.py",
+            "post_tool_use_receipt.py", "stop_tool_enforcement.py",
+        ):
+            self.assertTrue(any(name in command for command in commands), name)
+
+    def test_post_receipts_and_stop_gate_are_success_bound_and_one_shot(self):
+        marker = (
+            "<!-- tool-task-contract.v16 semantic_discovery=not_applicable "
+            "structural_analysis=required exact_lookup=not_applicable "
+            "shell_context=not_applicable machine_exact_only=false -->"
+        )
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as repo:
+            root = pathlib.Path(directory)
+            pathlib.Path(repo, ".git").mkdir()
+            common = {"turn_id": "turn-1", "model": "gpt-5.6-luna"}
+            maintenance = self._run_entrypoint(
+                "post_tool_use_receipt.py",
+                {
+                    **common,
+                    "hook_event_name": "PostToolUse",
+                    "tool_name": "Bash",
+                    "tool_use_id": "maintenance-call",
+                    "tool_input": {"command": "rtk python3 codex/bin/toolchain-auto.py --repo ."},
+                    "tool_response": {"exit_code": 0},
+                },
+                root,
+            )
+            structural = self._run_entrypoint(
+                "post_tool_use_receipt.py",
+                {
+                    **common,
+                    "hook_event_name": "PostToolUse",
+                    "tool_name": "Bash",
+                    "tool_use_id": "codegraph-call",
+                    "tool_input": {"command": "rtk codegraph impact symbol -p ."},
+                    "tool_response": {"exit_code": 0},
+                },
+                root,
+            )
+            self.assertEqual(maintenance.returncode, 0, maintenance.stderr)
+            self.assertEqual(structural.returncode, 0, structural.stderr)
+            passed = self._run_entrypoint(
+                "stop_tool_enforcement.py",
+                {
+                    **common,
+                    "hook_event_name": "Stop",
+                    "cwd": repo,
+                    "stop_hook_active": False,
+                    "last_assistant_message": marker,
+                },
+                root,
+            )
+            self.assertEqual(json.loads(passed.stdout), {})
+
+            missing_marker = marker.replace(
+                "semantic_discovery=not_applicable", "semantic_discovery=required"
+            )
+            first = self._run_entrypoint(
+                "stop_tool_enforcement.py",
+                {
+                    **common,
+                    "hook_event_name": "Stop",
+                    "cwd": repo,
+                    "stop_hook_active": False,
+                    "last_assistant_message": missing_marker,
+                },
+                root,
+            )
+            self.assertEqual(json.loads(first.stdout)["decision"], "block")
+            second = self._run_entrypoint(
+                "stop_tool_enforcement.py",
+                {
+                    **common,
+                    "hook_event_name": "Stop",
+                    "cwd": repo,
+                    "stop_hook_active": True,
+                    "last_assistant_message": missing_marker,
+                },
+                root,
+            )
+            second_output = json.loads(second.stdout)
+            self.assertNotIn("decision", second_output)
+            self.assertIn("circuit is open", second_output["systemMessage"])
+
+    def test_post_tool_failure_is_not_accepted_as_success(self):
+        self.assertFalse(post_tool_use_receipt.tool_succeeded({"exit_code": 7}))
+        self.assertFalse(post_tool_use_receipt.tool_succeeded({"isError": True}))
+        self.assertTrue(post_tool_use_receipt.tool_succeeded({"exit_code": 0}))
 
 
 if __name__ == '__main__': unittest.main()

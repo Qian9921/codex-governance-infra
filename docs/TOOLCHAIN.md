@@ -3,12 +3,21 @@
 This document is the operational contract for CodeGraph, Semble, and `rtk`.
 The short path is in [README.md](../README.md).
 
-## The two gates
+## The four contracts and reliability plane
 
 1. `tool-preflight.v16` proves the tools are current and trustworthy for one
    exact repository identity.
-2. `tool-usage.v16` proves every task-declared route was actually used and
+2. `tool-task-contract.v16` classifies the complete four-route task
+   applicability denominator.
+3. `tool-usage.v16` proves every task-declared route was actually used and
    produced a task-relevant, receipt-backed result.
+4. `tool-enforcement.v16` proves every applicable preferred route was
+   satisfied before completion.
+
+`tool-maintenance.v16` is the separate reliability plane: it wraps the
+read-only preflight, performs at most one allowlisted exact-repo CodeGraph
+repair under a lock, rechecks, and persists the stable failure fingerprint. It
+is not an evidence gate and never changes success criteria.
 
 A binary on `PATH` is not readiness. One irrelevant call to each tool is not
 usage compliance.
@@ -44,15 +53,16 @@ cd /path/to/repository
 # Read-only inspection
 codegraph status --json .
 
-# Only when the repository is not initialized and indexing is authorized
+# Manual equivalents of the controller's repo-local repair
 codegraph init .
 
-# After structural edits, when synchronization is authorized
 codegraph sync .
 ```
 
-Indexing and synchronization are persistent mutations. A doctor run never
-performs them.
+The installed maintenance policy pre-authorizes only exact owning-repo
+`init/sync` for the current execution lane's model-independent
+`tool_maintainer` role. A doctor run never mutates. Package/config/system
+repair remains external.
 
 ## Run the strict doctor
 
@@ -78,6 +88,39 @@ Exit `0` and `"status":"ready"` require a known denominator of `3/3`:
 The report stores hashes and reason codes, not raw command output, absolute
 paths, prompts, environment variables, or credentials. It performs no writes.
 
+## Run the automatic bounded controller
+
+```bash
+python3 codex/bin/toolchain-auto.py \
+  --repo . \
+  --semantic-query "deterministic inspection intent router" \
+  --expected-path codex/v16/tool_routing.py
+```
+
+The controller always checks first. When CodeGraph is stale, invalid,
+uninitialized, or bound to the wrong project, it selects `init` or `sync`
+for this exact canonical repo, acquires a private owner-only single-flight
+lock, executes one direct-argv repair, and reruns strict preflight.
+
+It never:
+
+- repairs a parent or sibling repository;
+- repeats the same no-progress repair;
+- clears the global Semble cache;
+- installs or updates packages;
+- edits user Codex configuration;
+- uses sudo, background processes, or shell command strings.
+
+Terminal states are `ready`, `maintenance_required`,
+`external_action_required`, and security/policy `blocked`. Ordinary stale
+indexes are never `EXEC_INFRA_BLOCKED`.
+
+If the repair fails or makes no progress, the controller writes an owner-only
+circuit record containing hashes and a reason code only. Re-invoking it for the
+same repo/config/revision/query/path failure returns
+`AUTO_REPAIR_CIRCUIT_OPEN` with zero repair attempts. A changed fingerprint can
+receive one new bounded attempt.
+
 ## Cache and invalidation
 
 A preflight receipt may be reused only while its `cache.key_sha256` remains
@@ -94,6 +137,21 @@ call; rerun it on identity change and before formal approval if the current
 receipt is stale.
 
 ## Mandatory routing after readiness
+
+Compile the complete task contract from seven structured booleans:
+
+- unknown semantic entrypoint;
+- similar implementation;
+- known symbol or call;
+- dependency or blast radius;
+- exact text/error/config/log;
+- shell output for model context;
+- machine-exact-only processing.
+
+The compiler derives exactly four rows:
+`semantic_discovery|structural_analysis|exact_lookup|shell_context`. Every row
+is `required|not_applicable`; omission is invalid. A repository task with no
+required row is invalid unless it is explicitly machine-exact-only.
 
 | Intent | Required first tool | Result that must be retained |
 |---|---|---|
@@ -118,14 +176,50 @@ At closure, `tool-usage.v16` binds each declared route to:
 Missing, wrong-tool, failed, undeclared, receipt-free, or irrelevant check-box
 calls are violations.
 
+`tool-enforcement.v16` then compares successful preferred-tool calls to all
+four applicability rows. Only `completion_eligible=true`, four adjudicated
+rows, zero failed/skipped/xfail/unknown, and no violations support completion.
+A proved fallback may support bounded exploration but remains
+`DEGRADED_COVERAGE`; it never becomes equivalent acceptance evidence.
+
+## Native lifecycle enforcement
+
+The package installs the current Codex hook configuration at
+`~/.codex/hooks.json`; executable handlers remain under `~/.codex/hooks/`.
+`SessionStart` and `SubagentStart` inject the compact route contract,
+`PreToolUse` records policy/route intent, `PostToolUse` records success or
+failure, and `Stop` compares a complete hidden `tool-task-contract.v16` marker
+with successful current-turn receipts.
+
+The Stop gate applies to hook-observable local repository activity. It requires
+a successful current strict preflight or maintenance receipt and every route
+declared `required`. It does not require irrelevant routes. On the first
+failure it returns `decision=block`, which asks Codex to continue once. When
+`stop_hook_active=true`, it emits `TOOL_ENFORCEMENT_BLOCKED` and does not request
+another continuation. This is a circuit breaker, not a false pass.
+
+Codex trusts non-managed hooks by exact definition hash. After installing or
+updating this package, review the changed hooks with `/hooks`; an untrusted hook
+is skipped and therefore cannot provide runtime-proof acceptance. Tool hooks
+are a strong lifecycle guardrail, but the Codex platform documents that some
+specialized tool paths can bypass the default hook path. Formal acceptance
+therefore still requires the caller-bound task, usage, and enforcement
+artifacts rather than claiming universal interception.
+
+For CLI transport, the hook recognizes `rtk codegraph ...`,
+`rtk semble ...`, and `rtk rg ...` as the substantive evidence route while
+persisting no raw command or path. Plain `rtk <shell-command>` remains the
+shell-context route. MCP tools are recognized by stable server prefixes.
+
 ## Reason codes and remediation
 
 | Reason code | Meaning | Remedy |
 |---|---|---|
 | `CODEGRAPH_NOT_FOUND` | Binary is unavailable | Install CodeGraph, then configure Codex |
 | `CODEGRAPH_MCP_NOT_CONFIGURED` | Codex config has no CodeGraph MCP table | Run the reviewed CodeGraph install command |
-| `CODEGRAPH_WRONG_PROJECT` | Index belongs to another repository | Stop; point at the owning repo |
-| `CODEGRAPH_STALE` | Indexed state differs from the worktree | Authorize and run `codegraph sync .` |
+| `CODEGRAPH_WRONG_PROJECT` | Index belongs to another repository | Controller initializes the exact owning repo once |
+| `CODEGRAPH_STALE` | Indexed state differs from the worktree | Controller runs one exact-repo `codegraph sync` and rechecks |
+| `CODEGRAPH_INDEX_INVALID` | Index is missing/incomplete/reindex-required | Controller chooses exact-repo `init` or `sync` once |
 | `CODEGRAPH_SENTINEL_MISMATCH` | Current expected source was not found | Check index, query, path, and revision |
 | `SEMBLE_NOT_FOUND` | CLI capability is unavailable | Install Semble and configure MCP |
 | `SEMBLE_MCP_NOT_CONFIGURED` | Codex config has no Semble MCP table | Run the reviewed Semble MCP command |
@@ -134,6 +228,9 @@ calls are violations.
 | `RTK_NOT_FOUND` | `rtk` is unavailable | Install it and initialize Codex guidance |
 | `RTK_OUTPUT_MISMATCH` | Wrapped Git identity differs from raw Git | Do not use rtk as evidence until repaired |
 | `RTK_FALSE_GREEN` | A failing command became successful | Hard stop; rtk cannot support acceptance |
+| `AUTO_REPAIR_NO_PROGRESS` | One allowlisted repair did not shrink the failure set | Open circuit; return `MAINTENANCE_REQUIRED`, do not retry/spawn |
+| `AUTO_REPAIR_CIRCUIT_OPEN` | The same stable failure already consumed its repair budget | Do not retry; change the underlying state or route to the named external owner |
+| `EXTERNAL_TOOL_REPAIR_REQUIRED` | Package/config/system action is needed | Return the exact owner/action; do not relabel as model infra failure |
 
 Use `--advisory` only for diagnosis. Advisory failures return `degraded`, never
 `ready`, and cannot satisfy a formal gate.

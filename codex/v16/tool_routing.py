@@ -140,9 +140,7 @@ def _receipt_route_matches_tool_name(receipt: Mapping[str, Any]) -> bool:
     generic_execution = {
         "exec_command", "functions.exec_command", "bash", "shell",
     }
-    return key in direct[route] or (
-        route in {"rtk", "rg"} and key in generic_execution
-    )
+    return key in direct[route] or key in generic_execution
 
 
 def _normalize_evidence(

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Deterministic pre-tool decision and non-invasive routing signal.
 
-The normalized tool name owns policy. For a generic execution tool, only a
-direct first executable of ``rtk`` or ``rg`` is classified for a privacy-safe
-routing receipt; raw arguments are never persisted and never change allow/deny.
+The normalized tool name owns policy.  For a generic execution tool, a direct
+``rtk <evidence-tool>`` transport is classified as the substantive evidence
+route.  Only executable labels are inspected transiently; raw arguments are
+never persisted and never change allow/deny.
 """
 
 from __future__ import annotations
@@ -27,6 +28,9 @@ ROUTE_BY_TOOL = {
     "toolchain-doctor": "preflight",
     "toolchain_doctor": "preflight",
     "tool_preflight": "preflight",
+    "toolchain-auto": "maintenance",
+    "toolchain_auto": "maintenance",
+    "tool_maintenance": "maintenance",
     "codegraph": "CodeGraph",
     "codegraph_explore": "CodeGraph",
     "mcp__codegraph__codegraph_explore": "CodeGraph",
@@ -62,16 +66,35 @@ def _direct_shell_route(tool: Any, args: Any) -> str | None:
     if not tokens:
         return None
     executable = pathlib.PurePosixPath(tokens[0]).name.lower()
-    return executable if executable in {"rtk", "rg"} else None
+    if executable == "rg":
+        return "rg"
+    if executable != "rtk":
+        return None
+    if len(tokens) < 2:
+        return "rtk"
+    nested = pathlib.PurePosixPath(tokens[1]).name.lower()
+    if nested in {"python", "python3"} and len(tokens) >= 3:
+        script = pathlib.PurePosixPath(tokens[2]).name.lower()
+        if script in {"toolchain-auto.py", "toolchain_auto.py"}:
+            return "maintenance"
+        if script in {"toolchain-doctor.py", "tool_preflight.py"}:
+            return "preflight"
+    return {
+        "codegraph": "CodeGraph",
+        "semble": "Semble",
+        "rg": "rg",
+    }.get(nested, "rtk")
 
 
 def route_for(tool: Any, args: Any = None) -> str:
     """Return an explicit route hint, or ``unspecified`` when not known."""
 
-    return ROUTE_BY_TOOL.get(
-        _tool_key(tool),
-        _direct_shell_route(tool, args) or "unspecified",
-    )
+    key = _tool_key(tool)
+    if key.startswith("mcp__codegraph__") or key.startswith("codegraph_"):
+        return "CodeGraph"
+    if key.startswith("mcp__semble__") or key.startswith("semble_"):
+        return "Semble"
+    return ROUTE_BY_TOOL.get(key, _direct_shell_route(tool, args) or "unspecified")
 
 
 def decide(tool: Any, args: Any = None) -> dict[str, str]:
@@ -121,5 +144,15 @@ if __name__ == "__main__":
         route_code=result["route_code"],
         identifiers=x,
     )
-    result["receipt_status"] = "success" if hook_receipt.write_receipt(receipt_value) else "write_failed"
-    print(json.dumps(result, sort_keys=True))
+    written = hook_receipt.write_receipt(receipt_value)
+    specific = {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": result["decision"],
+        "permissionDecisionReason": result["reason"],
+    }
+    output = {"hookSpecificOutput": specific}
+    if not written:
+        output["systemMessage"] = (
+            "V16 hook receipt write failed; runtime-proof acceptance is unavailable."
+        )
+    print(json.dumps(output, sort_keys=True))

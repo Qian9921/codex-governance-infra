@@ -27,25 +27,34 @@ _SENSITIVE_LABEL = re.compile(
     r"(?:gh[pso]_|sk-|xox[baprs]-|akia[0-9a-z]|bearer|credential|password|prompt|secret|token)",
     re.IGNORECASE,
 )
-_ROUTE_CODES = frozenset(
-    {"preflight", "codegraph", "semble", "rtk", "rg", "unspecified"}
-)
+_ROUTE_CODES = frozenset({
+    "preflight", "maintenance", "codegraph", "semble", "rtk", "rg",
+    "unspecified",
+})
 _ROUTE_ALIASES = {"CodeGraph": "codegraph", "Semble": "semble"}
 _DECISIONS = frozenset({"allow", "deny"})
 _RECEIPT_STATUSES = frozenset({"not_written", "written", "write_failed"})
 SCHEMA_VERSION = "hook-receipt.v16"
-_ROOT = pathlib.Path(__file__).resolve().parents[2]
-DEFAULT_RECEIPT_DIR = pathlib.Path.home() / ".codex" / "hook-receipts"
+_PACKAGE_ROOT = pathlib.Path(__file__).resolve().parent.parent
+DEFAULT_CODEX_HOME = pathlib.Path(
+    os.environ.get("CODEX_HOME", os.fspath(pathlib.Path.home() / ".codex"))
+).expanduser()
+DEFAULT_RECEIPT_DIR = DEFAULT_CODEX_HOME / "hook-receipts"
 SNAPSHOT_FILES = (
-    _ROOT / "codex" / "AGENTS.md",
-    _ROOT / "codex" / "BRIEF-TEMPLATES.md",
-    _ROOT / "codex" / "hooks" / "hooks.json",
-    _ROOT / "codex" / "hooks" / "session_context.py",
-    _ROOT / "codex" / "hooks" / "pre_tool_use_policy.py",
-    _ROOT / "codex" / "hooks" / "hook_receipt.py",
-    _ROOT / "codex" / "hooks" / "hooks_contract_test.py",
-    _ROOT / "codex" / "v16" / "tool_preflight.py",
-    _ROOT / "codex" / "v16" / "tool_routing.py",
+    _PACKAGE_ROOT / "AGENTS.md",
+    _PACKAGE_ROOT / "BRIEF-TEMPLATES.md",
+    _PACKAGE_ROOT / "hooks.json",
+    _PACKAGE_ROOT / "hooks" / "hooks.json",
+    _PACKAGE_ROOT / "hooks" / "session_context.py",
+    _PACKAGE_ROOT / "hooks" / "pre_tool_use_policy.py",
+    _PACKAGE_ROOT / "hooks" / "post_tool_use_receipt.py",
+    _PACKAGE_ROOT / "hooks" / "stop_tool_enforcement.py",
+    _PACKAGE_ROOT / "hooks" / "hook_receipt.py",
+    _PACKAGE_ROOT / "hooks" / "hooks_contract_test.py",
+    _PACKAGE_ROOT / "v16" / "tool_preflight.py",
+    _PACKAGE_ROOT / "v16" / "tool_routing.py",
+    _PACKAGE_ROOT / "v16" / "tool_runtime.py",
+    _PACKAGE_ROOT / "v16" / "tool_maintenance.py",
 )
 _SAFE_FIELDS = frozenset(
     {
@@ -104,7 +113,9 @@ def _identifiers(value: Mapping[str, Any] | None) -> dict[str, str]:
     aliases = {
         "session_id_sha256": ("session_id", "sessionId"),
         "turn_id_sha256": ("turn_id", "turnId"),
-        "tool_call_id_sha256": ("tool_call_id", "toolCallId"),
+        "tool_call_id_sha256": (
+            "tool_use_id", "toolUseId", "tool_call_id", "toolCallId",
+        ),
     }
     for target, names in aliases.items():
         for name in names:
