@@ -173,6 +173,7 @@ def main() -> int:
         ),
         route_code="unspecified",
         identifiers=payload,
+        task_id_sha256=intake.get("task_id_sha256") if intake else None,
         intake_id_sha256=intake.get("intake_id_sha256") if intake else None,
         parent_intake_id_sha256=(
             intake.get("parent_intake_id_sha256") if intake else None

@@ -297,6 +297,7 @@ if __name__ == "__main__":
         reason_code=result["reason_code"],
         route_code=result["route_code"],
         identifiers=x,
+        task_id_sha256=intake.get("task_id_sha256") if intake else None,
         intake_id_sha256=intake.get("intake_id_sha256") if intake else None,
         parent_intake_id_sha256=(
             intake.get("parent_intake_id_sha256") if intake else None

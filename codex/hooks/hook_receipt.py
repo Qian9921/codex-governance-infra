@@ -230,6 +230,7 @@ def receipt(
     reason_code: Any = None,
     route: Any = None,
     identifiers: Mapping[str, Any] | None = None,
+    task_id_sha256: Any = None,
     intake_id_sha256: Any = None,
     parent_intake_id_sha256: Any = None,
     agent_id_sha256: Any = None,
@@ -254,7 +255,14 @@ def receipt(
         "route": normalized_route,
         "route_code": normalized_route,
         "snapshot_sha256": _hash_label(snapshot_sha256) or _snapshot_sha256(),
-        "identifiers_sha256": safe_hash(task_id) if task_id else None,
+        # The public Codex hook wire does not guarantee CODEX_TASK_ID.  Once
+        # session_context has created a validated intake, its pre-hashed task
+        # identity is the authoritative lifecycle key.  Keep the environment
+        # variable only as a compatibility fallback for older/manual callers.
+        "identifiers_sha256": (
+            _hash_label(task_id_sha256)
+            or (safe_hash(task_id) if task_id else None)
+        ),
         "intake_id_sha256": _hash_label(intake_id_sha256),
         "parent_intake_id_sha256": _hash_label(parent_intake_id_sha256),
         "agent_id_sha256": _hash_label(agent_id_sha256),

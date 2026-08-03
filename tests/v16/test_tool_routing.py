@@ -494,7 +494,8 @@ class ToolRoutingTests(unittest.TestCase):
         call_id = hashlib.sha256(raw_call_id.encode()).hexdigest()
         with tempfile.TemporaryDirectory() as directory, mock.patch.dict(
             os.environ,
-            {"CODEX_TASK_ID": "task", "CODEX_HOOK_SOURCE": "test"},
+            {"CODEX_HOOK_SOURCE": "test"},
+            clear=True,
         ):
             root = pathlib.Path(directory)
             destination = root / "receipt.jsonl"
@@ -507,6 +508,7 @@ class ToolRoutingTests(unittest.TestCase):
                 route_code="codegraph",
                 snapshot_sha256=SNAPSHOT_SHA,
                 identifiers={"tool_call_id": raw_call_id},
+                task_id_sha256=TASK_SHA,
                 intake_id_sha256="7" * 64,
             )
             self.assertTrue(hook_receipt.write_receipt(value, destination))

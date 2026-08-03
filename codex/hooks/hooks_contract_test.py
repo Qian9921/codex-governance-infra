@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 try:  # Support both direct hook execution and package-based test discovery.
     from .delegation_contract import ContractError, validate_packet, validate_result
@@ -100,6 +101,21 @@ class HooksContractTests(unittest.TestCase):
         self.assertNotIn("args", persisted)
         self.assertNotIn("cwd", persisted)
         self.assertNotIn("prompt", persisted)
+
+    def test_receipt_uses_validated_intake_task_identity_without_environment(self):
+        task_id = "a" * 64
+        with mock.patch.dict(os.environ, {}, clear=True):
+            value = hook_receipt.receipt(
+                "PreToolUse",
+                "gpt-5.6-sol",
+                tool="Bash",
+                decision="allow",
+                reason_code="policy_pass",
+                route_code="rg",
+                task_id_sha256=task_id,
+                intake_id_sha256="b" * 64,
+            )
+        self.assertEqual(value["identifiers_sha256"], task_id)
 
     def test_hook_snapshot_paths_are_package_relative_and_complete(self):
         missing = [path for path in hook_receipt.SNAPSHOT_FILES if not path.is_file()]
