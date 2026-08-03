@@ -148,13 +148,17 @@ if __name__ == "__main__":
             "V16 TOOL-TASK-INTAKE." + lineage
             + " Route known symbol/call/impact to CodeGraph; unknown semantics/similar "
             "code to Semble; exact text/error/config/log to rg; shell output shown to "
-            "the model through rtk. Before the first hook-observable repository tool, "
+            "the model through rtk. Classify scope before the first hook-observable tool. "
             "run once: rtk python3 \"${CODEX_HOME:-$HOME/.codex}/bin/toolchain-auto.py\" "
-            "--record-task-contract --repository-work "
+            "--record-task-contract [--repository-work|--non-repository-task] "
             f"--task-id-sha256 {intake['task_id_sha256']} "
             f"--task-shape-sha256 {intake['task_shape_sha256']} "
             f"--intake-id-sha256 {intake['intake_id_sha256']} "
-            "plus only the applicable flags from: " + choices + "."
+            "For repository source/read/write work select --repository-work, add only "
+            "applicable flags from: " + choices + ", then run strict repo preflight. "
+            "For plugin/model/user-config/service/machine inventory with no repository "
+            "read or write select --non-repository-task, add no route flags, and do not "
+            "run repository preflight. Exactly one scope flag is required."
         )
         context["additionalContext"] = intake_context[:1900]
     receipt_value = hook_receipt.receipt(

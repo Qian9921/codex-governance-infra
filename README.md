@@ -232,7 +232,12 @@ successful task-relevant call. Only `completion_eligible=true` supports
 completion.
 
 The native `UserPromptSubmit` hook creates a privacy-safe turn intake and gives
-Codex the exact hashes for a one-time task-contract recorder. `PreToolUse`
+Codex the exact hashes for a one-time task-contract recorder. The recorder
+requires exactly one scope: `--repository-work` for repository source/read/write
+work, or `--non-repository-task` for plugin/model/user-config/service/machine
+inventory that does not read or write a repository. Only repository scope
+requires strict CodeGraph/Semble/rtk readiness; non-repository scope declares no
+repository route signals and cannot be reused after scope expands. `PreToolUse`
 denies repository tools until that immutable complete contract exists and
 records each expected call id. `PostToolUse` accepts only explicit supported
 success shapes. `Stop` requires every expected call to have a matching

@@ -83,6 +83,14 @@ must be `required|not_applicable`. A repository task must require at least one
 route unless explicitly `machine_exact_only`. Rows are derived from structured
 signals, never hand-written to omit a tool.
 
+Task scope is an explicit, fail-closed choice. Repository source/read/write work
+records `--repository-work`, declares its applicable routes, and requires strict
+tool readiness. Plugin/model/user-config/service/machine inventory with no
+repository read or write records `--non-repository-task`, declares no repository
+route signals, and does not run repository tool preflight. The recorder rejects
+a missing or ambiguous scope choice. Non-repository status never excuses later
+repository work; scope expansion requires a new intake and repository contract.
+
 After readiness, routing is mandatory rather than stylistic. Known symbols,
 calls, dependencies, and blast radius use the revision-matching child
 CodeGraph; unknown semantic entrypoints and similar implementations use Semble;

@@ -138,6 +138,18 @@ class ToolRuntimeTests(unittest.TestCase):
         self.assertEqual(value["not_applicable_count"], len(ROUTES))
 
     def test_non_repo_task_cannot_claim_repository_signals(self):
+        value = compile_task_contract(
+            task_id_sha256=TASK_SHA,
+            classifier_identity="tool-intake.v16",
+            task_shape_sha256=SHAPE_SHA,
+            repository_work=False,
+            signals=signals(),
+        )
+        self.assertFalse(value["repository_work"])
+        self.assertEqual(value["required_count"], 0)
+        self.assertTrue(all(
+            row["applicability"] == "not_applicable" for row in value["routes"]
+        ))
         with self.assertRaises(ToolRuntimeError):
             compile_task_contract(
                 task_id_sha256=TASK_SHA,

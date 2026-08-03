@@ -61,14 +61,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--task-id-sha256")
     parser.add_argument("--task-shape-sha256")
     parser.add_argument("--intake-id-sha256")
-    parser.add_argument("--repository-work", action="store_true")
+    scope = parser.add_mutually_exclusive_group()
+    scope.add_argument("--repository-work", action="store_true")
+    scope.add_argument("--non-repository-task", action="store_true")
     parser.add_argument("--classifier-identity", default="agent-task-classifier.v16")
     for signal in SIGNALS:
         parser.add_argument("--" + signal.replace("_", "-"), action="store_true")
     args = parser.parse_args(argv)
     if args.record_task_contract:
-        if not args.repository_work:
-            parser.error("--record-task-contract requires --repository-work")
+        if not args.repository_work and not args.non_repository_task:
+            parser.error(
+                "--record-task-contract requires exactly one of "
+                "--repository-work or --non-repository-task"
+            )
         if not args.task_id_sha256 or not args.task_shape_sha256 or not args.intake_id_sha256:
             parser.error("task, task-shape, and intake SHA-256 values are required")
         try:
@@ -76,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
                 task_id_sha256=args.task_id_sha256,
                 classifier_identity=args.classifier_identity,
                 task_shape_sha256=args.task_shape_sha256,
-                repository_work=True,
+                repository_work=args.repository_work,
                 signals={name: bool(getattr(args, name)) for name in SIGNALS},
             )
             recorded = persist_task_contract(
