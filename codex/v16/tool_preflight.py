@@ -565,6 +565,7 @@ def _semble_probe(
                 and all(
                     isinstance(item, Mapping)
                     and _safe_relative_path(item.get("file_path"), repo) is not None
+                    and _safe_relative_path(item.get("file_path"), repo).is_file()  # type: ignore[union-attr]
                     for item in results
                 )
             )
@@ -573,11 +574,18 @@ def _semble_probe(
                 for item in results
                 if isinstance(item, Mapping)
             } if isinstance(results, list) else set()
-            sentinel_ok = (
+            sentinel_exact = (
                 search_result.returncode == 0
                 and safe_results
                 and expected_path in paths
             )
+            # Readiness answers whether Semble is callable against live source
+            # in the owning repository.  Natural-language ranking is not a
+            # deterministic integrity boundary: a useful scoped result may
+            # legitimately rank a sibling file above the caller's sentinel.
+            # Keep that distinction visible, then let tool-usage.v16 require
+            # the task-relevant Semble call before completion.
+            sentinel_usable = search_result.returncode == 0 and safe_results
             checks.extend(
                 [
                     _check(
@@ -588,8 +596,12 @@ def _semble_probe(
                     ),
                     _check(
                         "sentinel_query",
-                        sentinel_ok,
-                        "SEMBLE_SENTINEL_MATCH",
+                        sentinel_usable,
+                        (
+                            "SEMBLE_SENTINEL_MATCH"
+                            if sentinel_exact
+                            else "SEMBLE_SENTINEL_SCOPE_ONLY"
+                        ),
                         "SEMBLE_SENTINEL_MISMATCH",
                     ),
                 ]

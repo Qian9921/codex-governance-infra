@@ -23,6 +23,7 @@ class FakeRunner:
         self.rtk_false_green = False
         self.stale = False
         self.wrong_semble_path = False
+        self.missing_semble_path = False
         self.head = HEAD
         self.codegraph_version = "1.5.0"
 
@@ -80,7 +81,11 @@ class FakeRunner:
         if command == "semble" and argv[1:] == ["--help"]:
             return subprocess.CompletedProcess(argv, 0, "usage: semble search\n", "")
         if command == "semble" and argv[1] == "search":
-            path = "src/other.py" if self.wrong_semble_path else "src/router.py"
+            path = (
+                "src/missing.py" if self.missing_semble_path
+                else "src/other.py" if self.wrong_semble_path
+                else "src/router.py"
+            )
             return subprocess.CompletedProcess(
                 argv,
                 0,
@@ -173,11 +178,23 @@ class ToolPreflightTests(unittest.TestCase):
             [check["reason_code"] for check in codegraph["checks"]],
         )
 
-    def test_semble_must_find_expected_current_path(self):
+    def test_semble_scoped_live_result_is_ready_when_exact_sentinel_ranks_lower(self):
         self.runner.wrong_semble_path = True
         report = self.report()
+        self.assertEqual(report["status"], "ready")
+        self.assertEqual(report["tools"][1]["reason_code"], "SEMBLE_READY")
+        sentinel = [
+            check for check in report["tools"][1]["checks"]
+            if check["name"] == "sentinel_query"
+        ][0]
+        self.assertEqual(sentinel["status"], "pass")
+        self.assertEqual(sentinel["reason_code"], "SEMBLE_SENTINEL_SCOPE_ONLY")
+
+    def test_semble_nonexistent_result_remains_blocking(self):
+        self.runner.missing_semble_path = True
+        report = self.report()
         self.assertEqual(report["status"], "blocked")
-        self.assertEqual(report["tools"][1]["reason_code"], "SEMBLE_SENTINEL_MISMATCH")
+        self.assertEqual(report["tools"][1]["reason_code"], "SEMBLE_SCOPE_CONTAMINATION")
 
     def test_rtk_must_preserve_nonzero_exit_status(self):
         self.runner.rtk_false_green = True

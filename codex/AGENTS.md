@@ -95,12 +95,18 @@ reason code and evidence reference; fallback never claims equivalent coverage.
 Use `codex.v16.tool_routing` for decisions and `tool-usage.v16` to bind every
 declared route to one successful, task-relevant call, evidence ref, and hook
 receipt hash. Unused, wrong-tool, failed, undeclared, or receipt-free calls
-cannot satisfy the route; irrelevant “check-box” calls are violations. Hooks
+cannot satisfy the route; irrelevant “check-box” calls are violations. An
+ordinary failed attempt remains diagnostic but is closed when the same route
+later has a task-relevant successful receipt in the same intake and hook
+snapshot. Identity mismatch, contradictory/unknown response shape, missing
+state, missing receipt, or snapshot drift remains a hard blocker. Hooks
 reinforce the declared route and store only normalized privacy-safe receipts;
 they do not infer semantics from raw arguments or blanket-deny legitimate
 calls. For hook-observable repository activity, the native Stop gate requires
 the immutable `UserPromptSubmit`-bound task contract, exact PreToolUse call ids,
-and matching successful current-snapshot PostToolUse receipts. A free-form
+and matching current-snapshot PostToolUse receipts. Every required route must
+have at least one successful receipt; ordinary superseded failures do not force
+a fresh intake. A free-form
 assistant marker is never authority. Missing intake/contract/receipt state
 fails closed; Stop may continue once only, then opens the `stop_hook_active`
 circuit without claiming success. `tool-enforcement.v16` compares actual preferred-tool use with the

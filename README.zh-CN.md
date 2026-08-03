@@ -218,7 +218,9 @@ privacy-safe hook receipt hash。
 原生 `UserPromptSubmit` hook 先建立只含 hash 的 turn intake，并把一次性 task-contract recorder
 所需的精确 hash 注入给 Codex；不可变完整 contract 建立前，`PreToolUse` 会拒绝仓库工具，并记录
 每个预期 call id。`PostToolUse` 只接受明确、受支持的成功结构；`Stop` 要求每个预期调用都有同一
-current hook snapshot 下的成功 receipt。缺证据只续跑一次，随后由 `stop_hook_active` 打开 circuit，
+current hook snapshot 下的 receipt，并要求每条必需路由至少有一次成功。普通失败会保留为诊断，
+但同 intake、同 snapshot、同路由后续成功即可关闭它；身份、receipt、snapshot 完整性失败仍然硬阻断。
+缺证据只续跑一次，随后由 `stop_hook_active` 打开 circuit，
 不再死循环。Assistant 自己写的 marker 不具备裁决权。Hook 变化后须用 `/hooks` 审阅并 trust 新 hash。
 
 ### Reliability plane
@@ -292,7 +294,8 @@ manifest 是精确 tracked path/hash 边界。新增、删除或修改 tracked �
 | `AUTO_REPAIR_CIRCUIT_OPEN` | 同一未变化故障已经用完一次 repair；修复指定底层状态后再试。 |
 | `EXTERNAL_TOOL_REPAIR_REQUIRED` | package/config/system owner 处理；这不是模型执行 infra 故障。 |
 | `SEMBLE_MCP_NOT_CONFIGURED` | 运行已审阅的 Semble MCP 配置命令并重启 Codex。 |
-| `SEMBLE_SENTINEL_MISMATCH` | 改善 semantic query 或修复 repo/index scope；不得宣称 ready。 |
+| `SEMBLE_SENTINEL_SCOPE_ONLY` | Semble 返回了当前 repo 的活源码，但预期文件排名较低；readiness 继续通过，任务相关的 Semble 实际使用仍然必需。 |
+| `SEMBLE_SENTINEL_MISMATCH` | 没有返回可用的当前 repo 活源码；改善 query 或修复工具/repo scope。 |
 | `RTK_FALSE_GREEN` | 硬停止；修复前不得接受 shell evidence。 |
 | `receipt_status=write_failed` | 修复私有 receipt 目录；runtime-proof acceptance 被阻塞。 |
 | `Unknown model ...` | 检查精确 host/surface catalog；本仓库不能授予模型权限。 |

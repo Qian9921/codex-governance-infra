@@ -459,6 +459,39 @@ class HooksContractTests(unittest.TestCase):
             )
             self.assertEqual(json.loads(passed.stdout), {})
 
+            # A normal command failure is diagnostic once the same route has a
+            # current-intake success.  It must not force a new prompt/intake.
+            typo_id = "codegraph-typo"
+            typo_command = "rtk codegraph fn-impact obsolete -p ."
+            typo_pre = self._run_entrypoint(
+                "pre_tool_use_policy.py",
+                {**common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                 "tool_use_id": typo_id, "tool_input": {"command": typo_command}},
+                root,
+            )
+            self.assertEqual(
+                json.loads(typo_pre.stdout)["hookSpecificOutput"]["permissionDecision"],
+                "allow",
+            )
+            self._record_execution_status(
+                root, task_id=task_id, intake_id=intake_id,
+                tool_use_id=typo_id, exit_code=2,
+            )
+            typo_post = self._run_entrypoint(
+                "post_tool_use_receipt.py",
+                {**common, "hook_event_name": "PostToolUse", "tool_name": "Bash",
+                 "tool_use_id": typo_id, "tool_input": {"command": typo_command},
+                 "tool_response": {"exit_code": 2}},
+                root,
+            )
+            self.assertEqual(typo_post.returncode, 0, typo_post.stderr)
+            recovered = self._run_entrypoint(
+                "stop_tool_enforcement.py",
+                {**common, "hook_event_name": "Stop", "stop_hook_active": False},
+                root,
+            )
+            self.assertEqual(json.loads(recovered.stdout), {})
+
             missing_id = "codegraph-missing-post"
             missing_pre = self._run_entrypoint(
                 "pre_tool_use_policy.py",
@@ -495,7 +528,7 @@ class HooksContractTests(unittest.TestCase):
                 root,
             )
             self.assertEqual(json.loads(conflicted.stdout)["decision"], "block")
-            self.assertIn("successful_post_tool_receipts", conflicted.stdout)
+            self.assertNotIn("unresolved_post_tool_receipts", conflicted.stdout)
             self.assertIn("post_tool_receipt_count:1", conflicted.stdout)
 
             missing_common = {**common, "turn_id": "turn-2"}
@@ -578,6 +611,19 @@ class HooksContractTests(unittest.TestCase):
         self.assertTrue(post_tool_use_receipt.tool_succeeded({"exit_code": 0}))
         self.assertTrue(post_tool_use_receipt.tool_succeeded({"status": "completed"}))
         self.assertTrue(post_tool_use_receipt.tool_succeeded({"content": []}))
+
+    def test_stop_distinguishes_recoverable_and_integrity_failures(self):
+        self.assertFalse(stop_tool_enforcement._is_integrity_failure({
+            "decision": "deny", "reason_code": "tool_failure_explicit",
+        }))
+        for reason in (
+            "tool_identity_mismatch", "tool_activity_state_unavailable",
+            "tool_failure_contradictory", "tool_failure_incomplete",
+            "tool_failure_unknown",
+        ):
+            self.assertTrue(stop_tool_enforcement._is_integrity_failure({
+                "decision": "deny", "reason_code": reason,
+            }))
 
     def test_codex_app_json_exec_envelope_is_explicit_and_fail_closed(self):
         success = json.dumps({
