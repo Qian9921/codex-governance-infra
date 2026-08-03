@@ -237,7 +237,10 @@ requires exactly one scope: `--repository-work` for repository source/read/write
 work, or `--non-repository-task` for plugin/model/user-config/service/machine
 inventory that does not read or write a repository. Only repository scope
 requires strict CodeGraph/Semble/rtk readiness; non-repository scope declares no
-repository route signals and cannot be reused after scope expands. `PreToolUse`
+repository route signals and cannot be reused after scope expands.
+requires non-repository tool calls to run from a cwd outside every Git
+repository; inside-repository activity is denied until a new repository-scoped
+intake is bound. `PreToolUse`
 denies repository tools until that immutable complete contract exists and
 records each expected call id. `PostToolUse` accepts only explicit supported
 success shapes. `Stop` requires every expected call to have a matching

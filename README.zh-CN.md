@@ -219,7 +219,9 @@ privacy-safe hook receipt hash。
 所需的精确 hash 注入给 Codex。Recorder 必须显式二选一：仓库源码/读取/写入任务使用
 `--repository-work`；完全不读写仓库的 plugin/model/用户配置/service/机器盘点使用
 `--non-repository-task`。只有仓库 scope 才要求 CodeGraph/Semble/rtk 严格就绪；非仓库 scope
-不得声明仓库路由，也不能在后续 scope 扩大后继续复用。不可变完整 contract 建立前，
+不得声明仓库路由，也不能在后续 scope 扩大后继续复用。
+非仓库工具调用必须从所有 Git 仓库之外的 cwd 执行；仓库内 activity 会被拒绝，直到新建并绑定
+repository-scoped intake。不可变完整 contract 建立前，
 `PreToolUse` 会拒绝仓库工具，并记录
 每个预期 call id。`PostToolUse` 只接受明确、受支持的成功结构；`Stop` 要求每个预期调用都有同一
 current hook snapshot 下的 receipt，并要求每条必需路由至少有一次成功。普通失败会保留为诊断，

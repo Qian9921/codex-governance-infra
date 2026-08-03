@@ -683,11 +683,28 @@ class HooksContractTests(unittest.TestCase):
             self.assertFalse(contract["repository_work"])
             self.assertEqual(contract["required_count"], 0)
 
+            repo_read = self._run_entrypoint(
+                "pre_tool_use_policy.py",
+                {**common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                 "tool_use_id": "repo-scope-expansion",
+                 "tool_input": {"command": (
+                     "rtk rg -n repository_work codex/hooks/stop_tool_enforcement.py"
+                 )}},
+                root,
+            )
+            repo_read_output = json.loads(repo_read.stdout)["hookSpecificOutput"]
+            self.assertEqual(repo_read_output["permissionDecision"], "deny")
+            self.assertIn(
+                "non-repository contract cannot authorize activity",
+                repo_read_output["permissionDecisionReason"],
+            )
+            outside_common = {**common, "cwd": "/var/tmp"}
+
             for call_id, command in calls:
                 if call_id == "machine-shell":
                     pre = self._run_entrypoint(
                         "pre_tool_use_policy.py",
-                        {**common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                        {**outside_common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
                          "tool_use_id": call_id, "tool_input": {"command": command}},
                         root,
                     )
@@ -700,7 +717,8 @@ class HooksContractTests(unittest.TestCase):
                 )
                 post = self._run_entrypoint(
                     "post_tool_use_receipt.py",
-                    {**common, "hook_event_name": "PostToolUse", "tool_name": "Bash",
+                    {**(outside_common if call_id == "machine-shell" else common),
+                     "hook_event_name": "PostToolUse", "tool_name": "Bash",
                      "tool_use_id": call_id, "tool_input": {"command": command},
                      "tool_response": {"exit_code": 0}},
                     root,

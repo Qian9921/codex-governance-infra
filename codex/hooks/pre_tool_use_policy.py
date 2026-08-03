@@ -181,6 +181,22 @@ def _repo_activity(payload: Mapping[str, Any], tool: Any, route: str) -> bool:
     )
 
 
+def _governed_activity(payload: Mapping[str, Any], tool: Any, route: str) -> bool:
+    """Gate hook-observable activity whenever the runtime supplies a cwd.
+
+    Repository scope is determined by the bound task contract, not inferred
+    from command arguments.  A non-repository task can therefore execute from
+    a cwd outside every Git repository while an inside-repository call becomes
+    an explicit scope-expansion failure.
+    """
+
+    cwd = payload.get("cwd")
+    return isinstance(cwd, str) and bool(cwd) and (
+        _tool_key(tool) in REPO_ACTIVITY_TOOLS
+        or route.lower() in {"preflight", "maintenance", "codegraph", "semble", "rtk", "rg"}
+    )
+
+
 def route_for(tool: Any, args: Any = None) -> str:
     """Return an explicit route hint, or ``unspecified`` when not known."""
 
@@ -230,11 +246,11 @@ if __name__ == "__main__":
     tool_name = x.get("tool_name", x.get("tool", ""))
     tool_input = x.get("tool_input", x.get("args"))
     result = decide(tool_name, tool_input)
-    repo_activity = _repo_activity(x, tool_name, result["route"])
+    governed_activity = _governed_activity(x, tool_name, result["route"])
     intake: Mapping[str, Any] | None = None
     updated_command: str | None = None
     bash_command = _bash_command(tool_name, tool_input)
-    if result["decision"] == "allow" and repo_activity:
+    if result["decision"] == "allow" and governed_activity:
         try:
             intake = load_current_intake(
                 session_id=x.get("session_id"), turn_id=x.get("turn_id"),
@@ -250,7 +266,7 @@ if __name__ == "__main__":
         if not _contract_recorder(tool_name, tool_input):
             if result["decision"] == "allow":
                 try:
-                    load_turn_contract(
+                    contract = load_turn_contract(
                         session_id=x.get("session_id"), turn_id=x.get("turn_id"),
                         agent_id=x.get("agent_id"),
                         intake_id_sha256=intake["intake_id_sha256"] if intake else None,
@@ -262,6 +278,20 @@ if __name__ == "__main__":
                         "reason": "record the bound V16 task contract before repository tools",
                         "reason_code": "task_contract_required",
                     }
+                else:
+                    if (
+                        contract["repository_work"] is False
+                        and _inside_repo(x.get("cwd"))
+                    ):
+                        result = {
+                            **result,
+                            "decision": "deny",
+                            "reason": (
+                                "non-repository contract cannot authorize activity "
+                                "from a Git repository; start a repository-scoped intake"
+                            ),
+                            "reason_code": "non_repository_scope_expansion",
+                        }
         if result["decision"] == "allow" and not record_expected_tool_call(
             session_id=x.get("session_id"),
             turn_id=x.get("turn_id"),
@@ -308,7 +338,7 @@ if __name__ == "__main__":
         agent_id_sha256=intake.get("agent_id_sha256") if intake else None,
     )
     written = hook_receipt.write_receipt(receipt_value)
-    if repo_activity and not written:
+    if governed_activity and not written:
         result = {
             **result,
             "decision": "deny",
@@ -326,7 +356,7 @@ if __name__ == "__main__":
     if not written:
         output["systemMessage"] = (
             "V16 hook receipt write failed; "
-            + ("repository tool call denied fail-closed." if repo_activity else
+            + ("governed tool call denied fail-closed." if governed_activity else
                "runtime-proof acceptance is unavailable.")
         )
     print(json.dumps(output, sort_keys=True))

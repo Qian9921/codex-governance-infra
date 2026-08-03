@@ -158,7 +158,9 @@ if __name__ == "__main__":
             "applicable flags from: " + choices + ", then run strict repo preflight. "
             "For plugin/model/user-config/service/machine inventory with no repository "
             "read or write select --non-repository-task, add no route flags, and do not "
-            "run repository preflight. Exactly one scope flag is required."
+            "run repository preflight. Run its tool calls from a cwd outside every Git "
+            "repository; inside-repo activity requires a new repository-scoped intake. "
+            "Exactly one scope flag is required."
         )
         context["additionalContext"] = intake_context[:1900]
     receipt_value = hook_receipt.receipt(
