@@ -600,6 +600,179 @@ class HooksContractTests(unittest.TestCase):
             self.assertNotIn("decision", second_output)
             self.assertIn("circuit is open", second_output["systemMessage"])
 
+    def test_non_repository_task_skips_repo_preflight_but_keeps_receipt_gate(self):
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as repo:
+            root = pathlib.Path(directory)
+            pathlib.Path(repo, ".git").mkdir()
+            common = {
+                "session_id": "machine-session", "turn_id": "machine-turn",
+                "model": "gpt-5.6-terra", "cwd": repo,
+            }
+            prompt = "inventory installed plugins without repository access"
+            intake = self._run_entrypoint(
+                "session_context.py",
+                {**common, "hook_event_name": "UserPromptSubmit", "prompt": prompt},
+                root,
+            )
+            self.assertEqual(intake.returncode, 0, intake.stderr)
+            context = json.loads(intake.stdout)["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("--repository-work|--non-repository-task", context)
+            self.assertIn("do not run repository preflight", context)
+            task_id = hashlib.sha256(b"machine-session\0machine-turn").hexdigest()
+            shape_id = hashlib.sha256(prompt.encode()).hexdigest()
+            intake_id = re.search(
+                r"--intake-id-sha256 ([0-9a-f]{64})", context
+            ).group(1)
+            auto = str(pathlib.Path(__file__).parents[1] / "bin" / "toolchain-auto.py")
+            env = os.environ.copy()
+            env["CODEX_TOOL_STATE_DIR"] = str(root / "tool-state")
+
+            missing_scope = subprocess.run(
+                [
+                    sys.executable, auto, "--record-task-contract",
+                    "--task-id-sha256", task_id,
+                    "--task-shape-sha256", shape_id,
+                    "--intake-id-sha256", intake_id,
+                ],
+                text=True, capture_output=True, check=False, env=env,
+            )
+            self.assertEqual(missing_scope.returncode, 2)
+            self.assertIn("requires exactly one", missing_scope.stderr)
+            ambiguous_scope = subprocess.run(
+                [
+                    sys.executable, auto, "--record-task-contract",
+                    "--repository-work", "--non-repository-task",
+                    "--task-id-sha256", task_id,
+                    "--task-shape-sha256", shape_id,
+                    "--intake-id-sha256", intake_id,
+                ],
+                text=True, capture_output=True, check=False, env=env,
+            )
+            self.assertEqual(ambiguous_scope.returncode, 2)
+
+            recorder = (
+                "rtk python3 codex/bin/toolchain-auto.py --record-task-contract "
+                f"--non-repository-task --task-id-sha256 {task_id} "
+                f"--task-shape-sha256 {shape_id} --intake-id-sha256 {intake_id}"
+            )
+            calls = (
+                ("machine-contract", recorder),
+                ("machine-shell", "rtk ls -ld /var/tmp"),
+            )
+            contract_pre = self._run_entrypoint(
+                "pre_tool_use_policy.py",
+                {**common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                 "tool_use_id": calls[0][0], "tool_input": {"command": recorder}},
+                root,
+            )
+            self.assertEqual(
+                json.loads(contract_pre.stdout)["hookSpecificOutput"]["permissionDecision"],
+                "allow",
+            )
+            recorded = subprocess.run(
+                [
+                    sys.executable, auto, "--record-task-contract",
+                    "--non-repository-task", "--task-id-sha256", task_id,
+                    "--task-shape-sha256", shape_id,
+                    "--intake-id-sha256", intake_id,
+                ],
+                text=True, capture_output=True, check=False, env=env,
+            )
+            self.assertEqual(recorded.returncode, 0, recorded.stderr)
+            contract = json.loads(recorded.stdout)
+            self.assertFalse(contract["repository_work"])
+            self.assertEqual(contract["required_count"], 0)
+
+            repo_read = self._run_entrypoint(
+                "pre_tool_use_policy.py",
+                {**common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                 "tool_use_id": "repo-scope-expansion",
+                 "tool_input": {"command": (
+                     "rtk rg -n repository_work codex/hooks/stop_tool_enforcement.py"
+                 )}},
+                root,
+            )
+            repo_read_output = json.loads(repo_read.stdout)["hookSpecificOutput"]
+            self.assertEqual(repo_read_output["permissionDecision"], "deny")
+            self.assertIn(
+                "non-repository contract cannot authorize repository activity",
+                repo_read_output["permissionDecisionReason"],
+            )
+            outside_common = {**common, "cwd": "/var/tmp"}
+
+            absolute_repo_read = self._run_entrypoint(
+                "pre_tool_use_policy.py",
+                {**outside_common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                 "tool_use_id": "absolute-repo-scope-expansion",
+                 "tool_input": {"command": (
+                     "rtk rg -n repository_work "
+                     f"{repo}/codex/hooks/stop_tool_enforcement.py"
+                 )}},
+                root,
+            )
+            absolute_repo_output = json.loads(
+                absolute_repo_read.stdout
+            )["hookSpecificOutput"]
+            self.assertEqual(absolute_repo_output["permissionDecision"], "deny")
+            self.assertIn(
+                "cannot authorize repository activity or targets",
+                absolute_repo_output["permissionDecisionReason"],
+            )
+
+            git_repo_read = self._run_entrypoint(
+                "pre_tool_use_policy.py",
+                {**outside_common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                 "tool_use_id": "git-repo-scope-expansion",
+                 "tool_input": {"command": f"rtk git -C {repo} show"}},
+                root,
+            )
+            self.assertEqual(
+                json.loads(git_repo_read.stdout)["hookSpecificOutput"]["permissionDecision"],
+                "deny",
+            )
+
+            for call_id, command in calls:
+                if call_id == "machine-shell":
+                    pre = self._run_entrypoint(
+                        "pre_tool_use_policy.py",
+                        {**outside_common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                         "tool_use_id": call_id, "tool_input": {"command": command}},
+                        root,
+                    )
+                    self.assertEqual(
+                        json.loads(pre.stdout)["hookSpecificOutput"]["permissionDecision"],
+                        "allow", pre.stdout,
+                    )
+                self._record_execution_status(
+                    root, task_id=task_id, intake_id=intake_id, tool_use_id=call_id,
+                )
+                post = self._run_entrypoint(
+                    "post_tool_use_receipt.py",
+                    {**(outside_common if call_id == "machine-shell" else common),
+                     "hook_event_name": "PostToolUse", "tool_name": "Bash",
+                     "tool_use_id": call_id, "tool_input": {"command": command},
+                     "tool_response": {"exit_code": 0}},
+                    root,
+                )
+                self.assertEqual(post.returncode, 0, post.stderr)
+
+            stopped = self._run_entrypoint(
+                "stop_tool_enforcement.py",
+                {**common, "hook_event_name": "Stop", "stop_hook_active": False},
+                root,
+            )
+            self.assertEqual(json.loads(stopped.stdout), {})
+            receipts = [
+                json.loads(line)
+                for path in root.glob("*.jsonl")
+                for line in path.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertFalse(any(
+                record.get("route_code") in {"preflight", "maintenance"}
+                for record in receipts
+            ))
+            self.assertEqual(receipts[-1]["reason_code"], "tool_enforcement_pass")
+
     def test_post_tool_failure_is_not_accepted_as_success(self):
         self.assertFalse(post_tool_use_receipt.tool_succeeded({"exit_code": 7}))
         self.assertFalse(post_tool_use_receipt.tool_succeeded({"isError": True}))

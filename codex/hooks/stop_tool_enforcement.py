@@ -156,7 +156,10 @@ def evaluate(payload: Mapping[str, Any]) -> dict[str, Any]:
     ]
     if unresolved_failures:
         missing.append("unresolved_post_tool_receipts")
-    if not ({"preflight", "maintenance"} & successful_routes):
+    if (
+        contract["repository_work"]
+        and not ({"preflight", "maintenance"} & successful_routes)
+    ):
         missing.append("strict_tool_preflight_or_maintenance")
     for row in contract["routes"]:
         if (

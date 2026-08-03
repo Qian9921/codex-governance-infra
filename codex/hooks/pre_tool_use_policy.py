@@ -3,8 +3,8 @@
 
 The normalized tool name owns policy.  For a generic execution tool, a direct
 ``rtk <evidence-tool>`` transport is classified as the substantive evidence
-route.  Only executable labels are inspected transiently; raw arguments are
-never persisted and never change allow/deny.
+route.  Executable labels and path-like targets are inspected transiently;
+raw arguments are never persisted.
 """
 
 from __future__ import annotations
@@ -58,6 +58,10 @@ ROUTE_BY_TOOL = {
 REPO_ACTIVITY_TOOLS = frozenset({
     "bash", "exec_command", "functions.exec_command", "apply_patch", "edit", "write",
 })
+REPOSITORY_ONLY_ROUTES = frozenset({
+    "preflight", "maintenance", "codegraph", "semble",
+})
+REPOSITORY_MUTATION_TOOLS = frozenset({"apply_patch", "edit", "write"})
 
 
 def _tool_key(tool: Any) -> str:
@@ -109,6 +113,87 @@ def _inside_repo(cwd: Any) -> bool:
     except (OSError, RuntimeError):
         return False
     return any((parent / ".git").exists() for parent in (current, *current.parents))
+
+
+def _inside_codex_home(path: pathlib.Path) -> bool:
+    """Keep installed Codex state available to machine/plugin inventory tasks."""
+
+    configured = os.environ.get("CODEX_HOME")
+    codex_home = pathlib.Path(configured).expanduser() if configured else pathlib.Path.home() / ".codex"
+    try:
+        resolved_home = codex_home.resolve(strict=False)
+        resolved_path = path.resolve(strict=False)
+    except (OSError, RuntimeError):
+        return False
+    return resolved_path == resolved_home or resolved_home in resolved_path.parents
+
+
+def _path_targets_repo(value: str, cwd: Any) -> bool:
+    """Return true when one transient path token resolves inside a Git repo."""
+
+    candidate = value.strip("'\";,|&<>()[]{}")
+    if not candidate or "://" in candidate:
+        return False
+    if "=" in candidate and candidate.startswith("--"):
+        candidate = candidate.split("=", 1)[1]
+    candidate = candidate.lstrip(">")
+    if not candidate or candidate.startswith("-"):
+        return False
+    if not (candidate.startswith(("/", "./", "../", "~")) or "/" in candidate):
+        return False
+    try:
+        path = pathlib.Path(candidate).expanduser()
+        if not path.is_absolute():
+            if not isinstance(cwd, str) or not cwd:
+                return False
+            path = pathlib.Path(cwd) / path
+        resolved = path.resolve(strict=False)
+    except (OSError, RuntimeError):
+        return False
+    if _inside_codex_home(resolved):
+        return False
+    probe = resolved if resolved.exists() else resolved.parent
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    return _inside_repo(str(probe))
+
+
+def _argument_strings(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, Mapping):
+        return [item for nested in value.values() for item in _argument_strings(nested)]
+    if isinstance(value, (list, tuple)):
+        return [item for nested in value for item in _argument_strings(nested)]
+    return []
+
+
+def _nonrepo_repository_access(
+    payload: Mapping[str, Any], tool: Any, args: Any, route: str,
+) -> bool:
+    """Detect repository-only tools or explicit repository targets.
+
+    This is intentionally transient: no command, argument, or resolved path is
+    written to receipts.  It closes the outside-cwd/absolute-target bypass
+    without preventing machine inventory under the installed Codex home.
+    """
+
+    key = _tool_key(tool)
+    route_key = route.lower()
+    if key in REPOSITORY_MUTATION_TOOLS or route_key in REPOSITORY_ONLY_ROUTES:
+        return True
+    strings = _argument_strings(args)
+    for value in strings:
+        try:
+            tokens = shlex.split(value, posix=True)
+        except ValueError:
+            tokens = value.split()
+        executables = [pathlib.PurePosixPath(token).name.lower() for token in tokens[:2]]
+        if "git" in executables or "codegraph" in executables or "semble" in executables:
+            return True
+        if any(_path_targets_repo(token, payload.get("cwd")) for token in tokens):
+            return True
+    return False
 
 
 def _contract_recorder(tool: Any, args: Any) -> bool:
@@ -181,6 +266,21 @@ def _repo_activity(payload: Mapping[str, Any], tool: Any, route: str) -> bool:
     )
 
 
+def _governed_activity(payload: Mapping[str, Any], tool: Any, route: str) -> bool:
+    """Gate hook-observable activity whenever the runtime supplies a cwd.
+
+    Repository scope is determined by the bound task contract.  A
+    non-repository task may execute machine-only calls from a cwd outside every
+    Git repository, subject to the separate repository-target boundary.
+    """
+
+    cwd = payload.get("cwd")
+    return isinstance(cwd, str) and bool(cwd) and (
+        _tool_key(tool) in REPO_ACTIVITY_TOOLS
+        or route.lower() in {"preflight", "maintenance", "codegraph", "semble", "rtk", "rg"}
+    )
+
+
 def route_for(tool: Any, args: Any = None) -> str:
     """Return an explicit route hint, or ``unspecified`` when not known."""
 
@@ -230,11 +330,11 @@ if __name__ == "__main__":
     tool_name = x.get("tool_name", x.get("tool", ""))
     tool_input = x.get("tool_input", x.get("args"))
     result = decide(tool_name, tool_input)
-    repo_activity = _repo_activity(x, tool_name, result["route"])
+    governed_activity = _governed_activity(x, tool_name, result["route"])
     intake: Mapping[str, Any] | None = None
     updated_command: str | None = None
     bash_command = _bash_command(tool_name, tool_input)
-    if result["decision"] == "allow" and repo_activity:
+    if result["decision"] == "allow" and governed_activity:
         try:
             intake = load_current_intake(
                 session_id=x.get("session_id"), turn_id=x.get("turn_id"),
@@ -250,7 +350,7 @@ if __name__ == "__main__":
         if not _contract_recorder(tool_name, tool_input):
             if result["decision"] == "allow":
                 try:
-                    load_turn_contract(
+                    contract = load_turn_contract(
                         session_id=x.get("session_id"), turn_id=x.get("turn_id"),
                         agent_id=x.get("agent_id"),
                         intake_id_sha256=intake["intake_id_sha256"] if intake else None,
@@ -262,6 +362,22 @@ if __name__ == "__main__":
                         "reason": "record the bound V16 task contract before repository tools",
                         "reason_code": "task_contract_required",
                     }
+                else:
+                    if contract["repository_work"] is False and (
+                        _inside_repo(x.get("cwd"))
+                        or _nonrepo_repository_access(
+                            x, tool_name, tool_input, result["route"],
+                        )
+                    ):
+                        result = {
+                            **result,
+                            "decision": "deny",
+                            "reason": (
+                                "non-repository contract cannot authorize repository "
+                                "activity or targets; start a repository-scoped intake"
+                            ),
+                            "reason_code": "non_repository_scope_expansion",
+                        }
         if result["decision"] == "allow" and not record_expected_tool_call(
             session_id=x.get("session_id"),
             turn_id=x.get("turn_id"),
@@ -308,7 +424,7 @@ if __name__ == "__main__":
         agent_id_sha256=intake.get("agent_id_sha256") if intake else None,
     )
     written = hook_receipt.write_receipt(receipt_value)
-    if repo_activity and not written:
+    if governed_activity and not written:
         result = {
             **result,
             "decision": "deny",
@@ -326,7 +442,7 @@ if __name__ == "__main__":
     if not written:
         output["systemMessage"] = (
             "V16 hook receipt write failed; "
-            + ("repository tool call denied fail-closed." if repo_activity else
+            + ("governed tool call denied fail-closed." if governed_activity else
                "runtime-proof acceptance is unavailable.")
         )
     print(json.dumps(output, sort_keys=True))

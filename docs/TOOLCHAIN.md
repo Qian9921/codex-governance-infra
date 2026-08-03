@@ -8,7 +8,8 @@ The short path is in [README.md](../README.md).
 1. `tool-preflight.v16` proves the tools are current and trustworthy for one
    exact repository identity.
 2. `tool-task-contract.v16` classifies the complete four-route task
-   applicability denominator.
+   applicability denominator and explicitly selects repository or
+   non-repository scope.
 3. `tool-usage.v16` proves every task-declared route was actually used and
    produced a task-relevant, receipt-backed result.
 4. `tool-enforcement.v16` proves every applicable preferred route was
@@ -21,6 +22,19 @@ is not an evidence gate and never changes success criteria.
 
 A binary on `PATH` is not readiness. One irrelevant call to each tool is not
 usage compliance.
+
+Repository source/read/write tasks record `--repository-work`, declare the
+applicable route signals, and run readiness before routing. A plugin, model,
+user-configuration, service, or machine inventory that performs no repository
+read or write records `--non-repository-task` with no route signals and skips
+repository readiness. The recorder requires exactly one scope flag. If a
+non-repository task expands into repository work, start a new intake and bind a
+repository contract; do not reuse the narrower contract. Non-repository tool
+calls execute from a cwd outside every Git repository. `PreToolUse` rejects an
+inside-repository call, explicit repository target, or repository-only tool
+under the narrower contract. Target inspection is transient; raw command
+arguments and resolved paths are never persisted. Installed state below
+`CODEX_HOME` remains available to machine/plugin inventory.
 
 ## Configure Codex
 
@@ -189,17 +203,19 @@ The package installs the current Codex hook configuration at
 `SessionStart` and `SubagentStart` inject compact routing guidance.
 `UserPromptSubmit` persists a privacy-safe prompt-shape hash and injects the
 exact task/shape hashes needed by the one-time contract recorder.
-`PreToolUse` denies hook-observable repository calls until that validated,
-prompt-bound, immutable `tool-task-contract.v16` exists, then records the exact
-expected call id. `PostToolUse` records only explicit supported success shapes.
+`PreToolUse` denies hook-observable calls until that validated, prompt-bound,
+immutable `tool-task-contract.v16` exists, then records the exact expected call
+id. `PostToolUse` records only explicit supported success shapes.
 `Stop` compares the contract and expected ids with successful current-turn,
 current-hook-snapshot receipts. Assistant-authored message text is not trusted.
 
-The Stop gate applies to hook-observable local repository activity. It requires
-a successful current strict preflight or maintenance receipt and every route
-derived as `required` by the bound contract. It does not require irrelevant
-routes. Missing intake, contract, expected-call, PostToolUse, or hook-snapshot
-state fails closed. On the first
+The Stop gate applies to hook-observable activity. For a repository contract it
+requires a successful current strict preflight or maintenance receipt and every
+route derived as `required`. For an explicit non-repository contract it still
+requires matching current-snapshot PostToolUse receipts for every expected
+call, but it does not invent repository readiness or route requirements. Missing
+intake, contract, expected-call, PostToolUse, or hook-snapshot state fails
+closed. On the first
 failure it returns `decision=block`, which asks Codex to continue once. When
 `stop_hook_active=true`, it emits `TOOL_ENFORCEMENT_BLOCKED` and does not request
 another continuation. This is a circuit breaker, not a false pass.
