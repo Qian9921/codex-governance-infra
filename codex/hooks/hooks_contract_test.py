@@ -656,14 +656,16 @@ class HooksContractTests(unittest.TestCase):
             )
             self.assertEqual(recorded.returncode, 0, recorded.stderr)
 
-            for call_id, command, expected_exit, model_output, decision in (
+            for call_id, command, expected_exit, model_output, expected_stderr, decision in (
                 (
-                    "wire-ok", "rtk sh -c 'printf PRIVATE_SUCCESS'",
-                    0, "PRIVATE_SUCCESS", "allow",
+                    "wire-ok",
+                    "rtk sh -c 'printf PRIVATE_SUCCESS; printf PRIVATE_OK_STDERR >&2'",
+                    0, "PRIVATE_SUCCESS", "PRIVATE_OK_STDERR", "allow",
                 ),
                 (
-                    "wire-fail", "rtk sh -c 'printf PRIVATE_FAILURE; exit 7'",
-                    7, "PRIVATE_FAILURE", "deny",
+                    "wire-fail",
+                    "rtk sh -c 'printf PRIVATE_FAILURE; printf PRIVATE_FAIL_STDERR >&2; exit 7'",
+                    7, "PRIVATE_FAILURE", "PRIVATE_FAIL_STDERR", "deny",
                 ),
             ):
                 pre = self._run_entrypoint(
@@ -682,6 +684,7 @@ class HooksContractTests(unittest.TestCase):
                 )
                 self.assertEqual(execution.returncode, expected_exit, execution.stderr)
                 self.assertEqual(execution.stdout, model_output)
+                self.assertEqual(execution.stderr, expected_stderr)
                 post = self._run_entrypoint(
                     "post_tool_use_receipt.py",
                     {**common, "hook_event_name": "PostToolUse", "tool_name": "Bash",
@@ -712,6 +715,29 @@ class HooksContractTests(unittest.TestCase):
                     "pretool_wrapped_bash",
                 )
                 self.assertNotIn("PRIVATE", json.dumps(receipt, sort_keys=True))
+
+            spoofed = self._run_entrypoint(
+                "post_tool_use_receipt.py",
+                {**common, "hook_event_name": "PostToolUse", "tool_name": "rg",
+                 "tool_use_id": "wire-fail", "tool_response": {"exit_code": 0}},
+                root,
+            )
+            self.assertEqual(spoofed.returncode, 0, spoofed.stderr)
+            records = [
+                json.loads(line)
+                for path in root.glob("*.jsonl")
+                for line in path.read_text(encoding="utf-8").splitlines()
+            ]
+            spoofed_receipt = [
+                item for item in records
+                if item["event"] == "PostToolUse"
+                and item["tool_name"] == "rg"
+                and item["tool_call_id_sha256"]
+                == hashlib.sha256(b"wire-fail").hexdigest()
+            ][-1]
+            self.assertEqual(spoofed_receipt["decision"], "deny")
+            self.assertEqual(spoofed_receipt["reason_code"], "tool_identity_mismatch")
+            self.assertEqual(spoofed_receipt["route_code"], "rtk")
 
             persisted_status = "".join(
                 path.read_text(encoding="utf-8")

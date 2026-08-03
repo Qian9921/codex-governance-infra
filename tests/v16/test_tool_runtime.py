@@ -34,7 +34,8 @@ def record_worker(state_dir, barrier, results, call_id):
     barrier.wait()
     results.put(record_expected_tool_call(
         session_id="parallel-session", turn_id="parallel-turn",
-        tool_use_id=call_id, route_code="rtk", state_dir=state_dir,
+        tool_use_id=call_id, route_code="rtk", tool_name="Bash",
+        wrapped_bash=True, state_dir=state_dir,
     ))
 
 
@@ -259,6 +260,7 @@ class ToolRuntimeTests(unittest.TestCase):
             self.assertTrue(record_expected_tool_call(
                 session_id="session", turn_id="turn", tool_use_id="call-1",
                 route_code="codegraph",
+                tool_name="Bash", wrapped_bash=True,
                 state_dir=directory,
             ))
             self.assertEqual(
@@ -280,6 +282,12 @@ class ToolRuntimeTests(unittest.TestCase):
                     state_dir=directory,
                 )["route_code"],
                 "codegraph",
+            )
+            self.assertTrue(
+                load_tool_call_binding(
+                    session_id="session", turn_id="turn", tool_use_id="call-1",
+                    state_dir=directory,
+                )["wrapped_bash"]
             )
 
     def test_stable_task_id_gets_new_immutable_intake_generation_per_prompt(self):
@@ -303,6 +311,7 @@ class ToolRuntimeTests(unittest.TestCase):
             self.assertTrue(record_expected_tool_call(
                 session_id="stable-session", turn_id="stable-turn",
                 tool_use_id="first-call", route_code="codegraph",
+                tool_name="Bash", wrapped_bash=True,
                 state_dir=directory,
             ))
 

@@ -171,6 +171,7 @@ def _write_usage_authority(directory, preflight, receipts, evidence):
     return {
         "preflight_artifact": preflight_path,
         "expected_preflight_artifact_sha256": hashlib.sha256(preflight_bytes).hexdigest(),
+        "expected_intake_id_sha256": "7" * 64,
         "receipt_artifacts": [receipt_path],
         "expected_receipt_artifact_sha256s": [
             hashlib.sha256(receipt_bytes).hexdigest()
@@ -410,6 +411,11 @@ class ToolRoutingTests(unittest.TestCase):
             with self.assertRaises(RoutingError):
                 validate_usage_report(forged, **authority)
 
+            wrong_intake_authority = dict(authority)
+            wrong_intake_authority["expected_intake_id_sha256"] = "8" * 64
+            with self.assertRaisesRegex(RoutingError, "intake identifier mismatch"):
+                validate_usage_report(report, **wrong_intake_authority)
+
             forged_preflight = copy.deepcopy(preflight)
             forged_preflight["cache"]["key_sha256"] = "f" * 64
             forged_path = pathlib.Path(directory) / "forged-preflight.json"
@@ -435,6 +441,7 @@ class ToolRoutingTests(unittest.TestCase):
                     ],
                     hook_snapshot_sha256=SNAPSHOT_SHA,
                     task_id_sha256=TASK_SHA,
+                    expected_intake_id_sha256="7" * 64,
                     routes=routes,
                     calls=calls,
                 )

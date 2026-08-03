@@ -8,6 +8,7 @@ paths and prompts never leave the transient hook payload.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -265,14 +266,33 @@ def main() -> int:
     except (OSError, ToolRuntimeError):
         pass
     classification = classify_tool_response(payload.get("tool_response"))
+    tool_identity_matches = (
+        intake is not None
+        and isinstance(tool_name, (str, int))
+        and bool(str(tool_name))
+        and hashlib.sha256(str(tool_name).strip().lower().encode("utf-8")).hexdigest()
+        == binding["tool_name_sha256"]
+    ) if intake is not None else False
+    if intake is not None and not tool_identity_matches:
+        classification = ToolResponseClassification(
+            False,
+            "tool_identity_mismatch",
+            {
+                "schema": "tool-response-diagnostics.v16",
+                "envelope_type": "private_execution_state",
+                "normalized_shape": "unknown",
+                "normalized_status": "failure",
+                "known_keys": [],
+                "key_types": {},
+                "unknown_key_count": 0,
+            },
+        )
     # The public PostToolUse wire may omit the original Bash input.  A bound
     # expected-activity record proves this call crossed the governed Pre hook;
     # use the tool kind plus that binding instead of re-inferring repository
     # activity from fields that are not portable on the Post wire.
-    is_repo_bash = intake is not None and pre_tool_use_policy._tool_key(tool_name) in {
-        "bash", "exec_command", "functions.exec_command", "shell",
-    }
-    if intake is not None and is_repo_bash:
+    is_repo_bash = intake is not None and binding["wrapped_bash"]
+    if intake is not None and tool_identity_matches and is_repo_bash:
         try:
             execution = load_tool_execution_status(
                 session_id=payload.get("session_id"),

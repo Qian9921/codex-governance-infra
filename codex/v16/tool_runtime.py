@@ -372,11 +372,16 @@ def load_turn_contract(
 def record_expected_tool_call(
     *, session_id: Any, turn_id: Any, tool_use_id: Any, agent_id: Any = None,
     intake_id_sha256: str | None = None, route_code: str,
+    tool_name: Any, wrapped_bash: bool,
     state_dir: str | os.PathLike[str] | None = None,
 ) -> bool:
     if not isinstance(tool_use_id, (str, int)) or not str(tool_use_id):
         return False
     if not isinstance(route_code, str) or route_code not in ACTIVITY_ROUTES:
+        return False
+    if not isinstance(tool_name, (str, int)) or not str(tool_name):
+        return False
+    if type(wrapped_bash) is not bool:
         return False
     try:
         task_id = _event_task_id(session_id, turn_id, agent_id)
@@ -390,6 +395,7 @@ def record_expected_tool_call(
         ):
             return False
         call_id = _sha256(str(tool_use_id))
+        tool_name_sha256 = _sha256(str(tool_name).strip().lower())
         path = _state_path(root, task_id, f"activity.{intake_id}.{call_id}")
         if path.exists():
             value = _read_private_json(path)
@@ -399,6 +405,8 @@ def record_expected_tool_call(
                 "intake_id_sha256": intake_id,
                 "tool_use_id_sha256": call_id,
                 "route_code": route_code,
+                "tool_name_sha256": tool_name_sha256,
+                "wrapped_bash": wrapped_bash,
             }
         _write_private_json(path, {
             "schema": "tool-turn-activity.v16",
@@ -406,6 +414,8 @@ def record_expected_tool_call(
             "intake_id_sha256": intake_id,
             "tool_use_id_sha256": call_id,
             "route_code": route_code,
+            "tool_name_sha256": tool_name_sha256,
+            "wrapped_bash": wrapped_bash,
         })
         return True
     except (OSError, ToolRuntimeError):
@@ -440,7 +450,14 @@ def record_tool_execution_status(
         "intake_id_sha256": intake_id,
         "tool_use_id_sha256": call_id,
         "route_code": activity.get("route_code"),
-    } or activity.get("route_code") not in ACTIVITY_ROUTES:
+        "tool_name_sha256": activity.get("tool_name_sha256"),
+        "wrapped_bash": activity.get("wrapped_bash"),
+    } or (
+        activity.get("route_code") not in ACTIVITY_ROUTES
+        or not isinstance(activity.get("tool_name_sha256"), str)
+        or _SHA256.fullmatch(activity["tool_name_sha256"]) is None
+        or type(activity.get("wrapped_bash")) is not bool
+    ):
         raise ToolRuntimeError("tool execution has no matching expected activity")
     value = {
         "schema": "tool-execution-status.v16",
@@ -505,6 +522,9 @@ def load_expected_tool_calls(
             or value.get("task_id_sha256") != task_id
             or value.get("intake_id_sha256") != intake_id
             or value.get("route_code") not in ACTIVITY_ROUTES
+            or not isinstance(value.get("tool_name_sha256"), str)
+            or _SHA256.fullmatch(value["tool_name_sha256"]) is None
+            or type(value.get("wrapped_bash")) is not bool
             or not isinstance(call_id, str)
             or _SHA256.fullmatch(call_id) is None
             or path.name != f"{task_id}.activity.{intake_id}.{call_id}.json"
@@ -535,11 +555,21 @@ def load_tool_call_binding(
         "intake_id_sha256": intake_id,
         "tool_use_id_sha256": call_id,
         "route_code": route_code,
-    } or route_code not in ACTIVITY_ROUTES or paths[0].name != f"{task_id}.activity.{intake_id}.{call_id}.json":
+        "tool_name_sha256": value.get("tool_name_sha256"),
+        "wrapped_bash": value.get("wrapped_bash"),
+    } or (
+        route_code not in ACTIVITY_ROUTES
+        or not isinstance(value.get("tool_name_sha256"), str)
+        or _SHA256.fullmatch(value["tool_name_sha256"]) is None
+        or type(value.get("wrapped_bash")) is not bool
+        or paths[0].name != f"{task_id}.activity.{intake_id}.{call_id}.json"
+    ):
         raise ToolRuntimeError("tool activity state invalid")
     return {
         "intake": _load_intake(root, task_id, intake_id),
         "route_code": route_code,
+        "tool_name_sha256": value["tool_name_sha256"],
+        "wrapped_bash": value["wrapped_bash"],
     }
 
 

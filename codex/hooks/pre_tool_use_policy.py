@@ -233,6 +233,7 @@ if __name__ == "__main__":
     repo_activity = _repo_activity(x, tool_name, result["route"])
     intake: Mapping[str, Any] | None = None
     updated_command: str | None = None
+    bash_command = _bash_command(tool_name, tool_input)
     if result["decision"] == "allow" and repo_activity:
         try:
             intake = load_current_intake(
@@ -268,6 +269,8 @@ if __name__ == "__main__":
             intake_id_sha256=intake["intake_id_sha256"] if intake else None,
             tool_use_id=x.get("tool_use_id", x.get("tool_call_id")),
             route_code=result["route_code"],
+            tool_name=tool_name,
+            wrapped_bash=bash_command is not None,
         ):
             result = {
                 **result,
@@ -276,10 +279,9 @@ if __name__ == "__main__":
                 "reason_code": "tool_activity_state_unavailable",
             }
         if result["decision"] == "allow" and intake is not None:
-            command = _bash_command(tool_name, tool_input)
-            if command is not None:
+            if bash_command is not None:
                 updated_command = _wrap_bash_command(
-                    command,
+                    bash_command,
                     intake=intake,
                     tool_use_id=x.get("tool_use_id", x.get("tool_call_id")),
                 )
