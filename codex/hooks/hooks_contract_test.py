@@ -128,6 +128,25 @@ class HooksContractTests(unittest.TestCase):
             input=json.dumps(payload), text=True, capture_output=True, check=False, env=env,
         )
 
+    def _record_execution_status(
+        self, directory, *, task_id, intake_id, tool_use_id, exit_code=0,
+    ):
+        env = os.environ.copy()
+        env["CODEX_TOOL_STATE_DIR"] = str(pathlib.Path(directory) / "tool-state")
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(pathlib.Path(__file__).with_name("tool_execution_status.py")),
+                "--task-id-sha256", task_id,
+                "--intake-id-sha256", intake_id,
+                "--tool-use-id-sha256",
+                hashlib.sha256(str(tool_use_id).encode()).hexdigest(),
+                "--exit-code", str(exit_code),
+            ],
+            text=True, capture_output=True, check=False, env=env,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_real_session_subagent_and_pretool_entrypoints_persist_receipts(self):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -401,6 +420,10 @@ class HooksContractTests(unittest.TestCase):
                         json.loads(pre.stdout)["hookSpecificOutput"]["permissionDecision"],
                         "allow", pre.stdout,
                     )
+                self._record_execution_status(
+                    root, task_id=task_id, intake_id=intake_id,
+                    tool_use_id=call_id,
+                )
                 post = self._run_entrypoint(
                     "post_tool_use_receipt.py",
                     {**common, "hook_event_name": "PostToolUse", "tool_name": "Bash",
@@ -438,6 +461,10 @@ class HooksContractTests(unittest.TestCase):
                 root,
             )
             self.assertEqual(json.loads(conflict_pre.stdout)["hookSpecificOutput"]["permissionDecision"], "allow")
+            self._record_execution_status(
+                root, task_id=task_id, intake_id=intake_id,
+                tool_use_id=conflict_id, exit_code=7,
+            )
             conflict_post = self._run_entrypoint(
                 "post_tool_use_receipt.py",
                 {**common, "hook_event_name": "PostToolUse", "tool_name": "Bash",
@@ -489,6 +516,10 @@ class HooksContractTests(unittest.TestCase):
                 ], text=True, capture_output=True, check=False, env=env,
             )
             self.assertEqual(recorded.returncode, 0, recorded.stderr)
+            self._record_execution_status(
+                root, task_id=missing_task, intake_id=missing_intake_id,
+                tool_use_id="contract-2",
+            )
             post = self._run_entrypoint(
                 "post_tool_use_receipt.py",
                 {**missing_common, "hook_event_name": "PostToolUse", "tool_name": "Bash",
@@ -573,6 +604,93 @@ class HooksContractTests(unittest.TestCase):
             with self.subTest(rejected=rejected[:30]):
                 self.assertFalse(post_tool_use_receipt.tool_succeeded(rejected))
 
+    def test_bash_success_is_bound_by_pretool_wrapper_not_model_facing_output(self):
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as repo:
+            root = pathlib.Path(directory)
+            pathlib.Path(repo, ".git").mkdir()
+            common = {
+                "session_id": "wire-session", "turn_id": "wire-turn",
+                "model": "gpt-5.6-sol", "cwd": repo,
+            }
+            prompt = "PRIVATE live wire counterexample"
+            intake_result = self._run_entrypoint(
+                "session_context.py",
+                {**common, "hook_event_name": "UserPromptSubmit", "prompt": prompt},
+                root,
+            )
+            context = json.loads(intake_result.stdout)["hookSpecificOutput"]["additionalContext"]
+            task_id = hashlib.sha256(b"wire-session\0wire-turn").hexdigest()
+            shape_id = hashlib.sha256(prompt.encode()).hexdigest()
+            intake_id = re.search(
+                r"--intake-id-sha256 ([0-9a-f]{64})", context
+            ).group(1)
+            env = os.environ.copy()
+            env["CODEX_TOOL_STATE_DIR"] = str(root / "tool-state")
+            recorded = subprocess.run(
+                [
+                    sys.executable,
+                    str(pathlib.Path(__file__).parents[1] / "bin" / "toolchain-auto.py"),
+                    "--record-task-contract", "--repository-work",
+                    "--task-id-sha256", task_id,
+                    "--task-shape-sha256", shape_id,
+                    "--intake-id-sha256", intake_id,
+                    "--machine-exact-only",
+                ],
+                text=True, capture_output=True, check=False, env=env,
+            )
+            self.assertEqual(recorded.returncode, 0, recorded.stderr)
+
+            for call_id, command, expected_exit, model_output, decision in (
+                ("wire-ok", "printf PRIVATE_SUCCESS", 0, "PRIVATE_SUCCESS", "allow"),
+                ("wire-fail", "printf PRIVATE_FAILURE; exit 7", 7, "PRIVATE_FAILURE", "deny"),
+            ):
+                pre = self._run_entrypoint(
+                    "pre_tool_use_policy.py",
+                    {**common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                     "tool_use_id": call_id, "tool_input": {"command": command}},
+                    root,
+                )
+                specific = json.loads(pre.stdout)["hookSpecificOutput"]
+                self.assertEqual(specific["permissionDecision"], "allow")
+                wrapped = specific["updatedInput"]["command"]
+                self.assertIn("tool_execution_status.py", wrapped)
+                execution = subprocess.run(
+                    ["/bin/bash", "-lc", wrapped], cwd=repo, env=env,
+                    text=True, capture_output=True, check=False,
+                )
+                self.assertEqual(execution.returncode, expected_exit, execution.stderr)
+                self.assertEqual(execution.stdout, model_output)
+                post = self._run_entrypoint(
+                    "post_tool_use_receipt.py",
+                    {**common, "hook_event_name": "PostToolUse", "tool_name": "Bash",
+                     "tool_use_id": call_id, "tool_input": {"command": command},
+                     "tool_response": model_output},
+                    root,
+                )
+                self.assertEqual(post.returncode, 0, post.stderr)
+                records = [
+                    json.loads(line)
+                    for path in root.glob("*.jsonl")
+                    for line in path.read_text(encoding="utf-8").splitlines()
+                ]
+                receipt = [
+                    item for item in records
+                    if item["event"] == "PostToolUse"
+                    and item["tool_call_id_sha256"] == hashlib.sha256(call_id.encode()).hexdigest()
+                ][0]
+                self.assertEqual(receipt["decision"], decision)
+                self.assertEqual(
+                    receipt["response_diagnostics"]["normalized_shape"],
+                    "pretool_wrapped_bash",
+                )
+                self.assertNotIn("PRIVATE", json.dumps(receipt, sort_keys=True))
+
+            persisted_status = "".join(
+                path.read_text(encoding="utf-8")
+                for path in (root / "tool-state").glob("*.execution.*.json")
+            )
+            self.assertNotIn("PRIVATE", persisted_status)
+
     def test_post_receipt_persists_only_safe_response_structure_and_intake(self):
         with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as repo:
             root = pathlib.Path(directory)
@@ -622,6 +740,10 @@ class HooksContractTests(unittest.TestCase):
                 text=True, capture_output=True, check=False, env=env,
             )
             self.assertEqual(recorded.returncode, 0, recorded.stderr)
+            self._record_execution_status(
+                root, task_id=task_id, intake_id=intake_id,
+                tool_use_id="live-call",
+            )
             post = self._run_entrypoint(
                 "post_tool_use_receipt.py",
                 {**common, "hook_event_name": "PostToolUse", "tool_name": "Bash",
@@ -743,6 +865,10 @@ class HooksContractTests(unittest.TestCase):
                         json.loads(pre.stdout)["hookSpecificOutput"]["permissionDecision"],
                         "allow",
                     )
+                self._record_execution_status(
+                    root, task_id=child_task, intake_id=child_intake,
+                    tool_use_id=call_id,
+                )
                 post = self._run_entrypoint(
                     "post_tool_use_receipt.py",
                     {**child_common, "hook_event_name": "PostToolUse", "tool_name": "Bash",

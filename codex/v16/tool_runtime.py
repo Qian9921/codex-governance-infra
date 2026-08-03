@@ -404,6 +404,79 @@ def record_expected_tool_call(
         return False
 
 
+def record_tool_execution_status(
+    *, task_id_sha256: str, intake_id_sha256: str,
+    tool_use_id_sha256: str, exit_code: int,
+    state_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    """Persist the exit status produced by the PreToolUse-injected Bash wrapper.
+
+    Codex's public PostToolUse wire intentionally exposes model-facing tool
+    output, not a portable Bash exit-code field.  The wrapper runs after the
+    original command and records only hashed lifecycle identities plus the
+    integer exit status.  It never receives or persists the raw command or its
+    output.
+    """
+
+    task_id = _require_sha(task_id_sha256, "task_id_sha256")
+    intake_id = _require_sha(intake_id_sha256, "intake_id_sha256")
+    call_id = _require_sha(tool_use_id_sha256, "tool_use_id_sha256")
+    if type(exit_code) is not int:
+        raise ToolRuntimeError("tool execution exit_code must be an integer")
+    root = _state_dir(state_dir)
+    activity_path = _state_path(root, task_id, f"activity.{intake_id}.{call_id}")
+    activity = _read_private_json(activity_path)
+    if activity != {
+        "schema": "tool-turn-activity.v16",
+        "task_id_sha256": task_id,
+        "intake_id_sha256": intake_id,
+        "tool_use_id_sha256": call_id,
+    }:
+        raise ToolRuntimeError("tool execution has no matching expected activity")
+    value = {
+        "schema": "tool-execution-status.v16",
+        "task_id_sha256": task_id,
+        "intake_id_sha256": intake_id,
+        "tool_use_id_sha256": call_id,
+        "exit_code": exit_code,
+    }
+    path = _state_path(root, task_id, f"execution.{intake_id}.{call_id}")
+    if path.exists():
+        existing = _read_private_json(path)
+        if existing != value:
+            raise ToolRuntimeError("tool execution status is immutable")
+        return existing
+    _write_private_json(path, value)
+    return value
+
+
+def load_tool_execution_status(
+    *, session_id: Any, turn_id: Any, tool_use_id: Any,
+    intake_id_sha256: str, agent_id: Any = None,
+    state_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    """Load one wrapper-authored Bash completion bound to the current intake."""
+
+    if not isinstance(tool_use_id, (str, int)) or not str(tool_use_id):
+        raise ToolRuntimeError("tool_use_id required for execution binding")
+    task_id = _event_task_id(session_id, turn_id, agent_id)
+    intake_id = _require_sha(intake_id_sha256, "intake_id_sha256")
+    call_id = _sha256(str(tool_use_id))
+    root = _state_dir(state_dir)
+    value = _read_private_json(
+        _state_path(root, task_id, f"execution.{intake_id}.{call_id}")
+    )
+    if value != {
+        "schema": "tool-execution-status.v16",
+        "task_id_sha256": task_id,
+        "intake_id_sha256": intake_id,
+        "tool_use_id_sha256": call_id,
+        "exit_code": value.get("exit_code"),
+    } or type(value.get("exit_code")) is not int:
+        raise ToolRuntimeError("tool execution status invalid")
+    return value
+
+
 def load_expected_tool_calls(
     *, session_id: Any, turn_id: Any, agent_id: Any = None,
     state_dir: str | os.PathLike[str] | None = None,

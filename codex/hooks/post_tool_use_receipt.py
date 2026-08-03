@@ -27,7 +27,11 @@ PACKAGE_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
-from v16.tool_runtime import ToolRuntimeError, load_tool_call_intake  # noqa: E402
+from v16.tool_runtime import (  # noqa: E402
+    ToolRuntimeError,
+    load_tool_call_intake,
+    load_tool_execution_status,
+)
 
 
 _KNOWN_KEYS = frozenset({
@@ -248,7 +252,6 @@ def main() -> int:
     tool_name = payload.get("tool_name", payload.get("tool", ""))
     tool_input = payload.get("tool_input", payload.get("args"))
     route = pre_tool_use_policy.route_for(tool_name, tool_input)
-    classification = classify_tool_response(payload.get("tool_response"))
     intake: Mapping[str, Any] | None = None
     try:
         intake = load_tool_call_intake(
@@ -259,6 +262,41 @@ def main() -> int:
         )
     except (OSError, ToolRuntimeError):
         pass
+    classification = classify_tool_response(payload.get("tool_response"))
+    is_repo_bash = (
+        pre_tool_use_policy._bash_command(tool_name, tool_input) is not None
+        and pre_tool_use_policy._repo_activity(payload, tool_name, route)
+    )
+    if intake is not None and is_repo_bash:
+        try:
+            execution = load_tool_execution_status(
+                session_id=payload.get("session_id"),
+                turn_id=payload.get("turn_id"),
+                agent_id=payload.get("agent_id"),
+                tool_use_id=payload.get("tool_use_id", payload.get("tool_call_id")),
+                intake_id_sha256=intake["intake_id_sha256"],
+            )
+        except (OSError, ToolRuntimeError):
+            classification = ToolResponseClassification(
+                False,
+                "tool_execution_status_unavailable",
+                {
+                    "schema": "tool-response-diagnostics.v16",
+                    "envelope_type": "private_execution_state",
+                    "normalized_shape": "pretool_wrapped_bash",
+                    "normalized_status": "unknown",
+                    "known_keys": [],
+                    "key_types": {},
+                    "unknown_key_count": 0,
+                },
+            )
+        else:
+            classification = _classified(
+                execution,
+                envelope_type="private_execution_state",
+                shape="pretool_wrapped_bash",
+                status="success" if execution["exit_code"] == 0 else "failure",
+            )
     succeeded = classification.succeeded and intake is not None
     reason_code = (
         classification.reason_code

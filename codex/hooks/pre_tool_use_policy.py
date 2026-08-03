@@ -10,6 +10,7 @@ never persisted and never change allow/deny.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import pathlib
 import shlex
@@ -128,6 +129,51 @@ def _contract_recorder(tool: Any, args: Any) -> bool:
     )
 
 
+def _bash_command(tool: Any, args: Any) -> str | None:
+    if _tool_key(tool) not in {"bash", "exec_command", "functions.exec_command", "shell"}:
+        return None
+    if not isinstance(args, Mapping):
+        return None
+    command = args.get("command", args.get("cmd"))
+    return command if isinstance(command, str) and command.strip() else None
+
+
+def _wrap_bash_command(
+    command: str, *, intake: Mapping[str, Any], tool_use_id: Any,
+) -> str | None:
+    """Inject a status-only recorder without persisting command or output.
+
+    Public Codex PostToolUse payloads carry model-facing output and deliberately
+    do not guarantee a Bash exit-code field.  The original command therefore
+    runs in a subshell; an installed helper records only its integer status
+    against the already-created opaque activity identity.
+    """
+
+    if not isinstance(tool_use_id, (str, int)) or not str(tool_use_id):
+        return None
+    task_id = intake.get("task_id_sha256")
+    intake_id = intake.get("intake_id_sha256")
+    if not isinstance(task_id, str) or not isinstance(intake_id, str):
+        return None
+    call_id = hashlib.sha256(str(tool_use_id).encode("utf-8")).hexdigest()
+    recorder = pathlib.Path(__file__).resolve().with_name("tool_execution_status.py")
+    recorder_command = " ".join((
+        shlex.quote(sys.executable), shlex.quote(os.fspath(recorder)),
+        "--task-id-sha256", shlex.quote(task_id),
+        "--intake-id-sha256", shlex.quote(intake_id),
+        "--tool-use-id-sha256", shlex.quote(call_id),
+        "--exit-code", '"$__codex_v16_exit_code"',
+    ))
+    return (
+        "(\n" + command + "\n)\n"
+        "__codex_v16_exit_code=$?\n"
+        + recorder_command + "\n"
+        "__codex_v16_status_recorder=$?\n"
+        'if [ "$__codex_v16_status_recorder" -ne 0 ]; then exit 125; fi\n'
+        'exit "$__codex_v16_exit_code"'
+    )
+
+
 def _repo_activity(payload: Mapping[str, Any], tool: Any, route: str) -> bool:
     return _inside_repo(payload.get("cwd")) and (
         _tool_key(tool) in REPO_ACTIVITY_TOOLS
@@ -186,6 +232,7 @@ if __name__ == "__main__":
     result = decide(tool_name, tool_input)
     repo_activity = _repo_activity(x, tool_name, result["route"])
     intake: Mapping[str, Any] | None = None
+    updated_command: str | None = None
     if result["decision"] == "allow" and repo_activity:
         try:
             intake = load_current_intake(
@@ -227,6 +274,21 @@ if __name__ == "__main__":
                 "reason": "current-turn tool activity state is unavailable",
                 "reason_code": "tool_activity_state_unavailable",
             }
+        if result["decision"] == "allow" and intake is not None:
+            command = _bash_command(tool_name, tool_input)
+            if command is not None:
+                updated_command = _wrap_bash_command(
+                    command,
+                    intake=intake,
+                    tool_use_id=x.get("tool_use_id", x.get("tool_call_id")),
+                )
+                if updated_command is None:
+                    result = {
+                        **result,
+                        "decision": "deny",
+                        "reason": "Bash execution status binding is unavailable",
+                        "reason_code": "tool_execution_binding_unavailable",
+                    }
     receipt_value = hook_receipt.receipt(
         "PreToolUse",
         x.get("model", os.environ.get("CODEX_MODEL", "unknown")),
@@ -254,6 +316,8 @@ if __name__ == "__main__":
         "permissionDecision": result["decision"],
         "permissionDecisionReason": result["reason"],
     }
+    if result["decision"] == "allow" and updated_command is not None:
+        specific["updatedInput"] = {"command": updated_command}
     output = {"hookSpecificOutput": specific}
     if not written:
         output["systemMessage"] = (

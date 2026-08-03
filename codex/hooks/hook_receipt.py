@@ -34,8 +34,14 @@ _ROUTE_CODES = frozenset({
 _ROUTE_ALIASES = {"CodeGraph": "codegraph", "Semble": "semble"}
 _DECISIONS = frozenset({"allow", "deny"})
 _RECEIPT_STATUSES = frozenset({"not_written", "written", "write_failed"})
-_RESPONSE_ENVELOPES = frozenset({"mapping", "json_string", "scalar_string", "null", "sequence", "scalar"})
-_RESPONSE_SHAPES = frozenset({"codex_app_exec", "mcp_result", "declared_result", "unknown"})
+_RESPONSE_ENVELOPES = frozenset({
+    "mapping", "json_string", "scalar_string", "null", "sequence", "scalar",
+    "private_execution_state",
+})
+_RESPONSE_SHAPES = frozenset({
+    "codex_app_exec", "mcp_result", "declared_result", "unknown",
+    "pretool_wrapped_bash",
+})
 _RESPONSE_STATUSES = frozenset({"success", "failure", "contradictory", "incomplete", "unknown"})
 _RESPONSE_TYPES = frozenset({"null", "boolean", "integer", "number", "string", "object", "array"})
 _RESPONSE_KEYS = frozenset({
@@ -58,6 +64,7 @@ SNAPSHOT_FILES = (
     _PACKAGE_ROOT / "hooks" / "session_context.py",
     _PACKAGE_ROOT / "hooks" / "pre_tool_use_policy.py",
     _PACKAGE_ROOT / "hooks" / "post_tool_use_receipt.py",
+    _PACKAGE_ROOT / "hooks" / "tool_execution_status.py",
     _PACKAGE_ROOT / "hooks" / "stop_tool_enforcement.py",
     _PACKAGE_ROOT / "hooks" / "hook_receipt.py",
     _PACKAGE_ROOT / "hooks" / "hooks_contract_test.py",
