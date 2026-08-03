@@ -657,7 +657,7 @@ class HooksContractTests(unittest.TestCase):
             )
             calls = (
                 ("machine-contract", recorder),
-                ("machine-shell", "rtk ls -ld /tmp"),
+                ("machine-shell", "rtk ls -ld /var/tmp"),
             )
             contract_pre = self._run_entrypoint(
                 "pre_tool_use_policy.py",
@@ -695,10 +695,41 @@ class HooksContractTests(unittest.TestCase):
             repo_read_output = json.loads(repo_read.stdout)["hookSpecificOutput"]
             self.assertEqual(repo_read_output["permissionDecision"], "deny")
             self.assertIn(
-                "non-repository contract cannot authorize activity",
+                "non-repository contract cannot authorize repository activity",
                 repo_read_output["permissionDecisionReason"],
             )
             outside_common = {**common, "cwd": "/var/tmp"}
+
+            absolute_repo_read = self._run_entrypoint(
+                "pre_tool_use_policy.py",
+                {**outside_common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                 "tool_use_id": "absolute-repo-scope-expansion",
+                 "tool_input": {"command": (
+                     "rtk rg -n repository_work "
+                     f"{repo}/codex/hooks/stop_tool_enforcement.py"
+                 )}},
+                root,
+            )
+            absolute_repo_output = json.loads(
+                absolute_repo_read.stdout
+            )["hookSpecificOutput"]
+            self.assertEqual(absolute_repo_output["permissionDecision"], "deny")
+            self.assertIn(
+                "cannot authorize repository activity or targets",
+                absolute_repo_output["permissionDecisionReason"],
+            )
+
+            git_repo_read = self._run_entrypoint(
+                "pre_tool_use_policy.py",
+                {**outside_common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                 "tool_use_id": "git-repo-scope-expansion",
+                 "tool_input": {"command": f"rtk git -C {repo} show"}},
+                root,
+            )
+            self.assertEqual(
+                json.loads(git_repo_read.stdout)["hookSpecificOutput"]["permissionDecision"],
+                "deny",
+            )
 
             for call_id, command in calls:
                 if call_id == "machine-shell":

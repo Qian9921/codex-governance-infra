@@ -239,8 +239,9 @@ inventory that does not read or write a repository. Only repository scope
 requires strict CodeGraph/Semble/rtk readiness; non-repository scope declares no
 repository route signals and cannot be reused after scope expands.
 requires non-repository tool calls to run from a cwd outside every Git
-repository; inside-repository activity is denied until a new repository-scoped
-intake is bound. `PreToolUse`
+repository; inside-repository activity, explicit repository targets, and
+repository-only tools are denied until a new repository-scoped intake is
+bound. Installed state below `CODEX_HOME` remains machine scope. `PreToolUse`
 denies repository tools until that immutable complete contract exists and
 records each expected call id. `PostToolUse` accepts only explicit supported
 success shapes. `Stop` requires every expected call to have a matching

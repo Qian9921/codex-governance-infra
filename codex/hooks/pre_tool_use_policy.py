@@ -3,8 +3,8 @@
 
 The normalized tool name owns policy.  For a generic execution tool, a direct
 ``rtk <evidence-tool>`` transport is classified as the substantive evidence
-route.  Only executable labels are inspected transiently; raw arguments are
-never persisted and never change allow/deny.
+route.  Executable labels and path-like targets are inspected transiently;
+raw arguments are never persisted.
 """
 
 from __future__ import annotations
@@ -58,6 +58,10 @@ ROUTE_BY_TOOL = {
 REPO_ACTIVITY_TOOLS = frozenset({
     "bash", "exec_command", "functions.exec_command", "apply_patch", "edit", "write",
 })
+REPOSITORY_ONLY_ROUTES = frozenset({
+    "preflight", "maintenance", "codegraph", "semble",
+})
+REPOSITORY_MUTATION_TOOLS = frozenset({"apply_patch", "edit", "write"})
 
 
 def _tool_key(tool: Any) -> str:
@@ -109,6 +113,87 @@ def _inside_repo(cwd: Any) -> bool:
     except (OSError, RuntimeError):
         return False
     return any((parent / ".git").exists() for parent in (current, *current.parents))
+
+
+def _inside_codex_home(path: pathlib.Path) -> bool:
+    """Keep installed Codex state available to machine/plugin inventory tasks."""
+
+    configured = os.environ.get("CODEX_HOME")
+    codex_home = pathlib.Path(configured).expanduser() if configured else pathlib.Path.home() / ".codex"
+    try:
+        resolved_home = codex_home.resolve(strict=False)
+        resolved_path = path.resolve(strict=False)
+    except (OSError, RuntimeError):
+        return False
+    return resolved_path == resolved_home or resolved_home in resolved_path.parents
+
+
+def _path_targets_repo(value: str, cwd: Any) -> bool:
+    """Return true when one transient path token resolves inside a Git repo."""
+
+    candidate = value.strip("'\";,|&<>()[]{}")
+    if not candidate or "://" in candidate:
+        return False
+    if "=" in candidate and candidate.startswith("--"):
+        candidate = candidate.split("=", 1)[1]
+    candidate = candidate.lstrip(">")
+    if not candidate or candidate.startswith("-"):
+        return False
+    if not (candidate.startswith(("/", "./", "../", "~")) or "/" in candidate):
+        return False
+    try:
+        path = pathlib.Path(candidate).expanduser()
+        if not path.is_absolute():
+            if not isinstance(cwd, str) or not cwd:
+                return False
+            path = pathlib.Path(cwd) / path
+        resolved = path.resolve(strict=False)
+    except (OSError, RuntimeError):
+        return False
+    if _inside_codex_home(resolved):
+        return False
+    probe = resolved if resolved.exists() else resolved.parent
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    return _inside_repo(str(probe))
+
+
+def _argument_strings(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, Mapping):
+        return [item for nested in value.values() for item in _argument_strings(nested)]
+    if isinstance(value, (list, tuple)):
+        return [item for nested in value for item in _argument_strings(nested)]
+    return []
+
+
+def _nonrepo_repository_access(
+    payload: Mapping[str, Any], tool: Any, args: Any, route: str,
+) -> bool:
+    """Detect repository-only tools or explicit repository targets.
+
+    This is intentionally transient: no command, argument, or resolved path is
+    written to receipts.  It closes the outside-cwd/absolute-target bypass
+    without preventing machine inventory under the installed Codex home.
+    """
+
+    key = _tool_key(tool)
+    route_key = route.lower()
+    if key in REPOSITORY_MUTATION_TOOLS or route_key in REPOSITORY_ONLY_ROUTES:
+        return True
+    strings = _argument_strings(args)
+    for value in strings:
+        try:
+            tokens = shlex.split(value, posix=True)
+        except ValueError:
+            tokens = value.split()
+        executables = [pathlib.PurePosixPath(token).name.lower() for token in tokens[:2]]
+        if "git" in executables or "codegraph" in executables or "semble" in executables:
+            return True
+        if any(_path_targets_repo(token, payload.get("cwd")) for token in tokens):
+            return True
+    return False
 
 
 def _contract_recorder(tool: Any, args: Any) -> bool:
@@ -184,10 +269,9 @@ def _repo_activity(payload: Mapping[str, Any], tool: Any, route: str) -> bool:
 def _governed_activity(payload: Mapping[str, Any], tool: Any, route: str) -> bool:
     """Gate hook-observable activity whenever the runtime supplies a cwd.
 
-    Repository scope is determined by the bound task contract, not inferred
-    from command arguments.  A non-repository task can therefore execute from
-    a cwd outside every Git repository while an inside-repository call becomes
-    an explicit scope-expansion failure.
+    Repository scope is determined by the bound task contract.  A
+    non-repository task may execute machine-only calls from a cwd outside every
+    Git repository, subject to the separate repository-target boundary.
     """
 
     cwd = payload.get("cwd")
@@ -279,16 +363,18 @@ if __name__ == "__main__":
                         "reason_code": "task_contract_required",
                     }
                 else:
-                    if (
-                        contract["repository_work"] is False
-                        and _inside_repo(x.get("cwd"))
+                    if contract["repository_work"] is False and (
+                        _inside_repo(x.get("cwd"))
+                        or _nonrepo_repository_access(
+                            x, tool_name, tool_input, result["route"],
+                        )
                     ):
                         result = {
                             **result,
                             "decision": "deny",
                             "reason": (
-                                "non-repository contract cannot authorize activity "
-                                "from a Git repository; start a repository-scoped intake"
+                                "non-repository contract cannot authorize repository "
+                                "activity or targets; start a repository-scoped intake"
                             ),
                             "reason_code": "non_repository_scope_expansion",
                         }
