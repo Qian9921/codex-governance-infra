@@ -18,6 +18,7 @@ import json
 import os
 import pathlib
 import re
+import secrets
 import stat
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -114,6 +115,14 @@ def turn_task_id(session_id: Any, turn_id: Any) -> str:
     return _sha256(f"{session_id}\0{turn_id}")
 
 
+def _event_task_id(session_id: Any, turn_id: Any, agent_id: Any = None) -> str:
+    # PreToolUse/PostToolUse do not carry agent_id on the public Codex wire.
+    # The session+turn pair is therefore the only lifecycle identity shared by
+    # SubagentStart and the child's later tool/stop events.  agent_id remains
+    # hashed lineage metadata on the intake, never a lookup requirement.
+    return turn_task_id(session_id, turn_id)
+
+
 def _state_path(root: pathlib.Path, task_id: str, suffix: str) -> pathlib.Path:
     return root / f"{_require_sha(task_id, 'task_id_sha256')}.{suffix}.json"
 
@@ -157,34 +166,168 @@ def _read_private_json(path: pathlib.Path) -> dict[str, Any]:
     return value
 
 
+def _validate_intake(value: Mapping[str, Any]) -> dict[str, Any]:
+    fields = {
+        "schema", "task_id_sha256", "intake_id_sha256", "task_shape_sha256",
+        "intake_kind", "parent_intake_id_sha256", "agent_id_sha256",
+    }
+    if not isinstance(value, Mapping) or set(value) != fields:
+        raise ToolRuntimeError("tool intake fields must match the exact v16 schema")
+    result = dict(value)
+    if result["schema"] != "tool-turn-intake.v16":
+        raise ToolRuntimeError("task intake schema mismatch")
+    _require_sha(result["task_id_sha256"], "task_id_sha256")
+    _require_sha(result["intake_id_sha256"], "intake_id_sha256")
+    _require_sha(result["task_shape_sha256"], "task_shape_sha256")
+    if result["intake_kind"] not in {"user_prompt", "subagent"}:
+        raise ToolRuntimeError("task intake kind invalid")
+    parent = result["parent_intake_id_sha256"]
+    agent = result["agent_id_sha256"]
+    if result["intake_kind"] == "user_prompt":
+        if parent is not None or agent is not None:
+            raise ToolRuntimeError("user prompt intake cannot carry child lineage")
+    else:
+        _require_sha(parent, "parent_intake_id_sha256")
+        _require_sha(agent, "agent_id_sha256")
+    return result
+
+
+def _current_pointer(root: pathlib.Path, task_id: str) -> pathlib.Path:
+    return _state_path(root, task_id, "current")
+
+
+def _session_parent_pointer(root: pathlib.Path, session_id: Any) -> pathlib.Path:
+    if not isinstance(session_id, (str, int)) or not str(session_id):
+        raise ToolRuntimeError("session_id required for parent intake lineage")
+    return _state_path(root, _sha256(str(session_id)), "parent-current")
+
+
+def _intake_path(root: pathlib.Path, task_id: str, intake_id: str) -> pathlib.Path:
+    return _state_path(
+        root,
+        task_id,
+        "intake." + _require_sha(intake_id, "intake_id_sha256"),
+    )
+
+
+def _write_new_intake(root: pathlib.Path, intake: Mapping[str, Any]) -> dict[str, Any]:
+    validated = _validate_intake(intake)
+    task_id = validated["task_id_sha256"]
+    intake_id = validated["intake_id_sha256"]
+    path = _intake_path(root, task_id, intake_id)
+    if path.exists():
+        raise ToolRuntimeError("opaque intake identity collision")
+    _write_private_json(path, validated)
+    _write_private_json(_current_pointer(root, task_id), {
+        "schema": "tool-current-intake.v16",
+        "task_id_sha256": task_id,
+        "intake_id_sha256": intake_id,
+    })
+    return validated
+
+
+def _load_intake(
+    root: pathlib.Path, task_id: str, intake_id: str,
+) -> dict[str, Any]:
+    intake = _validate_intake(_read_private_json(_intake_path(root, task_id, intake_id)))
+    if intake["task_id_sha256"] != task_id or intake["intake_id_sha256"] != intake_id:
+        raise ToolRuntimeError("task intake identity mismatch")
+    return intake
+
+
+def load_current_intake(
+    *, session_id: Any, turn_id: Any, agent_id: Any = None,
+    state_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    task_id = _event_task_id(session_id, turn_id, agent_id)
+    root = _state_dir(state_dir)
+    pointer = _read_private_json(_current_pointer(root, task_id))
+    if set(pointer) != {"schema", "task_id_sha256", "intake_id_sha256"}:
+        raise ToolRuntimeError("current intake pointer fields invalid")
+    if pointer.get("schema") != "tool-current-intake.v16":
+        raise ToolRuntimeError("current intake pointer schema mismatch")
+    if pointer.get("task_id_sha256") != task_id:
+        raise ToolRuntimeError("current intake pointer task mismatch")
+    intake_id = _require_sha(pointer.get("intake_id_sha256"), "intake_id_sha256")
+    return _load_intake(root, task_id, intake_id)
+
+
 def begin_turn_state(
     *, session_id: Any, turn_id: Any, prompt: Any,
     state_dir: str | os.PathLike[str] | None = None,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     if not isinstance(prompt, str):
         raise ToolRuntimeError("prompt required for task shape binding")
     task_id = turn_task_id(session_id, turn_id)
     intake = {
         "schema": "tool-turn-intake.v16",
         "task_id_sha256": task_id,
+        "intake_id_sha256": secrets.token_hex(32),
         "task_shape_sha256": _sha256(prompt),
+        "intake_kind": "user_prompt",
+        "parent_intake_id_sha256": None,
+        "agent_id_sha256": None,
     }
-    _write_private_json(_state_path(_state_dir(state_dir), task_id, "intake"), intake)
-    return intake
+    root = _state_dir(state_dir)
+    validated = _write_new_intake(root, intake)
+    _write_private_json(_session_parent_pointer(root, session_id), {
+        "schema": "tool-parent-intake-pointer.v16",
+        "task_id_sha256": validated["task_id_sha256"],
+        "intake_id_sha256": validated["intake_id_sha256"],
+    })
+    return validated
+
+
+def begin_child_turn_state(
+    *, session_id: Any, turn_id: Any, agent_id: Any,
+    state_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    """Create a child intake from parent lineage without inventing a prompt."""
+
+    root = _state_dir(state_dir)
+    pointer = _read_private_json(_session_parent_pointer(root, session_id))
+    if set(pointer) != {"schema", "task_id_sha256", "intake_id_sha256"}:
+        raise ToolRuntimeError("parent intake pointer fields invalid")
+    if pointer.get("schema") != "tool-parent-intake-pointer.v16":
+        raise ToolRuntimeError("parent intake pointer schema mismatch")
+    parent_task_id = _require_sha(pointer.get("task_id_sha256"), "task_id_sha256")
+    parent_intake_id = _require_sha(
+        pointer.get("intake_id_sha256"), "parent_intake_id_sha256"
+    )
+    parent = _load_intake(root, parent_task_id, parent_intake_id)
+    if parent["intake_kind"] != "user_prompt":
+        raise ToolRuntimeError("child intake parent must be a user prompt intake")
+    task_id = _event_task_id(session_id, turn_id, agent_id)
+    if task_id == parent_task_id:
+        raise ToolRuntimeError("child turn identity collides with parent turn")
+    intake = {
+        "schema": "tool-turn-intake.v16",
+        "task_id_sha256": task_id,
+        "intake_id_sha256": secrets.token_hex(32),
+        "task_shape_sha256": parent["task_shape_sha256"],
+        "intake_kind": "subagent",
+        "parent_intake_id_sha256": parent["intake_id_sha256"],
+        "agent_id_sha256": _sha256(str(agent_id)),
+    }
+    return _write_new_intake(root, intake)
 
 
 def persist_task_contract(
     contract: Mapping[str, Any], *,
+    intake_id_sha256: str,
     state_dir: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any]:
     validated = validate_task_contract(contract)
     root = _state_dir(state_dir)
-    intake = _read_private_json(_state_path(root, validated["task_id_sha256"], "intake"))
-    if intake.get("schema") != "tool-turn-intake.v16":
-        raise ToolRuntimeError("task intake schema mismatch")
+    intake_id = _require_sha(intake_id_sha256, "intake_id_sha256")
+    task_id = validated["task_id_sha256"]
+    intake = _load_intake(root, task_id, intake_id)
+    pointer = _read_private_json(_current_pointer(root, task_id))
+    if pointer.get("intake_id_sha256") != intake_id:
+        raise ToolRuntimeError("task contract intake is not current")
     if intake.get("task_shape_sha256") != validated["task_shape_sha256"]:
         raise ToolRuntimeError("task contract is not bound to current prompt shape")
-    path = _state_path(root, validated["task_id_sha256"], "contract")
+    path = _state_path(root, task_id, f"contract.{intake_id}")
     if path.exists():
         existing = validate_task_contract(_read_private_json(path))
         if existing != validated:
@@ -195,14 +338,25 @@ def persist_task_contract(
 
 
 def load_turn_contract(
-    *, session_id: Any, turn_id: Any,
+    *, session_id: Any, turn_id: Any, agent_id: Any = None,
+    intake_id_sha256: str | None = None,
     state_dir: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any]:
-    task_id = turn_task_id(session_id, turn_id)
+    task_id = _event_task_id(session_id, turn_id, agent_id)
     root = _state_dir(state_dir)
-    intake = _read_private_json(_state_path(root, task_id, "intake"))
+    current = load_current_intake(
+        session_id=session_id, turn_id=turn_id, agent_id=agent_id, state_dir=root,
+    )
+    intake_id = (
+        current["intake_id_sha256"]
+        if intake_id_sha256 is None
+        else _require_sha(intake_id_sha256, "intake_id_sha256")
+    )
+    if intake_id != current["intake_id_sha256"]:
+        raise ToolRuntimeError("turn contract intake is not current")
+    intake = _load_intake(root, task_id, intake_id)
     contract = validate_task_contract(
-        _read_private_json(_state_path(root, task_id, "contract"))
+        _read_private_json(_state_path(root, task_id, f"contract.{intake_id}"))
     )
     if contract["task_id_sha256"] != task_id:
         raise ToolRuntimeError("turn contract identity mismatch")
@@ -212,27 +366,37 @@ def load_turn_contract(
 
 
 def record_expected_tool_call(
-    *, session_id: Any, turn_id: Any, tool_use_id: Any,
+    *, session_id: Any, turn_id: Any, tool_use_id: Any, agent_id: Any = None,
+    intake_id_sha256: str | None = None,
     state_dir: str | os.PathLike[str] | None = None,
 ) -> bool:
     if not isinstance(tool_use_id, (str, int)) or not str(tool_use_id):
         return False
     try:
-        task_id = turn_task_id(session_id, turn_id)
+        task_id = _event_task_id(session_id, turn_id, agent_id)
         root = _state_dir(state_dir)
-        _read_private_json(_state_path(root, task_id, "intake"))
+        current = load_current_intake(
+            session_id=session_id, turn_id=turn_id, agent_id=agent_id, state_dir=root,
+        )
+        intake_id = current["intake_id_sha256"]
+        if intake_id_sha256 is not None and (
+            _require_sha(intake_id_sha256, "intake_id_sha256") != intake_id
+        ):
+            return False
         call_id = _sha256(str(tool_use_id))
-        path = _state_path(root, task_id, f"activity.{call_id}")
+        path = _state_path(root, task_id, f"activity.{intake_id}.{call_id}")
         if path.exists():
             value = _read_private_json(path)
             return value == {
                 "schema": "tool-turn-activity.v16",
                 "task_id_sha256": task_id,
+                "intake_id_sha256": intake_id,
                 "tool_use_id_sha256": call_id,
             }
         _write_private_json(path, {
             "schema": "tool-turn-activity.v16",
             "task_id_sha256": task_id,
+            "intake_id_sha256": intake_id,
             "tool_use_id_sha256": call_id,
         })
         return True
@@ -241,25 +405,54 @@ def record_expected_tool_call(
 
 
 def load_expected_tool_calls(
-    *, session_id: Any, turn_id: Any,
+    *, session_id: Any, turn_id: Any, agent_id: Any = None,
     state_dir: str | os.PathLike[str] | None = None,
 ) -> list[str]:
-    task_id = turn_task_id(session_id, turn_id)
+    task_id = _event_task_id(session_id, turn_id, agent_id)
     root = _state_dir(state_dir)
+    intake = load_current_intake(
+        session_id=session_id, turn_id=turn_id, agent_id=agent_id, state_dir=root,
+    )
+    intake_id = intake["intake_id_sha256"]
     calls: list[str] = []
-    for path in root.glob(f"{task_id}.activity.*.json"):
+    for path in root.glob(f"{task_id}.activity.{intake_id}.*.json"):
         value = _read_private_json(path)
         call_id = value.get("tool_use_id_sha256")
         if (
             value.get("schema") != "tool-turn-activity.v16"
             or value.get("task_id_sha256") != task_id
+            or value.get("intake_id_sha256") != intake_id
             or not isinstance(call_id, str)
             or _SHA256.fullmatch(call_id) is None
-            or path.name != f"{task_id}.activity.{call_id}.json"
+            or path.name != f"{task_id}.activity.{intake_id}.{call_id}.json"
         ):
             raise ToolRuntimeError("tool activity state invalid")
         calls.append(call_id)
     return sorted(set(calls))
+
+
+def load_tool_call_intake(
+    *, session_id: Any, turn_id: Any, tool_use_id: Any, agent_id: Any = None,
+    state_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    if not isinstance(tool_use_id, (str, int)) or not str(tool_use_id):
+        raise ToolRuntimeError("tool_use_id required for activity binding")
+    task_id = _event_task_id(session_id, turn_id, agent_id)
+    call_id = _sha256(str(tool_use_id))
+    root = _state_dir(state_dir)
+    paths = list(root.glob(f"{task_id}.activity.*.{call_id}.json"))
+    if len(paths) != 1:
+        raise ToolRuntimeError("tool activity intake binding unavailable or ambiguous")
+    value = _read_private_json(paths[0])
+    intake_id = _require_sha(value.get("intake_id_sha256"), "intake_id_sha256")
+    if value != {
+        "schema": "tool-turn-activity.v16",
+        "task_id_sha256": task_id,
+        "intake_id_sha256": intake_id,
+        "tool_use_id_sha256": call_id,
+    } or paths[0].name != f"{task_id}.activity.{intake_id}.{call_id}.json":
+        raise ToolRuntimeError("tool activity state invalid")
+    return _load_intake(root, task_id, intake_id)
 
 
 @dataclass(frozen=True)
@@ -576,9 +769,10 @@ def validate_enforcement_report(
 
 __all__ = [
     "ENFORCEMENT_SCHEMA", "ROUTES", "ROUTE_TO_TOOL", "SIGNALS", "TASK_SCHEMA",
-    "ToolRuntimeError", "ValidatedToolUsage", "begin_turn_state",
+    "ToolRuntimeError", "ValidatedToolUsage", "begin_child_turn_state", "begin_turn_state",
     "build_enforcement_report", "compile_task_contract", "load_expected_tool_calls",
-    "load_turn_contract", "persist_task_contract", "record_expected_tool_call",
+    "load_current_intake", "load_tool_call_intake", "load_turn_contract",
+    "persist_task_contract", "record_expected_tool_call",
     "turn_task_id", "validate_and_bind_usage_report", "validate_enforcement_report",
     "validate_task_contract",
 ]

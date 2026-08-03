@@ -71,8 +71,9 @@ HOOK_RECEIPT_FIELDS = frozenset(
         "schema", "schema_version", "utc", "event", "model", "tool_name",
         "decision", "reason", "reason_code", "route", "route_code",
         "snapshot_sha256", "identifiers_sha256", "session_id_sha256",
-        "turn_id_sha256", "tool_call_id_sha256", "source", "pid", "ppid",
-        "receipt_status",
+        "turn_id_sha256", "tool_call_id_sha256", "intake_id_sha256",
+        "parent_intake_id_sha256", "agent_id_sha256", "response_diagnostics",
+        "source", "pid", "ppid", "receipt_status",
     }
 )
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -186,10 +187,16 @@ def _normalize_receipts(
         if receipt["identifiers_sha256"] != task_id_sha256:
             raise RoutingError("hook receipt task identifier mismatch")
         _require_sha(receipt["tool_call_id_sha256"], "hook receipt tool_call_id_sha256")
+        _require_sha(receipt["intake_id_sha256"], "hook receipt intake_id_sha256")
+        if receipt["response_diagnostics"] is not None:
+            raise RoutingError("PreToolUse receipt cannot carry response diagnostics")
         for field in ("utc", "model", "tool_name", "reason", "reason_code"):
             if not isinstance(receipt[field], str) or not receipt[field]:
                 raise RoutingError(f"hook receipt {field} required")
-        for field in ("session_id_sha256", "turn_id_sha256"):
+        for field in (
+            "session_id_sha256", "turn_id_sha256", "parent_intake_id_sha256",
+            "agent_id_sha256",
+        ):
             if receipt[field] is not None:
                 _require_sha(receipt[field], f"hook receipt {field}")
         if receipt["source"] not in {"runtime", "test"}:

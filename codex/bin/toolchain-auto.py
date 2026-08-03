@@ -60,6 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--task-id-sha256")
     parser.add_argument("--task-shape-sha256")
+    parser.add_argument("--intake-id-sha256")
     parser.add_argument("--repository-work", action="store_true")
     parser.add_argument("--classifier-identity", default="agent-task-classifier.v16")
     for signal in SIGNALS:
@@ -68,8 +69,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.record_task_contract:
         if not args.repository_work:
             parser.error("--record-task-contract requires --repository-work")
-        if not args.task_id_sha256 or not args.task_shape_sha256:
-            parser.error("task and task-shape SHA-256 values are required")
+        if not args.task_id_sha256 or not args.task_shape_sha256 or not args.intake_id_sha256:
+            parser.error("task, task-shape, and intake SHA-256 values are required")
         try:
             contract = compile_task_contract(
                 task_id_sha256=args.task_id_sha256,
@@ -78,7 +79,11 @@ def main(argv: list[str] | None = None) -> int:
                 repository_work=True,
                 signals={name: bool(getattr(args, name)) for name in SIGNALS},
             )
-            recorded = persist_task_contract(contract, state_dir=args.state_dir)
+            recorded = persist_task_contract(
+                contract,
+                intake_id_sha256=args.intake_id_sha256,
+                state_dir=args.state_dir,
+            )
         except (OSError, ToolRuntimeError) as exc:
             print(json.dumps({
                 "schema": "tool-task-contract-error.v16",

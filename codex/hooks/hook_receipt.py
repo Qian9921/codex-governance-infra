@@ -34,6 +34,16 @@ _ROUTE_CODES = frozenset({
 _ROUTE_ALIASES = {"CodeGraph": "codegraph", "Semble": "semble"}
 _DECISIONS = frozenset({"allow", "deny"})
 _RECEIPT_STATUSES = frozenset({"not_written", "written", "write_failed"})
+_RESPONSE_ENVELOPES = frozenset({"mapping", "json_string", "scalar_string", "null", "sequence", "scalar"})
+_RESPONSE_SHAPES = frozenset({"codex_app_exec", "mcp_result", "declared_result", "unknown"})
+_RESPONSE_STATUSES = frozenset({"success", "failure", "contradictory", "incomplete", "unknown"})
+_RESPONSE_TYPES = frozenset({"null", "boolean", "integer", "number", "string", "object", "array"})
+_RESPONSE_KEYS = frozenset({
+    "_meta", "chunk_id", "content", "exitCode", "exit_code", "isError",
+    "is_error", "original_token_count", "output", "returncode", "session_id",
+    "status", "stderr", "stdout", "structuredContent", "success",
+    "wall_time_seconds",
+})
 SCHEMA_VERSION = "hook-receipt.v16"
 _PACKAGE_ROOT = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_CODEX_HOME = pathlib.Path(
@@ -74,6 +84,10 @@ _SAFE_FIELDS = frozenset(
         "session_id_sha256",
         "turn_id_sha256",
         "tool_call_id_sha256",
+        "intake_id_sha256",
+        "parent_intake_id_sha256",
+        "agent_id_sha256",
+        "response_diagnostics",
         "source",
         "pid",
         "ppid",
@@ -159,6 +173,44 @@ def _reason_code(value: Any) -> str:
     return normalized.lower()
 
 
+def _response_diagnostics(value: Any) -> dict[str, Any] | None:
+    """Normalize a fixed structural diagnostic schema; raw values never pass."""
+
+    if not isinstance(value, Mapping):
+        return None
+    if value.get("schema") != "tool-response-diagnostics.v16":
+        return None
+    envelope = value.get("envelope_type")
+    shape = value.get("normalized_shape")
+    status = value.get("normalized_status")
+    keys = value.get("known_keys")
+    types = value.get("key_types")
+    unknown_count = value.get("unknown_key_count")
+    if (
+        envelope not in _RESPONSE_ENVELOPES
+        or shape not in _RESPONSE_SHAPES
+        or status not in _RESPONSE_STATUSES
+        or not isinstance(keys, list)
+        or any(key not in _RESPONSE_KEYS for key in keys)
+        or keys != sorted(set(keys))
+        or not isinstance(types, Mapping)
+        or set(types) != set(keys)
+        or any(kind not in _RESPONSE_TYPES for kind in types.values())
+        or type(unknown_count) is not int
+        or unknown_count < 0
+    ):
+        return None
+    return {
+        "schema": "tool-response-diagnostics.v16",
+        "envelope_type": envelope,
+        "normalized_shape": shape,
+        "normalized_status": status,
+        "known_keys": list(keys),
+        "key_types": {key: types[key] for key in keys},
+        "unknown_key_count": unknown_count,
+    }
+
+
 def receipt(
     event: Any,
     model: Any,
@@ -171,6 +223,10 @@ def receipt(
     reason_code: Any = None,
     route: Any = None,
     identifiers: Mapping[str, Any] | None = None,
+    intake_id_sha256: Any = None,
+    parent_intake_id_sha256: Any = None,
+    agent_id_sha256: Any = None,
+    response_diagnostics: Any = None,
 ) -> dict[str, Any]:
     """Create a normalized in-memory receipt; no file is written here."""
 
@@ -192,6 +248,10 @@ def receipt(
         "route_code": normalized_route,
         "snapshot_sha256": _hash_label(snapshot_sha256) or _snapshot_sha256(),
         "identifiers_sha256": safe_hash(task_id) if task_id else None,
+        "intake_id_sha256": _hash_label(intake_id_sha256),
+        "parent_intake_id_sha256": _hash_label(parent_intake_id_sha256),
+        "agent_id_sha256": _hash_label(agent_id_sha256),
+        "response_diagnostics": _response_diagnostics(response_diagnostics),
         "source": "test" if os.environ.get("CODEX_HOOK_SOURCE") == "test" else "runtime",
         "pid": os.getpid(),
         "ppid": os.getppid(),
@@ -229,8 +289,14 @@ def _portable_record(value: Mapping[str, Any]) -> dict[str, Any]:
     result["decision"] = decision if isinstance(decision, str) and decision in _DECISIONS else None
     result["snapshot_sha256"] = _hash_label(result.get("snapshot_sha256")) or _snapshot_sha256()
     result["identifiers_sha256"] = _hash_label(result.get("identifiers_sha256"))
-    for key in ("session_id_sha256", "turn_id_sha256", "tool_call_id_sha256"):
+    for key in (
+        "session_id_sha256", "turn_id_sha256", "tool_call_id_sha256",
+        "intake_id_sha256", "parent_intake_id_sha256", "agent_id_sha256",
+    ):
         result[key] = _hash_label(result.get(key))
+    result["response_diagnostics"] = _response_diagnostics(
+        result.get("response_diagnostics")
+    )
     result["source"] = _label(
         result.get("source"),
         "test" if os.environ.get("CODEX_HOOK_SOURCE") == "test" else "runtime",

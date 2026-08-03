@@ -9,10 +9,13 @@ from codex.v16.tool_runtime import (
     ROUTES,
     ToolRuntimeError,
     ValidatedToolUsage,
+    begin_child_turn_state,
     begin_turn_state,
     build_enforcement_report,
     compile_task_contract,
     load_expected_tool_calls,
+    load_current_intake,
+    load_tool_call_intake,
     load_turn_contract,
     persist_task_contract,
     record_expected_tool_call,
@@ -217,6 +220,7 @@ class ToolRuntimeTests(unittest.TestCase):
                 session_id="session", turn_id="turn", prompt="inspect symbol",
                 state_dir=directory,
             )
+            self.assertRegex(intake["intake_id_sha256"], r"^[0-9a-f]{64}$")
             value = compile_task_contract(
                 task_id_sha256=intake["task_id_sha256"],
                 classifier_identity="test-classifier",
@@ -224,7 +228,14 @@ class ToolRuntimeTests(unittest.TestCase):
                 repository_work=True,
                 signals=signals(known_symbol_or_call=True),
             )
-            self.assertEqual(persist_task_contract(value, state_dir=directory), value)
+            self.assertEqual(
+                persist_task_contract(
+                    value,
+                    intake_id_sha256=intake["intake_id_sha256"],
+                    state_dir=directory,
+                ),
+                value,
+            )
             self.assertEqual(
                 load_turn_contract(
                     session_id="session", turn_id="turn", state_dir=directory
@@ -239,7 +250,11 @@ class ToolRuntimeTests(unittest.TestCase):
                 signals=signals(unknown_semantic_entrypoint=True),
             )
             with self.assertRaises(ToolRuntimeError):
-                persist_task_contract(changed, state_dir=directory)
+                persist_task_contract(
+                    changed,
+                    intake_id_sha256=intake["intake_id_sha256"],
+                    state_dir=directory,
+                )
             self.assertTrue(record_expected_tool_call(
                 session_id="session", turn_id="turn", tool_use_id="call-1",
                 state_dir=directory,
@@ -250,6 +265,140 @@ class ToolRuntimeTests(unittest.TestCase):
                 ),
                 [hashlib.sha256(b"call-1").hexdigest()],
             )
+            self.assertEqual(
+                load_tool_call_intake(
+                    session_id="session", turn_id="turn", tool_use_id="call-1",
+                    state_dir=directory,
+                )["intake_id_sha256"],
+                intake["intake_id_sha256"],
+            )
+
+    def test_stable_task_id_gets_new_immutable_intake_generation_per_prompt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            first = begin_turn_state(
+                session_id="stable-session", turn_id="stable-turn",
+                prompt="first prompt", state_dir=directory,
+            )
+            first_contract = compile_task_contract(
+                task_id_sha256=first["task_id_sha256"],
+                classifier_identity="test-classifier",
+                task_shape_sha256=first["task_shape_sha256"],
+                repository_work=True,
+                signals=signals(known_symbol_or_call=True),
+            )
+            persist_task_contract(
+                first_contract,
+                intake_id_sha256=first["intake_id_sha256"],
+                state_dir=directory,
+            )
+            self.assertTrue(record_expected_tool_call(
+                session_id="stable-session", turn_id="stable-turn",
+                tool_use_id="first-call", state_dir=directory,
+            ))
+
+            second = begin_turn_state(
+                session_id="stable-session", turn_id="stable-turn",
+                prompt="second prompt", state_dir=directory,
+            )
+            self.assertEqual(first["task_id_sha256"], second["task_id_sha256"])
+            self.assertNotEqual(first["intake_id_sha256"], second["intake_id_sha256"])
+            self.assertNotEqual(first["task_shape_sha256"], second["task_shape_sha256"])
+            second_contract = compile_task_contract(
+                task_id_sha256=second["task_id_sha256"],
+                classifier_identity="test-classifier",
+                task_shape_sha256=second["task_shape_sha256"],
+                repository_work=True,
+                signals=signals(unknown_semantic_entrypoint=True),
+            )
+            self.assertEqual(
+                persist_task_contract(
+                    second_contract,
+                    intake_id_sha256=second["intake_id_sha256"],
+                    state_dir=directory,
+                ),
+                second_contract,
+            )
+            self.assertEqual(
+                load_turn_contract(
+                    session_id="stable-session", turn_id="stable-turn",
+                    state_dir=directory,
+                ),
+                second_contract,
+            )
+            self.assertEqual(
+                load_current_intake(
+                    session_id="stable-session", turn_id="stable-turn",
+                    state_dir=directory,
+                ),
+                second,
+            )
+            self.assertEqual(
+                load_expected_tool_calls(
+                    session_id="stable-session", turn_id="stable-turn",
+                    state_dir=directory,
+                ),
+                [],
+            )
+            self.assertEqual(
+                load_tool_call_intake(
+                    session_id="stable-session", turn_id="stable-turn",
+                    tool_use_id="first-call", state_dir=directory,
+                )["intake_id_sha256"],
+                first["intake_id_sha256"],
+            )
+            with self.assertRaises(ToolRuntimeError):
+                persist_task_contract(
+                    first_contract,
+                    intake_id_sha256=second["intake_id_sha256"],
+                    state_dir=directory,
+                )
+
+    def test_subagent_intake_inherits_parent_shape_and_records_opaque_lineage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            parent = begin_turn_state(
+                session_id="session", turn_id="turn", prompt="parent prompt",
+                state_dir=directory,
+            )
+            child = begin_child_turn_state(
+                session_id="session", turn_id="child-turn", agent_id="child-agent",
+                state_dir=directory,
+            )
+            self.assertEqual(child["task_shape_sha256"], parent["task_shape_sha256"])
+            self.assertEqual(
+                child["parent_intake_id_sha256"], parent["intake_id_sha256"]
+            )
+            self.assertNotEqual(child["task_id_sha256"], parent["task_id_sha256"])
+            self.assertNotEqual(child["intake_id_sha256"], parent["intake_id_sha256"])
+            self.assertRegex(child["agent_id_sha256"], r"^[0-9a-f]{64}$")
+            child_contract = compile_task_contract(
+                task_id_sha256=child["task_id_sha256"],
+                classifier_identity="test-classifier",
+                task_shape_sha256=child["task_shape_sha256"],
+                repository_work=True,
+                signals=signals(machine_exact_only=True),
+            )
+            persist_task_contract(
+                child_contract,
+                intake_id_sha256=child["intake_id_sha256"],
+                state_dir=directory,
+            )
+            self.assertEqual(
+                load_turn_contract(
+                    session_id="session", turn_id="child-turn",
+                    state_dir=directory,
+                ),
+                child_contract,
+            )
+            with self.assertRaises(ToolRuntimeError):
+                begin_child_turn_state(
+                    session_id="missing", turn_id="parent", agent_id="child-agent",
+                    state_dir=directory,
+                )
+            with self.assertRaises(ToolRuntimeError):
+                begin_child_turn_state(
+                    session_id="session", turn_id="turn", agent_id="child-agent",
+                    state_dir=directory,
+                )
 
     def test_concurrent_activity_records_preserve_exact_denominator(self):
         with tempfile.TemporaryDirectory() as directory:

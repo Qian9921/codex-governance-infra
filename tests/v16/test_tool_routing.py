@@ -97,6 +97,10 @@ def _receipt(tool, tool_call_id, *, task=TASK_SHA, snapshot=SNAPSHOT_SHA):
         "session_id_sha256": None,
         "turn_id_sha256": None,
         "tool_call_id_sha256": tool_call_id,
+        "intake_id_sha256": "7" * 64,
+        "parent_intake_id_sha256": None,
+        "agent_id_sha256": None,
+        "response_diagnostics": None,
         "source": "test",
         "pid": 1,
         "ppid": 1,
@@ -503,6 +507,7 @@ class ToolRoutingTests(unittest.TestCase):
                 route_code="codegraph",
                 snapshot_sha256=SNAPSHOT_SHA,
                 identifiers={"tool_call_id": raw_call_id},
+                intake_id_sha256="7" * 64,
             )
             self.assertTrue(hook_receipt.write_receipt(value, destination))
             line = destination.read_bytes()

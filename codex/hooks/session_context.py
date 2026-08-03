@@ -22,7 +22,11 @@ PACKAGE_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
-from v16.tool_runtime import ToolRuntimeError, begin_turn_state  # noqa: E402
+from v16.tool_runtime import (  # noqa: E402
+    ToolRuntimeError,
+    begin_child_turn_state,
+    begin_turn_state,
+)
 
 
 ROUTING_GUIDANCE = {
@@ -109,6 +113,7 @@ if __name__ == "__main__":
     model = payload.get("model") if isinstance(payload.get("model"), str) else None
     context = build_context(event, model)
     intake_error: str | None = None
+    intake: dict[str, str | None] | None = None
     if event == "UserPromptSubmit":
         try:
             intake = begin_turn_state(
@@ -116,32 +121,53 @@ if __name__ == "__main__":
                 turn_id=payload.get("turn_id"),
                 prompt=payload.get("prompt"),
             )
-            choices = " ".join("--" + name.replace("_", "-") for name in (
-                "unknown_semantic_entrypoint", "similar_implementation",
-                "known_symbol_or_call", "dependency_or_blast_radius",
-                "exact_text_error_config_log", "shell_output_for_model",
-                "machine_exact_only",
-            ))
-            intake_context = (
-                "V16 TOOL-TASK-INTAKE. Route known symbol/call/impact to CodeGraph; "
-                "unknown semantics/similar code to Semble; exact text/error/config/log "
-                "to rg; shell output shown to the model through rtk. Before the first "
-                "hook-observable repository tool, run once: rtk python3 "
-                "\"${CODEX_HOME:-$HOME/.codex}/bin/toolchain-auto.py\" "
-                "--record-task-contract --repository-work "
-                f"--task-id-sha256 {intake['task_id_sha256']} "
-                f"--task-shape-sha256 {intake['task_shape_sha256']} "
-                "plus only the applicable flags from: " + choices + "."
-            )
-            context["additionalContext"] = intake_context[:1600]
         except (OSError, ToolRuntimeError) as exc:
             intake_error = type(exc).__name__
+    elif event == "SubagentStart":
+        try:
+            intake = begin_child_turn_state(
+                session_id=payload.get("session_id"),
+                turn_id=payload.get("turn_id"),
+                agent_id=payload.get("agent_id"),
+            )
+        except (OSError, ToolRuntimeError) as exc:
+            intake_error = type(exc).__name__
+    if intake is not None:
+        choices = " ".join("--" + name.replace("_", "-") for name in (
+            "unknown_semantic_entrypoint", "similar_implementation",
+            "known_symbol_or_call", "dependency_or_blast_radius",
+            "exact_text_error_config_log", "shell_output_for_model",
+            "machine_exact_only",
+        ))
+        lineage = (
+            " This child intake inherits only the parent prompt-shape hash and "
+            "opaque parent intake identity; no child prompt was invented."
+            if event == "SubagentStart" else ""
+        )
+        intake_context = (
+            "V16 TOOL-TASK-INTAKE." + lineage
+            + " Route known symbol/call/impact to CodeGraph; unknown semantics/similar "
+            "code to Semble; exact text/error/config/log to rg; shell output shown to "
+            "the model through rtk. Before the first hook-observable repository tool, "
+            "run once: rtk python3 \"${CODEX_HOME:-$HOME/.codex}/bin/toolchain-auto.py\" "
+            "--record-task-contract --repository-work "
+            f"--task-id-sha256 {intake['task_id_sha256']} "
+            f"--task-shape-sha256 {intake['task_shape_sha256']} "
+            f"--intake-id-sha256 {intake['intake_id_sha256']} "
+            "plus only the applicable flags from: " + choices + "."
+        )
+        context["additionalContext"] = intake_context[:1900]
     receipt_value = hook_receipt.receipt(
         event,
         model or os.environ.get("CODEX_MODEL", "unknown"),
         decision="allow",
         reason_code="session_context_emitted",
         identifiers=payload,
+        intake_id_sha256=intake.get("intake_id_sha256") if intake else None,
+        parent_intake_id_sha256=(
+            intake.get("parent_intake_id_sha256") if intake else None
+        ),
+        agent_id_sha256=intake.get("agent_id_sha256") if intake else None,
     )
     written = hook_receipt.write_receipt(receipt_value)
     output = {

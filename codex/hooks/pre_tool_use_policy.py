@@ -28,6 +28,7 @@ if str(PACKAGE_ROOT) not in sys.path:
 
 from v16.tool_runtime import (  # noqa: E402
     ToolRuntimeError,
+    load_current_intake,
     load_turn_contract,
     record_expected_tool_call,
 )
@@ -184,22 +185,40 @@ if __name__ == "__main__":
     tool_input = x.get("tool_input", x.get("args"))
     result = decide(tool_name, tool_input)
     repo_activity = _repo_activity(x, tool_name, result["route"])
+    intake: Mapping[str, Any] | None = None
     if result["decision"] == "allow" and repo_activity:
+        try:
+            intake = load_current_intake(
+                session_id=x.get("session_id"), turn_id=x.get("turn_id"),
+                agent_id=x.get("agent_id"),
+            )
+        except (OSError, ToolRuntimeError):
+            result = {
+                **result,
+                "decision": "deny",
+                "reason": "current intake identity and bound V16 task contract are unavailable",
+                "reason_code": "current_intake_required",
+            }
         if not _contract_recorder(tool_name, tool_input):
-            try:
-                load_turn_contract(
-                    session_id=x.get("session_id"), turn_id=x.get("turn_id")
-                )
-            except (OSError, ToolRuntimeError):
-                result = {
-                    **result,
-                    "decision": "deny",
-                    "reason": "record the bound V16 task contract before repository tools",
-                    "reason_code": "task_contract_required",
-                }
+            if result["decision"] == "allow":
+                try:
+                    load_turn_contract(
+                        session_id=x.get("session_id"), turn_id=x.get("turn_id"),
+                        agent_id=x.get("agent_id"),
+                        intake_id_sha256=intake["intake_id_sha256"] if intake else None,
+                    )
+                except (OSError, ToolRuntimeError):
+                    result = {
+                        **result,
+                        "decision": "deny",
+                        "reason": "record the bound V16 task contract before repository tools",
+                        "reason_code": "task_contract_required",
+                    }
         if result["decision"] == "allow" and not record_expected_tool_call(
             session_id=x.get("session_id"),
             turn_id=x.get("turn_id"),
+            agent_id=x.get("agent_id"),
+            intake_id_sha256=intake["intake_id_sha256"] if intake else None,
             tool_use_id=x.get("tool_use_id", x.get("tool_call_id")),
         ):
             result = {
@@ -216,6 +235,11 @@ if __name__ == "__main__":
         reason_code=result["reason_code"],
         route_code=result["route_code"],
         identifiers=x,
+        intake_id_sha256=intake.get("intake_id_sha256") if intake else None,
+        parent_intake_id_sha256=(
+            intake.get("parent_intake_id_sha256") if intake else None
+        ),
+        agent_id_sha256=intake.get("agent_id_sha256") if intake else None,
     )
     written = hook_receipt.write_receipt(receipt_value)
     if repo_activity and not written:

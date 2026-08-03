@@ -28,6 +28,7 @@ if str(PACKAGE_ROOT) not in sys.path:
 
 from v16.tool_runtime import (  # noqa: E402
     ToolRuntimeError,
+    load_current_intake,
     load_expected_tool_calls,
     load_turn_contract,
 )
@@ -73,8 +74,13 @@ def _current_records(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 def evaluate(payload: Mapping[str, Any]) -> dict[str, Any]:
     try:
+        intake = load_current_intake(
+            session_id=payload.get("session_id"), turn_id=payload.get("turn_id"),
+            agent_id=payload.get("agent_id"),
+        )
         expected = load_expected_tool_calls(
-            session_id=payload.get("session_id"), turn_id=payload.get("turn_id")
+            session_id=payload.get("session_id"), turn_id=payload.get("turn_id"),
+            agent_id=payload.get("agent_id"),
         )
     except (OSError, ToolRuntimeError):
         return {"status": "blocked", "missing": ["current_turn_activity_state"]}
@@ -82,7 +88,9 @@ def evaluate(payload: Mapping[str, Any]) -> dict[str, Any]:
         return {"status": "not_applicable", "missing": []}
     try:
         contract = load_turn_contract(
-            session_id=payload.get("session_id"), turn_id=payload.get("turn_id")
+            session_id=payload.get("session_id"), turn_id=payload.get("turn_id"),
+            agent_id=payload.get("agent_id"),
+            intake_id_sha256=intake["intake_id_sha256"],
         )
     except (OSError, ToolRuntimeError):
         return {"status": "blocked", "missing": ["validated_bound_task_contract"]}
@@ -91,6 +99,7 @@ def evaluate(payload: Mapping[str, Any]) -> dict[str, Any]:
     post_records = [
         record for record in _current_records(payload)
         if record.get("event") == "PostToolUse"
+        and record.get("intake_id_sha256") == intake["intake_id_sha256"]
         and record.get("tool_call_id_sha256") in expected_set
     ]
     post_ids = {record.get("tool_call_id_sha256") for record in post_records}
@@ -141,8 +150,20 @@ def main() -> int:
     result = evaluate(payload)
     blocked = result["status"] == "blocked"
     active = payload.get("stop_hook_active") is True
+    try:
+        intake = load_current_intake(
+            session_id=payload.get("session_id"), turn_id=payload.get("turn_id"),
+            agent_id=payload.get("agent_id"),
+        )
+    except (OSError, ToolRuntimeError):
+        intake = None
+    receipt_event = (
+        "SubagentStop"
+        if payload.get("hook_event_name") == "SubagentStop"
+        else "Stop"
+    )
     value = hook_receipt.receipt(
-        "Stop",
+        receipt_event,
         payload.get("model", os.environ.get("CODEX_MODEL", "unknown")),
         decision="deny" if blocked else "allow",
         reason_code=(
@@ -152,6 +173,11 @@ def main() -> int:
         ),
         route_code="unspecified",
         identifiers=payload,
+        intake_id_sha256=intake.get("intake_id_sha256") if intake else None,
+        parent_intake_id_sha256=(
+            intake.get("parent_intake_id_sha256") if intake else None
+        ),
+        agent_id_sha256=intake.get("agent_id_sha256") if intake else None,
     )
     written = hook_receipt.write_receipt(value)
     if not written:
