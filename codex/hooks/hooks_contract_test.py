@@ -658,6 +658,7 @@ class HooksContractTests(unittest.TestCase):
             calls = (
                 ("machine-contract", recorder),
                 ("machine-shell", "rtk ls -ld /var/tmp"),
+                ("machine-project-cwd", "rtk codex --help"),
             )
             contract_pre = self._run_entrypoint(
                 "pre_tool_use_policy.py",
@@ -732,10 +733,13 @@ class HooksContractTests(unittest.TestCase):
             )
 
             for call_id, command in calls:
-                if call_id == "machine-shell":
+                if call_id != "machine-contract":
+                    call_common = (
+                        common if call_id == "machine-project-cwd" else outside_common
+                    )
                     pre = self._run_entrypoint(
                         "pre_tool_use_policy.py",
-                        {**outside_common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                        {**call_common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
                          "tool_use_id": call_id, "tool_input": {"command": command}},
                         root,
                     )
@@ -746,9 +750,13 @@ class HooksContractTests(unittest.TestCase):
                 self._record_execution_status(
                     root, task_id=task_id, intake_id=intake_id, tool_use_id=call_id,
                 )
+                post_common = (
+                    common if call_id in {"machine-contract", "machine-project-cwd"}
+                    else outside_common
+                )
                 post = self._run_entrypoint(
                     "post_tool_use_receipt.py",
-                    {**(outside_common if call_id == "machine-shell" else common),
+                    {**post_common,
                      "hook_event_name": "PostToolUse", "tool_name": "Bash",
                      "tool_use_id": call_id, "tool_input": {"command": command},
                      "tool_response": {"exit_code": 0}},
@@ -772,6 +780,17 @@ class HooksContractTests(unittest.TestCase):
                 for record in receipts
             ))
             self.assertEqual(receipts[-1]["reason_code"], "tool_enforcement_pass")
+
+    def test_managed_agent_state_is_machine_scope(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = pathlib.Path(directory)
+            codex_home = home / ".codex"
+            agent_skill = home / ".agents" / "skills" / "caveman"
+            agent_skill.mkdir(parents=True)
+            with mock.patch.dict(os.environ, {"CODEX_HOME": str(codex_home)}):
+                self.assertFalse(
+                    pre_tool_use_policy._path_targets_repo(str(agent_skill), "/var/tmp")
+                )
 
     def test_post_tool_failure_is_not_accepted_as_success(self):
         self.assertFalse(post_tool_use_receipt.tool_succeeded({"exit_code": 7}))

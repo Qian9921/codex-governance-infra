@@ -115,8 +115,8 @@ def _inside_repo(cwd: Any) -> bool:
     return any((parent / ".git").exists() for parent in (current, *current.parents))
 
 
-def _inside_codex_home(path: pathlib.Path) -> bool:
-    """Keep installed Codex state available to machine/plugin inventory tasks."""
+def _inside_managed_user_state(path: pathlib.Path) -> bool:
+    """Keep Codex and agent state available to machine/plugin inventory tasks."""
 
     configured = os.environ.get("CODEX_HOME")
     codex_home = pathlib.Path(configured).expanduser() if configured else pathlib.Path.home() / ".codex"
@@ -125,7 +125,8 @@ def _inside_codex_home(path: pathlib.Path) -> bool:
         resolved_path = path.resolve(strict=False)
     except (OSError, RuntimeError):
         return False
-    return resolved_path == resolved_home or resolved_home in resolved_path.parents
+    roots = (resolved_home, resolved_home.parent / ".agents")
+    return any(resolved_path == root or root in resolved_path.parents for root in roots)
 
 
 def _path_targets_repo(value: str, cwd: Any) -> bool:
@@ -150,7 +151,7 @@ def _path_targets_repo(value: str, cwd: Any) -> bool:
         resolved = path.resolve(strict=False)
     except (OSError, RuntimeError):
         return False
-    if _inside_codex_home(resolved):
+    if _inside_managed_user_state(resolved):
         return False
     probe = resolved if resolved.exists() else resolved.parent
     while not probe.exists() and probe != probe.parent:
@@ -363,9 +364,9 @@ if __name__ == "__main__":
                         "reason_code": "task_contract_required",
                     }
                 else:
-                    if contract["repository_work"] is False and (
-                        _inside_repo(x.get("cwd"))
-                        or _nonrepo_repository_access(
+                    if (
+                        contract["repository_work"] is False
+                        and _nonrepo_repository_access(
                             x, tool_name, tool_input, result["route"],
                         )
                     ):
