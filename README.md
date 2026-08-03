@@ -235,8 +235,11 @@ The native `UserPromptSubmit` hook creates a privacy-safe turn intake and gives
 Codex the exact hashes for a one-time task-contract recorder. `PreToolUse`
 denies repository tools until that immutable complete contract exists and
 records each expected call id. `PostToolUse` accepts only explicit supported
-success shapes. `Stop` requires every expected call to have a matching,
-successful, current-snapshot receipt. Missing evidence continues once;
+success shapes. `Stop` requires every expected call to have a matching
+current-snapshot receipt and every required route to have a successful one. A
+normal failed attempt is retained as a diagnostic but is closed by a later
+same-route success in the same intake; identity/receipt/snapshot integrity
+failures remain blocking. Missing evidence continues once;
 `stop_hook_active` then opens the circuit instead of looping. Assistant text is
 never applicability authority. Review and trust each changed hook hash with
 `/hooks` before it can run.
@@ -320,7 +323,8 @@ See [SECURITY.md](SECURITY.md), [PRIVACY.md](PRIVACY.md), and
 | `AUTO_REPAIR_CIRCUIT_OPEN` | The unchanged failure already spent its one repair; fix the named underlying state. |
 | `EXTERNAL_TOOL_REPAIR_REQUIRED` | Package/config/system owner must act; this is not model infra failure. |
 | `SEMBLE_MCP_NOT_CONFIGURED` | Run the reviewed Semble MCP configuration command and restart Codex. |
-| `SEMBLE_SENTINEL_MISMATCH` | Improve the semantic query or repair repo/index scope; do not claim readiness. |
+| `SEMBLE_SENTINEL_SCOPE_ONLY` | Semble returned live repo-scoped source but the expected file ranked lower; readiness continues and task-relevant use remains mandatory. |
+| `SEMBLE_SENTINEL_MISMATCH` | No usable live repo-scoped result was returned; improve the query or repair tool/repo scope. |
 | `RTK_FALSE_GREEN` | Hard stop; repair rtk before accepting shell evidence. |
 | `receipt_status=write_failed` | Repair the private receipt directory; runtime-proof acceptance is blocked. |
 | `Unknown model ...` | Check the exact host/surface catalog; this repo cannot grant model access. |

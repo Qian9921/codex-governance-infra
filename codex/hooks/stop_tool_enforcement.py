@@ -41,6 +41,28 @@ ROUTE_TO_RECEIPT = {
     "shell_context": "rtk",
 }
 
+# A normal command may fail while an agent is discovering the correct syntax or
+# narrowing a query.  Once the same route succeeds under the same intake and
+# hook snapshot, that operational failure is closed.  Integrity failures are
+# different: they indicate that the receipt cannot be trusted and remain hard
+# blockers even if another call later succeeds.
+HARD_POST_FAILURES = frozenset(
+    {
+        "tool_identity_mismatch",
+        "tool_activity_state_unavailable",
+        "tool_failure_contradictory",
+        "tool_failure_incomplete",
+        "tool_failure_unknown",
+    }
+)
+
+
+def _is_integrity_failure(record: Mapping[str, Any]) -> bool:
+    return (
+        record.get("decision") != "allow"
+        and record.get("reason_code") in HARD_POST_FAILURES
+    )
+
 
 def _receipt_directory() -> pathlib.Path:
     override = os.environ.get("CODEX_HOOK_RECEIPT_DIR")
@@ -107,12 +129,6 @@ def evaluate(payload: Mapping[str, Any]) -> dict[str, Any]:
     absent_count = len(expected_set - post_ids)
     if absent_count:
         missing.append(f"post_tool_receipt_count:{absent_count}")
-    if any(
-        record.get("decision") != "allow"
-        or record.get("reason_code") != "tool_success"
-        for record in post_records
-    ):
-        missing.append("successful_post_tool_receipts")
     current_snapshot = hook_receipt.receipt(
         "Stop", payload.get("model", "unknown"), identifiers=payload
     )["snapshot_sha256"]
@@ -126,6 +142,20 @@ def evaluate(payload: Mapping[str, Any]) -> dict[str, Any]:
         and record.get("reason_code") == "tool_success"
         and record.get("snapshot_sha256") == current_snapshot
     }
+    if any(_is_integrity_failure(record) for record in post_records):
+        missing.append("integrity_post_tool_receipts")
+    unresolved_failures = [
+        record
+        for record in post_records
+        if record.get("decision") != "allow"
+        and not _is_integrity_failure(record)
+        and (
+            record.get("snapshot_sha256") != current_snapshot
+            or str(record.get("route_code")) not in successful_routes
+        )
+    ]
+    if unresolved_failures:
+        missing.append("unresolved_post_tool_receipts")
     if not ({"preflight", "maintenance"} & successful_routes):
         missing.append("strict_tool_preflight_or_maintenance")
     for row in contract["routes"]:
