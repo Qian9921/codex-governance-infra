@@ -89,10 +89,11 @@ tool readiness. Plugin/model/user-config/service/machine inventory with no
 repository read or write records `--non-repository-task`, declares no repository
 route signals, and does not run repository tool preflight. The recorder rejects
 a missing or ambiguous scope choice. Non-repository status never excuses later
-repository work. Its tool calls run from a cwd outside every Git repository;
-inside-repository activity, explicit repository targets, and repository-only
-tools are denied as scope expansion and require a new intake and repository
-contract. Installed state below `CODEX_HOME` remains machine scope.
+repository work. An attached Desktop project cwd does not itself make the task
+repository work; explicit repository targets and repository-only tools are
+denied as scope expansion and require a new intake and repository contract.
+Installed state below `CODEX_HOME` and its sibling `.agents` remains machine
+scope.
 
 After readiness, routing is mandatory rather than stylistic. Known symbols,
 calls, dependencies, and blast radius use the revision-matching child

@@ -220,8 +220,9 @@ privacy-safe hook receipt hash。
 `--repository-work`；完全不读写仓库的 plugin/model/用户配置/service/机器盘点使用
 `--non-repository-task`。只有仓库 scope 才要求 CodeGraph/Semble/rtk 严格就绪；非仓库 scope
 不得声明仓库路由，也不能在后续 scope 扩大后继续复用。
-非仓库工具调用必须从所有 Git 仓库之外的 cwd 执行；仓库内 activity、显式仓库目标和仓库专用工具
-都会被拒绝，直到新建并绑定 repository-scoped intake。`CODEX_HOME` 下的已安装状态仍属于机器 scope。
+非仓库任务可以附着在 Desktop 的仓库项目上，session cwd 本身不等于仓库 activity；显式仓库目标和
+仓库专用工具仍会被拒绝，直到新建并绑定 repository-scoped intake。`CODEX_HOME` 及其同级
+`.agents` 下的已安装状态仍属于机器 scope。
 不可变完整 contract 建立前，
 `PreToolUse` 会拒绝仓库工具，并记录
 每个预期 call id。`PostToolUse` 只接受明确、受支持的成功结构；`Stop` 要求每个预期调用都有同一

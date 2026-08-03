@@ -158,9 +158,9 @@ if __name__ == "__main__":
             "applicable flags from: " + choices + ", then run strict repo preflight. "
             "For plugin/model/user-config/service/machine inventory with no repository "
             "read or write select --non-repository-task, add no route flags, and do not "
-            "run repository preflight. Run its tool calls from a cwd outside every Git "
-            "repository and do not target repository paths or repository-only tools; "
-            "repository activity requires a new repository-scoped intake. "
+            "run repository preflight. The task may be attached to a repository project, "
+            "but its calls must not target repository paths or repository-only tools; "
+            "actual repository activity requires a new repository-scoped intake. "
             "Exactly one scope flag is required."
         )
         context["additionalContext"] = intake_context[:1900]

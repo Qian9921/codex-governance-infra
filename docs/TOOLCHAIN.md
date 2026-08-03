@@ -30,11 +30,12 @@ read or write records `--non-repository-task` with no route signals and skips
 repository readiness. The recorder requires exactly one scope flag. If a
 non-repository task expands into repository work, start a new intake and bind a
 repository contract; do not reuse the narrower contract. Non-repository tool
-calls execute from a cwd outside every Git repository. `PreToolUse` rejects an
-inside-repository call, explicit repository target, or repository-only tool
-under the narrower contract. Target inspection is transient; raw command
-arguments and resolved paths are never persisted. Installed state below
-`CODEX_HOME` remains available to machine/plugin inventory.
+calls may originate from a Desktop task attached to a repository, because that
+session cwd is not the execution target. `PreToolUse` instead rejects explicit
+repository targets and repository-only tools under the narrower contract.
+Target inspection is transient; raw command arguments and resolved paths are
+never persisted. Installed state below `CODEX_HOME` and its sibling `.agents`
+remains available to machine/plugin/skill inventory and maintenance.
 
 ## Configure Codex
 
