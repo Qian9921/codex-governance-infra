@@ -29,7 +29,7 @@ if str(PACKAGE_ROOT) not in sys.path:
 
 from v16.tool_runtime import (  # noqa: E402
     ToolRuntimeError,
-    load_tool_call_intake,
+    load_tool_call_binding,
     load_tool_execution_status,
 )
 
@@ -254,19 +254,24 @@ def main() -> int:
     route = pre_tool_use_policy.route_for(tool_name, tool_input)
     intake: Mapping[str, Any] | None = None
     try:
-        intake = load_tool_call_intake(
+        binding = load_tool_call_binding(
             session_id=payload.get("session_id"),
             turn_id=payload.get("turn_id"),
             agent_id=payload.get("agent_id"),
             tool_use_id=payload.get("tool_use_id", payload.get("tool_call_id")),
         )
+        intake = binding["intake"]
+        route = binding["route_code"]
     except (OSError, ToolRuntimeError):
         pass
     classification = classify_tool_response(payload.get("tool_response"))
-    is_repo_bash = (
-        pre_tool_use_policy._bash_command(tool_name, tool_input) is not None
-        and pre_tool_use_policy._repo_activity(payload, tool_name, route)
-    )
+    # The public PostToolUse wire may omit the original Bash input.  A bound
+    # expected-activity record proves this call crossed the governed Pre hook;
+    # use the tool kind plus that binding instead of re-inferring repository
+    # activity from fields that are not portable on the Post wire.
+    is_repo_bash = intake is not None and pre_tool_use_policy._tool_key(tool_name) in {
+        "bash", "exec_command", "functions.exec_command", "shell",
+    }
     if intake is not None and is_repo_bash:
         try:
             execution = load_tool_execution_status(

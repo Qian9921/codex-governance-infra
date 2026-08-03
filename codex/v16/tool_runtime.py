@@ -36,6 +36,10 @@ ROUTE_TO_TOOL = {
     "exact_lookup": "rg",
     "shell_context": "rtk",
 }
+ACTIVITY_ROUTES = frozenset({
+    "preflight", "maintenance", "codegraph", "semble", "rtk", "rg",
+    "contract", "unspecified",
+})
 SIGNALS = (
     "unknown_semantic_entrypoint",
     "similar_implementation",
@@ -367,10 +371,12 @@ def load_turn_contract(
 
 def record_expected_tool_call(
     *, session_id: Any, turn_id: Any, tool_use_id: Any, agent_id: Any = None,
-    intake_id_sha256: str | None = None,
+    intake_id_sha256: str | None = None, route_code: str,
     state_dir: str | os.PathLike[str] | None = None,
 ) -> bool:
     if not isinstance(tool_use_id, (str, int)) or not str(tool_use_id):
+        return False
+    if not isinstance(route_code, str) or route_code not in ACTIVITY_ROUTES:
         return False
     try:
         task_id = _event_task_id(session_id, turn_id, agent_id)
@@ -392,12 +398,14 @@ def record_expected_tool_call(
                 "task_id_sha256": task_id,
                 "intake_id_sha256": intake_id,
                 "tool_use_id_sha256": call_id,
+                "route_code": route_code,
             }
         _write_private_json(path, {
             "schema": "tool-turn-activity.v16",
             "task_id_sha256": task_id,
             "intake_id_sha256": intake_id,
             "tool_use_id_sha256": call_id,
+            "route_code": route_code,
         })
         return True
     except (OSError, ToolRuntimeError):
@@ -431,7 +439,8 @@ def record_tool_execution_status(
         "task_id_sha256": task_id,
         "intake_id_sha256": intake_id,
         "tool_use_id_sha256": call_id,
-    }:
+        "route_code": activity.get("route_code"),
+    } or activity.get("route_code") not in ACTIVITY_ROUTES:
         raise ToolRuntimeError("tool execution has no matching expected activity")
     value = {
         "schema": "tool-execution-status.v16",
@@ -495,6 +504,7 @@ def load_expected_tool_calls(
             value.get("schema") != "tool-turn-activity.v16"
             or value.get("task_id_sha256") != task_id
             or value.get("intake_id_sha256") != intake_id
+            or value.get("route_code") not in ACTIVITY_ROUTES
             or not isinstance(call_id, str)
             or _SHA256.fullmatch(call_id) is None
             or path.name != f"{task_id}.activity.{intake_id}.{call_id}.json"
@@ -504,7 +514,7 @@ def load_expected_tool_calls(
     return sorted(set(calls))
 
 
-def load_tool_call_intake(
+def load_tool_call_binding(
     *, session_id: Any, turn_id: Any, tool_use_id: Any, agent_id: Any = None,
     state_dir: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any]:
@@ -518,14 +528,32 @@ def load_tool_call_intake(
         raise ToolRuntimeError("tool activity intake binding unavailable or ambiguous")
     value = _read_private_json(paths[0])
     intake_id = _require_sha(value.get("intake_id_sha256"), "intake_id_sha256")
+    route_code = value.get("route_code")
     if value != {
         "schema": "tool-turn-activity.v16",
         "task_id_sha256": task_id,
         "intake_id_sha256": intake_id,
         "tool_use_id_sha256": call_id,
-    } or paths[0].name != f"{task_id}.activity.{intake_id}.{call_id}.json":
+        "route_code": route_code,
+    } or route_code not in ACTIVITY_ROUTES or paths[0].name != f"{task_id}.activity.{intake_id}.{call_id}.json":
         raise ToolRuntimeError("tool activity state invalid")
-    return _load_intake(root, task_id, intake_id)
+    return {
+        "intake": _load_intake(root, task_id, intake_id),
+        "route_code": route_code,
+    }
+
+
+def load_tool_call_intake(
+    *, session_id: Any, turn_id: Any, tool_use_id: Any, agent_id: Any = None,
+    state_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    return load_tool_call_binding(
+        session_id=session_id,
+        turn_id=turn_id,
+        tool_use_id=tool_use_id,
+        agent_id=agent_id,
+        state_dir=state_dir,
+    )["intake"]
 
 
 @dataclass(frozen=True)
@@ -847,5 +875,6 @@ __all__ = [
     "load_current_intake", "load_tool_call_intake", "load_turn_contract",
     "persist_task_contract", "record_expected_tool_call",
     "turn_task_id", "validate_and_bind_usage_report", "validate_enforcement_report",
+    "load_tool_call_binding",
     "validate_task_contract",
 ]

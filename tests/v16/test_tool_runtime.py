@@ -15,6 +15,7 @@ from codex.v16.tool_runtime import (
     compile_task_contract,
     load_expected_tool_calls,
     load_current_intake,
+    load_tool_call_binding,
     load_tool_call_intake,
     load_turn_contract,
     persist_task_contract,
@@ -33,7 +34,7 @@ def record_worker(state_dir, barrier, results, call_id):
     barrier.wait()
     results.put(record_expected_tool_call(
         session_id="parallel-session", turn_id="parallel-turn",
-        tool_use_id=call_id, state_dir=state_dir,
+        tool_use_id=call_id, route_code="rtk", state_dir=state_dir,
     ))
 
 
@@ -257,6 +258,7 @@ class ToolRuntimeTests(unittest.TestCase):
                 )
             self.assertTrue(record_expected_tool_call(
                 session_id="session", turn_id="turn", tool_use_id="call-1",
+                route_code="codegraph",
                 state_dir=directory,
             ))
             self.assertEqual(
@@ -271,6 +273,13 @@ class ToolRuntimeTests(unittest.TestCase):
                     state_dir=directory,
                 )["intake_id_sha256"],
                 intake["intake_id_sha256"],
+            )
+            self.assertEqual(
+                load_tool_call_binding(
+                    session_id="session", turn_id="turn", tool_use_id="call-1",
+                    state_dir=directory,
+                )["route_code"],
+                "codegraph",
             )
 
     def test_stable_task_id_gets_new_immutable_intake_generation_per_prompt(self):
@@ -293,7 +302,8 @@ class ToolRuntimeTests(unittest.TestCase):
             )
             self.assertTrue(record_expected_tool_call(
                 session_id="stable-session", turn_id="stable-turn",
-                tool_use_id="first-call", state_dir=directory,
+                tool_use_id="first-call", route_code="codegraph",
+                state_dir=directory,
             ))
 
             second = begin_turn_state(

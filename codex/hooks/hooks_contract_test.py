@@ -657,8 +657,14 @@ class HooksContractTests(unittest.TestCase):
             self.assertEqual(recorded.returncode, 0, recorded.stderr)
 
             for call_id, command, expected_exit, model_output, decision in (
-                ("wire-ok", "printf PRIVATE_SUCCESS", 0, "PRIVATE_SUCCESS", "allow"),
-                ("wire-fail", "printf PRIVATE_FAILURE; exit 7", 7, "PRIVATE_FAILURE", "deny"),
+                (
+                    "wire-ok", "rtk sh -c 'printf PRIVATE_SUCCESS'",
+                    0, "PRIVATE_SUCCESS", "allow",
+                ),
+                (
+                    "wire-fail", "rtk sh -c 'printf PRIVATE_FAILURE; exit 7'",
+                    7, "PRIVATE_FAILURE", "deny",
+                ),
             ):
                 pre = self._run_entrypoint(
                     "pre_tool_use_policy.py",
@@ -679,8 +685,7 @@ class HooksContractTests(unittest.TestCase):
                 post = self._run_entrypoint(
                     "post_tool_use_receipt.py",
                     {**common, "hook_event_name": "PostToolUse", "tool_name": "Bash",
-                     "tool_use_id": call_id, "tool_input": {"command": command},
-                     "tool_response": model_output},
+                     "tool_use_id": call_id, "tool_response": model_output},
                     root,
                 )
                 self.assertEqual(post.returncode, 0, post.stderr)
@@ -694,7 +699,14 @@ class HooksContractTests(unittest.TestCase):
                     if item["event"] == "PostToolUse"
                     and item["tool_call_id_sha256"] == hashlib.sha256(call_id.encode()).hexdigest()
                 ][0]
+                pre_receipt = [
+                    item for item in records
+                    if item["event"] == "PreToolUse"
+                    and item["tool_call_id_sha256"] == hashlib.sha256(call_id.encode()).hexdigest()
+                ][0]
                 self.assertEqual(receipt["decision"], decision)
+                self.assertNotEqual(pre_receipt["route_code"], "unspecified")
+                self.assertEqual(receipt["route_code"], pre_receipt["route_code"])
                 self.assertEqual(
                     receipt["response_diagnostics"]["normalized_shape"],
                     "pretool_wrapped_bash",

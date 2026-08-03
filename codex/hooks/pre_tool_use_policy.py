@@ -267,6 +267,7 @@ if __name__ == "__main__":
             agent_id=x.get("agent_id"),
             intake_id_sha256=intake["intake_id_sha256"] if intake else None,
             tool_use_id=x.get("tool_use_id", x.get("tool_call_id")),
+            route_code=result["route_code"],
         ):
             result = {
                 **result,
