@@ -27,25 +27,51 @@ _SENSITIVE_LABEL = re.compile(
     r"(?:gh[pso]_|sk-|xox[baprs]-|akia[0-9a-z]|bearer|credential|password|prompt|secret|token)",
     re.IGNORECASE,
 )
-_ROUTE_CODES = frozenset(
-    {"preflight", "codegraph", "semble", "rtk", "rg", "unspecified"}
-)
+_ROUTE_CODES = frozenset({
+    "preflight", "maintenance", "codegraph", "semble", "rtk", "rg",
+    "contract", "unspecified",
+})
 _ROUTE_ALIASES = {"CodeGraph": "codegraph", "Semble": "semble"}
 _DECISIONS = frozenset({"allow", "deny"})
 _RECEIPT_STATUSES = frozenset({"not_written", "written", "write_failed"})
+_RESPONSE_ENVELOPES = frozenset({
+    "mapping", "json_string", "scalar_string", "null", "sequence", "scalar",
+    "private_execution_state",
+})
+_RESPONSE_SHAPES = frozenset({
+    "codex_app_exec", "mcp_result", "declared_result", "unknown",
+    "pretool_wrapped_bash",
+})
+_RESPONSE_STATUSES = frozenset({"success", "failure", "contradictory", "incomplete", "unknown"})
+_RESPONSE_TYPES = frozenset({"null", "boolean", "integer", "number", "string", "object", "array"})
+_RESPONSE_KEYS = frozenset({
+    "_meta", "chunk_id", "content", "exitCode", "exit_code", "isError",
+    "is_error", "original_token_count", "output", "returncode", "session_id",
+    "status", "stderr", "stdout", "structuredContent", "success",
+    "wall_time_seconds",
+})
 SCHEMA_VERSION = "hook-receipt.v16"
-_ROOT = pathlib.Path(__file__).resolve().parents[2]
-DEFAULT_RECEIPT_DIR = pathlib.Path.home() / ".codex" / "hook-receipts"
+_PACKAGE_ROOT = pathlib.Path(__file__).resolve().parent.parent
+DEFAULT_CODEX_HOME = pathlib.Path(
+    os.environ.get("CODEX_HOME", os.fspath(pathlib.Path.home() / ".codex"))
+).expanduser()
+DEFAULT_RECEIPT_DIR = DEFAULT_CODEX_HOME / "hook-receipts"
 SNAPSHOT_FILES = (
-    _ROOT / "codex" / "AGENTS.md",
-    _ROOT / "codex" / "BRIEF-TEMPLATES.md",
-    _ROOT / "codex" / "hooks" / "hooks.json",
-    _ROOT / "codex" / "hooks" / "session_context.py",
-    _ROOT / "codex" / "hooks" / "pre_tool_use_policy.py",
-    _ROOT / "codex" / "hooks" / "hook_receipt.py",
-    _ROOT / "codex" / "hooks" / "hooks_contract_test.py",
-    _ROOT / "codex" / "v16" / "tool_preflight.py",
-    _ROOT / "codex" / "v16" / "tool_routing.py",
+    _PACKAGE_ROOT / "AGENTS.md",
+    _PACKAGE_ROOT / "BRIEF-TEMPLATES.md",
+    _PACKAGE_ROOT / "hooks.json",
+    _PACKAGE_ROOT / "hooks" / "hooks.json",
+    _PACKAGE_ROOT / "hooks" / "session_context.py",
+    _PACKAGE_ROOT / "hooks" / "pre_tool_use_policy.py",
+    _PACKAGE_ROOT / "hooks" / "post_tool_use_receipt.py",
+    _PACKAGE_ROOT / "hooks" / "tool_execution_status.py",
+    _PACKAGE_ROOT / "hooks" / "stop_tool_enforcement.py",
+    _PACKAGE_ROOT / "hooks" / "hook_receipt.py",
+    _PACKAGE_ROOT / "hooks" / "hooks_contract_test.py",
+    _PACKAGE_ROOT / "v16" / "tool_preflight.py",
+    _PACKAGE_ROOT / "v16" / "tool_routing.py",
+    _PACKAGE_ROOT / "v16" / "tool_runtime.py",
+    _PACKAGE_ROOT / "v16" / "tool_maintenance.py",
 )
 _SAFE_FIELDS = frozenset(
     {
@@ -65,6 +91,10 @@ _SAFE_FIELDS = frozenset(
         "session_id_sha256",
         "turn_id_sha256",
         "tool_call_id_sha256",
+        "intake_id_sha256",
+        "parent_intake_id_sha256",
+        "agent_id_sha256",
+        "response_diagnostics",
         "source",
         "pid",
         "ppid",
@@ -104,7 +134,9 @@ def _identifiers(value: Mapping[str, Any] | None) -> dict[str, str]:
     aliases = {
         "session_id_sha256": ("session_id", "sessionId"),
         "turn_id_sha256": ("turn_id", "turnId"),
-        "tool_call_id_sha256": ("tool_call_id", "toolCallId"),
+        "tool_call_id_sha256": (
+            "tool_use_id", "toolUseId", "tool_call_id", "toolCallId",
+        ),
     }
     for target, names in aliases.items():
         for name in names:
@@ -148,6 +180,44 @@ def _reason_code(value: Any) -> str:
     return normalized.lower()
 
 
+def _response_diagnostics(value: Any) -> dict[str, Any] | None:
+    """Normalize a fixed structural diagnostic schema; raw values never pass."""
+
+    if not isinstance(value, Mapping):
+        return None
+    if value.get("schema") != "tool-response-diagnostics.v16":
+        return None
+    envelope = value.get("envelope_type")
+    shape = value.get("normalized_shape")
+    status = value.get("normalized_status")
+    keys = value.get("known_keys")
+    types = value.get("key_types")
+    unknown_count = value.get("unknown_key_count")
+    if (
+        envelope not in _RESPONSE_ENVELOPES
+        or shape not in _RESPONSE_SHAPES
+        or status not in _RESPONSE_STATUSES
+        or not isinstance(keys, list)
+        or any(key not in _RESPONSE_KEYS for key in keys)
+        or keys != sorted(set(keys))
+        or not isinstance(types, Mapping)
+        or set(types) != set(keys)
+        or any(kind not in _RESPONSE_TYPES for kind in types.values())
+        or type(unknown_count) is not int
+        or unknown_count < 0
+    ):
+        return None
+    return {
+        "schema": "tool-response-diagnostics.v16",
+        "envelope_type": envelope,
+        "normalized_shape": shape,
+        "normalized_status": status,
+        "known_keys": list(keys),
+        "key_types": {key: types[key] for key in keys},
+        "unknown_key_count": unknown_count,
+    }
+
+
 def receipt(
     event: Any,
     model: Any,
@@ -160,6 +230,11 @@ def receipt(
     reason_code: Any = None,
     route: Any = None,
     identifiers: Mapping[str, Any] | None = None,
+    task_id_sha256: Any = None,
+    intake_id_sha256: Any = None,
+    parent_intake_id_sha256: Any = None,
+    agent_id_sha256: Any = None,
+    response_diagnostics: Any = None,
 ) -> dict[str, Any]:
     """Create a normalized in-memory receipt; no file is written here."""
 
@@ -180,7 +255,18 @@ def receipt(
         "route": normalized_route,
         "route_code": normalized_route,
         "snapshot_sha256": _hash_label(snapshot_sha256) or _snapshot_sha256(),
-        "identifiers_sha256": safe_hash(task_id) if task_id else None,
+        # The public Codex hook wire does not guarantee CODEX_TASK_ID.  Once
+        # session_context has created a validated intake, its pre-hashed task
+        # identity is the authoritative lifecycle key.  Keep the environment
+        # variable only as a compatibility fallback for older/manual callers.
+        "identifiers_sha256": (
+            _hash_label(task_id_sha256)
+            or (safe_hash(task_id) if task_id else None)
+        ),
+        "intake_id_sha256": _hash_label(intake_id_sha256),
+        "parent_intake_id_sha256": _hash_label(parent_intake_id_sha256),
+        "agent_id_sha256": _hash_label(agent_id_sha256),
+        "response_diagnostics": _response_diagnostics(response_diagnostics),
         "source": "test" if os.environ.get("CODEX_HOOK_SOURCE") == "test" else "runtime",
         "pid": os.getpid(),
         "ppid": os.getppid(),
@@ -218,8 +304,14 @@ def _portable_record(value: Mapping[str, Any]) -> dict[str, Any]:
     result["decision"] = decision if isinstance(decision, str) and decision in _DECISIONS else None
     result["snapshot_sha256"] = _hash_label(result.get("snapshot_sha256")) or _snapshot_sha256()
     result["identifiers_sha256"] = _hash_label(result.get("identifiers_sha256"))
-    for key in ("session_id_sha256", "turn_id_sha256", "tool_call_id_sha256"):
+    for key in (
+        "session_id_sha256", "turn_id_sha256", "tool_call_id_sha256",
+        "intake_id_sha256", "parent_intake_id_sha256", "agent_id_sha256",
+    ):
         result[key] = _hash_label(result.get(key))
+    result["response_diagnostics"] = _response_diagnostics(
+        result.get("response_diagnostics")
+    )
     result["source"] = _label(
         result.get("source"),
         "test" if os.environ.get("CODEX_HOOK_SOURCE") == "test" else "runtime",

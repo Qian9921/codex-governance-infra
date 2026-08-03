@@ -6,7 +6,9 @@ class Installer(unittest.TestCase):
    out=subprocess.check_output([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',d+'/home','--dry-run'],text=True)
    result=json.loads(out)
    self.assertEqual(result['status'],'DRY_RUN')
+   self.assertEqual(result['mode'],'managed-overlay')
    self.assertIn('AGENTS.md',result['hashes'])
+   self.assertIn('hooks.json',result['hashes'])
    self.assertIn('hooks/hooks.json',result['hashes'])
    self.assertNotIn('codex/AGENTS.md',result['hashes'])
 
@@ -14,16 +16,22 @@ class Installer(unittest.TestCase):
   with tempfile.TemporaryDirectory() as d:
    parent=pathlib.Path(d); home=parent/'home'; home.mkdir()
    (home/'sentinel').write_text('before',encoding='utf-8')
+   (home/'AGENTS.md').write_text('previous-agents',encoding='utf-8')
    subprocess.check_call([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home)])
    self.assertTrue((home/'AGENTS.md').is_file())
+   self.assertNotEqual((home/'AGENTS.md').read_text(encoding='utf-8'),'previous-agents')
+   self.assertTrue((home/'hooks.json').is_file())
    self.assertTrue((home/'hooks'/'hooks.json').is_file())
    self.assertTrue((home/'v16'/'contracts.py').is_file())
    self.assertFalse((home/'codex').exists())
    self.assertFalse(any('__pycache__' in p.parts or p.suffix in {'.pyc','.pyo'} for p in home.rglob('*')))
-   self.assertFalse((home/'sentinel').exists())
+   self.assertEqual((home/'sentinel').read_text(encoding='utf-8'),'before')
+   self.assertTrue((home/'.governance-v16-backup'/'metadata.json').is_file())
    subprocess.check_call([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home),'--rollback'])
    self.assertEqual((home/'sentinel').read_text(encoding='utf-8'),'before')
-   self.assertFalse((home/'AGENTS.md').exists())
+   self.assertEqual((home/'AGENTS.md').read_text(encoding='utf-8'),'previous-agents')
+   self.assertFalse((home/'hooks.json').exists())
+   self.assertFalse((home/'.governance-v16-backup').exists())
 
  def test_manifest_mismatch_rejected(self):
   with tempfile.TemporaryDirectory() as d:
@@ -49,4 +57,33 @@ class Installer(unittest.TestCase):
    self.assertIn('noncanonical manifest path:codex/../outside.txt',result.stderr)
    self.assertEqual(sentinel.read_text(encoding='utf-8'),'keep')
    self.assertFalse((target/'.codex').exists())
+
+ def test_mid_install_failure_rolls_back_managed_files(self):
+  with tempfile.TemporaryDirectory() as d:
+   home=pathlib.Path(d)/'home'; home.mkdir()
+   agents=home/'AGENTS.md'; agents.write_text('previous-agents',encoding='utf-8')
+   staged_collision=home/'hooks.json.governance-v16.tmp'; staged_collision.mkdir()
+   result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home)],capture_output=True,text=True)
+   self.assertNotEqual(result.returncode,0)
+   self.assertEqual(agents.read_text(encoding='utf-8'),'previous-agents')
+   self.assertFalse((home/'.governance-v16-backup').exists())
+   self.assertTrue(staged_collision.is_dir())
+
+ def test_failed_upgrade_preserves_prior_rollback_generation(self):
+  with tempfile.TemporaryDirectory() as d:
+   home=pathlib.Path(d)/'home'; home.mkdir()
+   agents=home/'AGENTS.md'; agents.write_text('original-agents',encoding='utf-8')
+   command=[sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home)]
+   subprocess.check_call(command)
+   self.assertTrue((home/'.governance-v16-backup'/'metadata.json').is_file())
+   agents.write_text('active-before-failed-upgrade',encoding='utf-8')
+   staged_collision=home/'hooks.json.governance-v16.tmp'; staged_collision.mkdir()
+   result=subprocess.run(command,capture_output=True,text=True)
+   self.assertNotEqual(result.returncode,0)
+   self.assertEqual(agents.read_text(encoding='utf-8'),'active-before-failed-upgrade')
+   self.assertTrue((home/'.governance-v16-backup'/'metadata.json').is_file())
+   self.assertFalse((home/'.governance-v16-backup.previous').exists())
+   staged_collision.rmdir()
+   subprocess.check_call(command+['--rollback'])
+   self.assertEqual(agents.read_text(encoding='utf-8'),'original-agents')
 if __name__=='__main__': unittest.main()

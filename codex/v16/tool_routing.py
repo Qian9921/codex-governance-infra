@@ -71,8 +71,9 @@ HOOK_RECEIPT_FIELDS = frozenset(
         "schema", "schema_version", "utc", "event", "model", "tool_name",
         "decision", "reason", "reason_code", "route", "route_code",
         "snapshot_sha256", "identifiers_sha256", "session_id_sha256",
-        "turn_id_sha256", "tool_call_id_sha256", "source", "pid", "ppid",
-        "receipt_status",
+        "turn_id_sha256", "tool_call_id_sha256", "intake_id_sha256",
+        "parent_intake_id_sha256", "agent_id_sha256", "response_diagnostics",
+        "source", "pid", "ppid", "receipt_status",
     }
 )
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -140,9 +141,7 @@ def _receipt_route_matches_tool_name(receipt: Mapping[str, Any]) -> bool:
     generic_execution = {
         "exec_command", "functions.exec_command", "bash", "shell",
     }
-    return key in direct[route] or (
-        route in {"rtk", "rg"} and key in generic_execution
-    )
+    return key in direct[route] or key in generic_execution
 
 
 def _normalize_evidence(
@@ -162,6 +161,7 @@ def _normalize_receipts(
     receipts: Sequence[Mapping[str, Any]],
     *,
     task_id_sha256: str,
+    expected_intake_id_sha256: str,
     hook_snapshot_sha256: str,
 ) -> dict[str, dict[str, Any]]:
     if isinstance(receipts, (str, bytes)) or not isinstance(receipts, Sequence) or not receipts:
@@ -187,11 +187,19 @@ def _normalize_receipts(
             raise RoutingError("hook receipt governance snapshot mismatch")
         if receipt["identifiers_sha256"] != task_id_sha256:
             raise RoutingError("hook receipt task identifier mismatch")
+        if receipt["intake_id_sha256"] != expected_intake_id_sha256:
+            raise RoutingError("hook receipt intake identifier mismatch")
         _require_sha(receipt["tool_call_id_sha256"], "hook receipt tool_call_id_sha256")
+        _require_sha(receipt["intake_id_sha256"], "hook receipt intake_id_sha256")
+        if receipt["response_diagnostics"] is not None:
+            raise RoutingError("PreToolUse receipt cannot carry response diagnostics")
         for field in ("utc", "model", "tool_name", "reason", "reason_code"):
             if not isinstance(receipt[field], str) or not receipt[field]:
                 raise RoutingError(f"hook receipt {field} required")
-        for field in ("session_id_sha256", "turn_id_sha256"):
+        for field in (
+            "session_id_sha256", "turn_id_sha256", "parent_intake_id_sha256",
+            "agent_id_sha256",
+        ):
             if receipt[field] is not None:
                 _require_sha(receipt[field], f"hook receipt {field}")
         if receipt["source"] not in {"runtime", "test"}:
@@ -841,6 +849,7 @@ def build_usage_report(
     expected_preflight_artifact_sha256: str,
     hook_snapshot_sha256: str,
     task_id_sha256: str,
+    expected_intake_id_sha256: str,
     routes: Sequence[Mapping[str, Any]],
     calls: Sequence[Mapping[str, Any]],
     receipt_artifacts: Sequence[str | os.PathLike[str]],
@@ -880,6 +889,9 @@ def build_usage_report(
         hook_snapshot_sha256, "hook_snapshot_sha256"
     )
     task_id_sha256 = _require_sha(task_id_sha256, "task_id_sha256")
+    expected_intake_id_sha256 = _require_sha(
+        expected_intake_id_sha256, "expected_intake_id_sha256"
+    )
     if (
         isinstance(receipt_artifacts, (str, bytes))
         or not isinstance(receipt_artifacts, Sequence)
@@ -910,6 +922,7 @@ def build_usage_report(
     normalized_receipts = _normalize_receipts(
         receipt_records,
         task_id_sha256=task_id_sha256,
+        expected_intake_id_sha256=expected_intake_id_sha256,
         hook_snapshot_sha256=hook_snapshot_sha256,
     )
     normalized_evidence = _normalize_evidence(expected_evidence_sha256)
@@ -1057,6 +1070,7 @@ def validate_usage_report(
     *,
     preflight_artifact: str | os.PathLike[str],
     expected_preflight_artifact_sha256: str,
+    expected_intake_id_sha256: str,
     receipt_artifacts: Sequence[str | os.PathLike[str]],
     expected_receipt_artifact_sha256s: Sequence[str],
     evidence_artifacts: Mapping[str, str | os.PathLike[str]],
@@ -1074,6 +1088,7 @@ def validate_usage_report(
         expected_preflight_artifact_sha256=expected_preflight_artifact_sha256,
         hook_snapshot_sha256=result["hook_snapshot_sha256"],
         task_id_sha256=result["task_id_sha256"],
+        expected_intake_id_sha256=expected_intake_id_sha256,
         routes=result["routes"],
         calls=result["calls"],
         receipt_artifacts=receipt_artifacts,

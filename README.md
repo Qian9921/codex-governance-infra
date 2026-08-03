@@ -11,7 +11,7 @@ V16 provides:
 - affected-first tests instead of automatic full rebuilds;
 - mandatory CodeGraph, Semble, and `rtk` readiness plus actual-use evidence;
 - one risk-routed independent reviewer with delta-only follow-up;
-- privacy-safe hook receipts;
+- native `~/.codex/hooks.json` lifecycle gates plus privacy-safe receipts;
 - deterministic package verification and an isolated trial installer.
 
 It does **not** claim compatibility with Claude Code, Kimi Code, Zcode, or other
@@ -19,10 +19,11 @@ agent runtimes.
 
 > **Safety boundary**
 >
-> The installer replaces the destination passed to it. Use only a newly created
-> isolated `CODEX_HOME`. Never point it at an active `~/.codex`. This repository
-> never copies credentials, sessions, memories, plugins, connections, model
-> caches, or private user data.
+> The installer is a manifest-bound managed overlay. It replaces only package-
+> owned paths, preserves every unrelated `CODEX_HOME` file, and saves the prior
+> managed files in `.governance-v16-backup` for rollback. Always inspect the
+> dry-run first. This repository never copies credentials, sessions, memories,
+> plugins, connections, model caches, or private user data.
 
 ## Ten-minute teammate setup
 
@@ -77,31 +78,31 @@ The Semble command installs only MCP configuration, avoiding a second long
 instruction block. Review configuration changes, restart the affected Codex
 CLI/Desktop/app-server, and open a fresh task.
 
-### 4. Prepare this repository's CodeGraph index
+### 4. Inspect this repository's CodeGraph index
 
 ```bash
 codegraph status --json .
 ```
 
-If the repository is not initialized and indexing is authorized:
+Manual repair remains available:
 
 ```bash
 codegraph init .
 ```
-
-After structural edits, synchronize only when authorized:
 
 ```bash
 codegraph sync .
 ```
 
 An index belongs to its owning repository. Never use a parent workspace graph
-as child-repository truth.
+as child-repository truth. The controller in the next step may run one exact
+owning-repo `init` or `sync` automatically; this bounded local maintenance
+belongs to the current execution lane regardless of model.
 
-### 5. Run the strict toolchain doctor
+### 5. Run automatic check + bounded maintenance
 
 ```bash
-python3 scripts/toolchain-doctor.py \
+python3 codex/bin/toolchain-auto.py \
   --repo . \
   --semantic-query "deterministic inspection intent router" \
   --expected-path codex/v16/tool_routing.py
@@ -116,9 +117,11 @@ The only passing result is exit `0`, `"status":"ready"`, and `3/3`:
 - `rtk` reproduces the current Git identity and preserves a deterministic
   non-zero failure.
 
-Binary presence alone is not readiness. The doctor is read-only and stores only
-hashes/reason codes, never raw output, absolute paths, prompts, environment
-variables, or credentials.
+Binary presence alone is not readiness. The controller runs the read-only
+doctor first. For a repairable CodeGraph failure it acquires a private
+single-flight lock, runs one exact-repo `init|sync`, and rechecks. It never
+installs packages, edits user config, clears global Semble caches, uses sudo, or
+repeats a no-progress repair. Use `--check-only` for a mutation-free run.
 
 ### 6. Try the governance package in isolation
 
@@ -146,7 +149,8 @@ Expected:
 
 - dry-run reports the managed file denominator;
 - installed files live only under the isolated directory;
-- hook output contains `"receipt_status":"success"`;
+- hook output uses the native `hookSpecificOutput` shape and a private receipt
+  file is created under the selected test receipt directory;
 - no active Codex home is modified.
 
 Rollback:
@@ -160,17 +164,41 @@ python3 scripts/install-governance.py \
 
 Rollback is available only when an earlier destination was backed up.
 
-### 7. Give Codex this one prompt
+### 7. Install into the active Codex home
+
+After the isolated trial is green:
+
+```bash
+ACTIVE_CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+
+python3 scripts/install-governance.py \
+  --source . \
+  --codex-home "$ACTIVE_CODEX_HOME" \
+  --dry-run
+
+python3 scripts/install-governance.py \
+  --source . \
+  --codex-home "$ACTIVE_CODEX_HOME"
+```
+
+The overlay preserves `config.toml`, credentials, plugins, memories, sessions,
+connections, caches, receipts, and all other unmanaged paths. Ensure
+`[features] hooks = true`, restart the affected Codex surface, then open
+`/hooks` and trust the new exact hook hash. To restore the previous managed
+files, rerun the installer with `--rollback`.
+
+### 8. Give Codex this one prompt
 
 ```text
 Read this repository's README and AGENTS.md. Verify the package, inspect the
-current CodeGraph/Semble/rtk configuration, prepare the owning-repo CodeGraph
-index only with my authorization, run the strict toolchain doctor with a
-repository-specific semantic sentinel, and use the resulting current preflight
-receipt. For the task, use Semble for unknown semantic discovery, CodeGraph for
-known structure/impact, rtk for shell output shown to context, rg for exact
-text, and raw commands for hashes/parsers/exact denominators. Record actual
-receipt-backed tool usage; do not perform irrelevant check-box calls.
+current CodeGraph/Semble/rtk configuration, run toolchain-auto.py with a
+repository-specific semantic sentinel, and let its bounded tool-maintainer
+repair this exact repo index once when needed. Compile the complete
+tool-task-contract.v16; use Semble for required unknown semantic discovery,
+CodeGraph for required known structure/impact, rtk for shell context, and rg
+for exact text. Require receipt-backed use plus tool-enforcement.v16
+completion_eligible=true; never perform check-box calls or loop on the same
+tool failure.
 ```
 
 That is enough for a teammate to let Codex drive the remaining setup while
@@ -178,7 +206,7 @@ keeping mutations and failures visible.
 
 ## What “mandatory tools” means
 
-There are two separate gates.
+There are four contracts plus one reliability plane.
 
 ### Gate 1: readiness
 
@@ -186,10 +214,39 @@ There are two separate gates.
 configuration, repository root, Git head, worktree, CodeGraph index, and
 semantic sentinel. Any identity change invalidates the cached receipt.
 
-### Gate 2: actual use
+### Gate 2: complete task applicability
+
+`tool-task-contract.v16` deterministically classifies all four routes as
+`required|not_applicable`: semantic discovery, structural analysis, exact
+lookup, and shell context. Omission is invalid.
+
+### Gate 3: actual use
 
 `tool-usage.v16` binds each declared route to a successful task-relevant call,
 evidence reference, and privacy-safe hook receipt hash.
+
+### Gate 4: completion enforcement
+
+`tool-enforcement.v16` requires every applicable preferred route to have a
+successful task-relevant call. Only `completion_eligible=true` supports
+completion.
+
+The native `UserPromptSubmit` hook creates a privacy-safe turn intake and gives
+Codex the exact hashes for a one-time task-contract recorder. `PreToolUse`
+denies repository tools until that immutable complete contract exists and
+records each expected call id. `PostToolUse` accepts only explicit supported
+success shapes. `Stop` requires every expected call to have a matching,
+successful, current-snapshot receipt. Missing evidence continues once;
+`stop_hook_active` then opens the circuit instead of looping. Assistant text is
+never applicability authority. Review and trust each changed hook hash with
+`/hooks` before it can run.
+
+### Reliability plane
+
+`tool-maintenance.v16` checks 3/3, repairs an exact owning-repo CodeGraph
+index at most once, rechecks, and persists the failure fingerprint. A later
+invocation with the same unchanged failure opens the circuit without another
+repair. Ordinary stale indexes are not `EXEC_INFRA_BLOCKED`.
 
 | Task intent | Required route |
 |---|---|
@@ -258,7 +315,10 @@ See [SECURITY.md](SECURITY.md), [PRIVACY.md](PRIVACY.md), and
 | Symptom | Action |
 |---|---|
 | `CODEGRAPH_WRONG_PROJECT` | Stop and point the doctor/query at the owning child repo. |
-| `CODEGRAPH_STALE` | Review the changes, authorize, and run `codegraph sync .`. |
+| `CODEGRAPH_STALE` | `toolchain-auto.py` synchronizes this exact repo once and rechecks. |
+| `AUTO_REPAIR_NO_PROGRESS` | Circuit opens as `MAINTENANCE_REQUIRED`; do not respawn/retry. |
+| `AUTO_REPAIR_CIRCUIT_OPEN` | The unchanged failure already spent its one repair; fix the named underlying state. |
+| `EXTERNAL_TOOL_REPAIR_REQUIRED` | Package/config/system owner must act; this is not model infra failure. |
 | `SEMBLE_MCP_NOT_CONFIGURED` | Run the reviewed Semble MCP configuration command and restart Codex. |
 | `SEMBLE_SENTINEL_MISMATCH` | Improve the semantic query or repair repo/index scope; do not claim readiness. |
 | `RTK_FALSE_GREEN` | Hard stop; repair rtk before accepting shell evidence. |
@@ -272,10 +332,12 @@ See [SECURITY.md](SECURITY.md), [PRIVACY.md](PRIVACY.md), and
 codex/                     installable governance package
   AGENTS.md
   BRIEF-TEMPLATES.md
+  hooks.json               native Codex lifecycle configuration
   hooks/
   v16/
 docs/TOOLCHAIN.md          detailed tool readiness and routing contract
 scripts/toolchain-doctor.py
+codex/bin/toolchain-auto.py
 scripts/install-governance.py
 scripts/verify-governance.py
 scripts/presubmit.py
@@ -289,4 +351,4 @@ manifest.json              exact tracked path/hash boundary
 - [Configuration basics](https://developers.openai.com/codex/config-basic)
 - [Configuration reference](https://developers.openai.com/codex/config-reference)
 - [AGENTS.md and customization](https://developers.openai.com/codex/concepts/customization)
-- [Hooks](https://developers.openai.com/codex/config-advanced#hooks)
+- [Codex Hooks](https://learn.chatgpt.com/docs/hooks)

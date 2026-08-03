@@ -11,6 +11,9 @@ class Policy(unittest.TestCase):
    env['CODEX_HOOK_RECEIPT_DIR']=receipt_dir
    out=subprocess.check_output([sys.executable,str(ROOT/'codex/hooks/session_context.py')],text=True,env=env)
    payload=json.loads(out)
-   self.assertLessEqual(len(payload['additionalContext']),1200)
-   self.assertEqual(payload['receipt_status'],'success')
+   specific=payload['hookSpecificOutput']
+   self.assertEqual(specific['hookEventName'],'SessionStart')
+   self.assertLessEqual(len(specific['additionalContext']),1500)
+   self.assertNotIn('systemMessage',payload)
+   self.assertEqual(len(list(pathlib.Path(receipt_dir).glob('*.jsonl'))),1)
 if __name__=='__main__': unittest.main()

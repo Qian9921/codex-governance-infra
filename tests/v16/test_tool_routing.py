@@ -97,6 +97,10 @@ def _receipt(tool, tool_call_id, *, task=TASK_SHA, snapshot=SNAPSHOT_SHA):
         "session_id_sha256": None,
         "turn_id_sha256": None,
         "tool_call_id_sha256": tool_call_id,
+        "intake_id_sha256": "7" * 64,
+        "parent_intake_id_sha256": None,
+        "agent_id_sha256": None,
+        "response_diagnostics": None,
         "source": "test",
         "pid": 1,
         "ppid": 1,
@@ -167,6 +171,7 @@ def _write_usage_authority(directory, preflight, receipts, evidence):
     return {
         "preflight_artifact": preflight_path,
         "expected_preflight_artifact_sha256": hashlib.sha256(preflight_bytes).hexdigest(),
+        "expected_intake_id_sha256": "7" * 64,
         "receipt_artifacts": [receipt_path],
         "expected_receipt_artifact_sha256s": [
             hashlib.sha256(receipt_bytes).hexdigest()
@@ -406,6 +411,11 @@ class ToolRoutingTests(unittest.TestCase):
             with self.assertRaises(RoutingError):
                 validate_usage_report(forged, **authority)
 
+            wrong_intake_authority = dict(authority)
+            wrong_intake_authority["expected_intake_id_sha256"] = "8" * 64
+            with self.assertRaisesRegex(RoutingError, "intake identifier mismatch"):
+                validate_usage_report(report, **wrong_intake_authority)
+
             forged_preflight = copy.deepcopy(preflight)
             forged_preflight["cache"]["key_sha256"] = "f" * 64
             forged_path = pathlib.Path(directory) / "forged-preflight.json"
@@ -431,6 +441,7 @@ class ToolRoutingTests(unittest.TestCase):
                     ],
                     hook_snapshot_sha256=SNAPSHOT_SHA,
                     task_id_sha256=TASK_SHA,
+                    expected_intake_id_sha256="7" * 64,
                     routes=routes,
                     calls=calls,
                 )
@@ -490,7 +501,8 @@ class ToolRoutingTests(unittest.TestCase):
         call_id = hashlib.sha256(raw_call_id.encode()).hexdigest()
         with tempfile.TemporaryDirectory() as directory, mock.patch.dict(
             os.environ,
-            {"CODEX_TASK_ID": "task", "CODEX_HOOK_SOURCE": "test"},
+            {"CODEX_HOOK_SOURCE": "test"},
+            clear=True,
         ):
             root = pathlib.Path(directory)
             destination = root / "receipt.jsonl"
@@ -503,6 +515,8 @@ class ToolRoutingTests(unittest.TestCase):
                 route_code="codegraph",
                 snapshot_sha256=SNAPSHOT_SHA,
                 identifiers={"tool_call_id": raw_call_id},
+                task_id_sha256=TASK_SHA,
+                intake_id_sha256="7" * 64,
             )
             self.assertTrue(hook_receipt.write_receipt(value, destination))
             line = destination.read_bytes()

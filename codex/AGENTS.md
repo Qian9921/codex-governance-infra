@@ -57,16 +57,31 @@ authority.
 
 ## TOOLING-1
 Tool readiness precedes tool routing. Before repository analysis, implementation,
-review, or completion, run strict `tool-preflight.v16` for the exact repo/head/
+review, or completion, invoke the installed `toolchain-auto.py` controller for
+the exact repo/head/
 worktree/config identity. `ready` requires all three mandatory tools: CodeGraph
 must be configured for Codex, bound to the owning repo, complete, revision-
 matching, uncontaminated, and pass a current sentinel; Semble must be configured,
 callable, repo-scoped, and return the expected live-source sentinel; `rtk` must
 be callable, match the current Git identity, and preserve a deterministic
 non-zero failure. Directory/binary presence or a historical pass is insufficient.
+The controller runs strict read-only `tool-preflight.v16`, then may initialize
+or synchronize only the exact owning-repo CodeGraph index once under a private
+single-flight lock and recheck. This repo-local maintenance is part of every
+assigned execution lane's model-independent `tool_maintainer` role and needs no
+second model dispatch or repeated authorization. It never installs or updates
+packages, edits user config, clears global Semble caches, uses sudo, or retries
+the same failure fingerprint; those are explicit external actions.
 Reuse a matching cache receipt; invalidate it on host/runtime/tool/config/repo/
 head/worktree/index/sentinel change. The doctor is read-only; install/config/
-index build or sync remains an assigned, authorized mutation.
+system repair remains a separately authorized mutation.
+
+Before routing, compile `tool-task-contract.v16` from the complete structured
+task-shape denominator. Its four rows are
+`semantic_discovery|structural_analysis|exact_lookup|shell_context`; every row
+must be `required|not_applicable`. A repository task must require at least one
+route unless explicitly `machine_exact_only`. Rows are derived from structured
+signals, never hand-written to omit a tool.
 
 After readiness, routing is mandatory rather than stylistic. Known symbols,
 calls, dependencies, and blast radius use the revision-matching child
@@ -83,7 +98,17 @@ receipt hash. Unused, wrong-tool, failed, undeclared, or receipt-free calls
 cannot satisfy the route; irrelevant “check-box” calls are violations. Hooks
 reinforce the declared route and store only normalized privacy-safe receipts;
 they do not infer semantics from raw arguments or blanket-deny legitimate
-calls. CodeGraph state belongs to the owning child repo, never its parent graph.
+calls. For hook-observable repository activity, the native Stop gate requires
+the immutable `UserPromptSubmit`-bound task contract, exact PreToolUse call ids,
+and matching successful current-snapshot PostToolUse receipts. A free-form
+assistant marker is never authority. Missing intake/contract/receipt state
+fails closed; Stop may continue once only, then opens the `stop_hook_active`
+circuit without claiming success. `tool-enforcement.v16` compares actual preferred-tool use with the
+complete four-row task contract; only `completion_eligible=true` supports
+completion. A verified fallback is degraded coverage, never equivalent
+completion. CodeGraph state belongs to the owning child repo, never its parent
+graph. Ordinary stale/broken indexes are `MAINTENANCE_REQUIRED` or
+`EXTERNAL_ACTION_REQUIRED`, never `EXEC_INFRA_BLOCKED`.
 
 ## DELEGATE-1
 Persistent parent remains accountable. Nested delegation defaults:
@@ -103,6 +128,12 @@ defaults, not capability bans. A non-review execution fallback is legal only
 within the brief's authorized models and unchanged role/permissions/scope; it
 must record the requested/actual model and reason. A required Independent
 reviewer has no silent fallback.
+
+The assigned execution agent also owns the bounded `tool_maintainer` duty.
+Tool health never justifies repeatedly spawning Luna, Sol, Terra, or Spark: one
+deterministic repair attempt per exact failure fingerprint is the entire retry
+budget. No-progress opens the circuit and returns an owner-specific terminal
+state.
 
 Every mission brief supplies a routing/usage sidecar with hard limits for model
 calls, review calls, parallel agents, and input/output/total token counts. Stop

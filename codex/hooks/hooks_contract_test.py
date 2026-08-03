@@ -3,20 +3,27 @@ import json
 import hashlib
 import os
 import pathlib
+import re
 import stat
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 try:  # Support both direct hook execution and package-based test discovery.
     from .delegation_contract import ContractError, validate_packet, validate_result
-    from . import hook_receipt, pre_tool_use_policy, session_context
+    from . import (
+        hook_receipt, post_tool_use_receipt, pre_tool_use_policy,
+        session_context, stop_tool_enforcement,
+    )
 except ImportError:  # pragma: no cover - exercised by direct script invocation.
     from delegation_contract import ContractError, validate_packet, validate_result
     import hook_receipt
+    import post_tool_use_receipt
     import pre_tool_use_policy
     import session_context
+    import stop_tool_enforcement
 
 
 class HooksContractTests(unittest.TestCase):
@@ -52,6 +59,12 @@ class HooksContractTests(unittest.TestCase):
                 "mandatory_tools": ["codegraph", "semble", "rtk"],
                 "usage_schema": "tool-usage.v16",
                 "receipt_backed_usage_required": True,
+                "task_contract_schema": "tool-task-contract.v16",
+                "enforcement_schema": "tool-enforcement.v16",
+                "maintenance_schema": "tool-maintenance.v16",
+                "automatic_repo_index_repair": True,
+                "repair_budget": 1,
+                "repair_owner": "assigned_execution_agent:tool_maintainer",
             },
         )
         self.assertIn("TOOL-PREFLIGHT", guidance)
@@ -89,6 +102,29 @@ class HooksContractTests(unittest.TestCase):
         self.assertNotIn("cwd", persisted)
         self.assertNotIn("prompt", persisted)
 
+    def test_receipt_uses_validated_intake_task_identity_without_environment(self):
+        task_id = "a" * 64
+        with mock.patch.dict(os.environ, {}, clear=True):
+            value = hook_receipt.receipt(
+                "PreToolUse",
+                "gpt-5.6-sol",
+                tool="Bash",
+                decision="allow",
+                reason_code="policy_pass",
+                route_code="rg",
+                task_id_sha256=task_id,
+                intake_id_sha256="b" * 64,
+            )
+        self.assertEqual(value["identifiers_sha256"], task_id)
+
+    def test_hook_snapshot_paths_are_package_relative_and_complete(self):
+        missing = [path for path in hook_receipt.SNAPSHOT_FILES if not path.is_file()]
+        self.assertEqual(missing, [])
+        self.assertEqual(
+            hook_receipt.SNAPSHOT_FILES[0],
+            pathlib.Path(__file__).resolve().parents[1] / "AGENTS.md",
+        )
+
     def test_missing_receipt_is_detectable(self):
         value = hook_receipt.receipt("tool_call", "gpt-5.6-luna")
         self.assertFalse(hook_receipt.has_receipt(value))
@@ -102,10 +138,30 @@ class HooksContractTests(unittest.TestCase):
         env = os.environ.copy()
         env["CODEX_HOOK_SOURCE"] = "test"
         env["CODEX_HOOK_RECEIPT_DIR"] = str(directory)
+        env["CODEX_TOOL_STATE_DIR"] = str(pathlib.Path(directory) / "tool-state")
         return subprocess.run(
             [sys.executable, str(pathlib.Path(__file__).with_name(name))],
             input=json.dumps(payload), text=True, capture_output=True, check=False, env=env,
         )
+
+    def _record_execution_status(
+        self, directory, *, task_id, intake_id, tool_use_id, exit_code=0,
+    ):
+        env = os.environ.copy()
+        env["CODEX_TOOL_STATE_DIR"] = str(pathlib.Path(directory) / "tool-state")
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(pathlib.Path(__file__).with_name("tool_execution_status.py")),
+                "--task-id-sha256", task_id,
+                "--intake-id-sha256", intake_id,
+                "--tool-use-id-sha256",
+                hashlib.sha256(str(tool_use_id).encode()).hexdigest(),
+                "--exit-code", str(exit_code),
+            ],
+            text=True, capture_output=True, check=False, env=env,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_real_session_subagent_and_pretool_entrypoints_persist_receipts(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -132,10 +188,22 @@ class HooksContractTests(unittest.TestCase):
             )
             for proc in (session, subagent, allowed, denied):
                 self.assertEqual(proc.returncode, 0, proc.stderr)
-                parsed = json.loads(proc.stdout)
-                self.assertEqual(parsed["receipt_status"], "success")
-            self.assertEqual(json.loads(allowed.stdout)["decision"], "allow")
-            self.assertEqual(json.loads(denied.stdout)["decision"], "deny")
+            self.assertEqual(
+                json.loads(session.stdout)["hookSpecificOutput"]["hookEventName"],
+                "SessionStart",
+            )
+            self.assertEqual(
+                json.loads(subagent.stdout)["hookSpecificOutput"]["hookEventName"],
+                "SubagentStart",
+            )
+            self.assertEqual(
+                json.loads(allowed.stdout)["hookSpecificOutput"]["permissionDecision"],
+                "allow",
+            )
+            self.assertEqual(
+                json.loads(denied.stdout)["hookSpecificOutput"]["permissionDecision"],
+                "deny",
+            )
             files = list(root.glob("*.jsonl"))
             self.assertEqual(len(files), 1)
             self.assertEqual(stat.S_IMODE(root.stat().st_mode), 0o700)
@@ -166,8 +234,29 @@ class HooksContractTests(unittest.TestCase):
             proc = self._run_entrypoint("pre_tool_use_policy.py", {"tool_name": "rg"}, occupied)
             self.assertEqual(proc.returncode, 0)
             parsed = json.loads(proc.stdout)
-            self.assertEqual(parsed["decision"], "allow")
-            self.assertEqual(parsed["receipt_status"], "write_failed")
+            self.assertEqual(parsed["hookSpecificOutput"]["permissionDecision"], "allow")
+            self.assertIn("receipt write failed", parsed["systemMessage"])
+
+    def test_repo_tool_fails_closed_without_bound_turn_contract(self):
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as repo:
+            pathlib.Path(repo, ".git").mkdir()
+            proc = self._run_entrypoint(
+                "pre_tool_use_policy.py",
+                {
+                    "session_id": "session", "turn_id": "turn", "cwd": repo,
+                    "tool_name": "apply_patch", "tool_use_id": "call",
+                    "tool_input": {"command": "*** Begin Patch"},
+                },
+                pathlib.Path(directory),
+            )
+            parsed = json.loads(proc.stdout)
+            self.assertEqual(
+                parsed["hookSpecificOutput"]["permissionDecision"], "deny"
+            )
+            self.assertIn(
+                "bound V16 task contract",
+                parsed["hookSpecificOutput"]["permissionDecisionReason"],
+            )
 
     def test_symlink_destination_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -178,7 +267,7 @@ class HooksContractTests(unittest.TestCase):
             link.symlink_to(actual, target_is_directory=True)
             proc = self._run_entrypoint("session_context.py", {"hook_event_name": "SessionStart"}, link)
             self.assertEqual(proc.returncode, 0)
-            self.assertEqual(json.loads(proc.stdout)["receipt_status"], "write_failed")
+            self.assertIn("receipt write failed", json.loads(proc.stdout)["systemMessage"])
             self.assertEqual(list(actual.iterdir()), [])
 
     def test_sensitive_labels_are_normalized(self):
@@ -202,6 +291,31 @@ class HooksContractTests(unittest.TestCase):
         )
         self.assertEqual(
             pre_tool_use_policy.decide(
+                "functions.exec_command",
+                {"cmd": "rtk codegraph impact route_tool -p ."},
+            )["route"],
+            "CodeGraph",
+        )
+        self.assertEqual(
+            pre_tool_use_policy.decide(
+                "functions.exec_command",
+                {"cmd": "rtk semble search semantic ."},
+            )["route"],
+            "Semble",
+        )
+        self.assertEqual(
+            pre_tool_use_policy.decide(
+                "functions.exec_command",
+                {"cmd": "rtk rg -n pattern file"},
+            )["route"],
+            "rg",
+        )
+        self.assertEqual(
+            pre_tool_use_policy.decide("mcp__codegraph__callers")["route"],
+            "CodeGraph",
+        )
+        self.assertEqual(
+            pre_tool_use_policy.decide(
                 "exec_command", {"command": "/usr/bin/rg -n pattern file"}
             )["route"],
             "rg",
@@ -217,6 +331,631 @@ class HooksContractTests(unittest.TestCase):
         self.assertEqual(
             pre_tool_use_policy.decide("toolchain-doctor")["route"], "preflight"
         )
+        self.assertEqual(
+            pre_tool_use_policy.decide(
+                "Bash", {"command": "rtk python3 codex/bin/toolchain-auto.py --repo ."}
+            )["route"],
+            "maintenance",
+        )
+
+    def test_native_hooks_config_uses_current_codex_event_shape(self):
+        path = pathlib.Path(__file__).parents[1] / "hooks.json"
+        config = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            set(config["hooks"]),
+            {
+                "SessionStart", "SubagentStart", "UserPromptSubmit",
+                "PreToolUse", "PostToolUse", "Stop", "SubagentStop",
+            },
+        )
+        commands = [
+            hook["command"]
+            for groups in config["hooks"].values()
+            for group in groups
+            for hook in group["hooks"]
+        ]
+        for name in (
+            "session_context.py", "pre_tool_use_policy.py",
+            "post_tool_use_receipt.py", "stop_tool_enforcement.py",
+        ):
+            self.assertTrue(any(name in command for command in commands), name)
+
+    def test_post_receipts_and_stop_gate_are_success_bound_and_one_shot(self):
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as repo:
+            root = pathlib.Path(directory)
+            pathlib.Path(repo, ".git").mkdir()
+            common = {
+                "session_id": "session-1", "turn_id": "turn-1",
+                "model": "gpt-5.6-luna", "cwd": repo,
+            }
+            prompt = "inspect the impact of a known symbol"
+            intake = self._run_entrypoint(
+                "session_context.py",
+                {**common, "hook_event_name": "UserPromptSubmit", "prompt": prompt},
+                root,
+            )
+            self.assertEqual(intake.returncode, 0, intake.stderr)
+            intake_context = json.loads(intake.stdout)["hookSpecificOutput"]["additionalContext"]
+            for flag in (
+                "--unknown-semantic-entrypoint", "--similar-implementation",
+                "--known-symbol-or-call", "--dependency-or-blast-radius",
+                "--exact-text-error-config-log", "--shell-output-for-model",
+                "--machine-exact-only",
+            ):
+                self.assertIn(flag, intake_context)
+            task_id = hashlib.sha256(b"session-1\0turn-1").hexdigest()
+            shape_id = hashlib.sha256(prompt.encode()).hexdigest()
+            intake_id = re.search(
+                r"--intake-id-sha256 ([0-9a-f]{64})", intake_context
+            ).group(1)
+            recorder_command = (
+                "rtk python3 codex/bin/toolchain-auto.py --record-task-contract "
+                f"--repository-work --task-id-sha256 {task_id} "
+                f"--task-shape-sha256 {shape_id} --intake-id-sha256 {intake_id} "
+                "--known-symbol-or-call"
+            )
+
+            calls = (
+                ("contract-call", recorder_command),
+                ("maintenance-call", "rtk python3 codex/bin/toolchain-auto.py --repo ."),
+                ("codegraph-call", "rtk codegraph impact symbol -p ."),
+            )
+            recorder_pre = self._run_entrypoint(
+                "pre_tool_use_policy.py",
+                {**common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                 "tool_use_id": calls[0][0], "tool_input": {"command": calls[0][1]}},
+                root,
+            )
+            self.assertEqual(
+                json.loads(recorder_pre.stdout)["hookSpecificOutput"]["permissionDecision"],
+                "allow",
+            )
+            env = os.environ.copy()
+            env["CODEX_TOOL_STATE_DIR"] = str(root / "tool-state")
+            recorded = subprocess.run(
+                [
+                    sys.executable,
+                    str(pathlib.Path(__file__).parents[1] / "bin" / "toolchain-auto.py"),
+                    "--record-task-contract", "--repository-work",
+                    "--task-id-sha256", task_id, "--task-shape-sha256", shape_id,
+                    "--intake-id-sha256", intake_id,
+                    "--known-symbol-or-call",
+                ],
+                text=True, capture_output=True, check=False, env=env,
+            )
+            self.assertEqual(recorded.returncode, 0, recorded.stderr)
+            for call_id, command in calls:
+                if call_id != "contract-call":
+                    pre = self._run_entrypoint(
+                        "pre_tool_use_policy.py",
+                        {**common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                         "tool_use_id": call_id, "tool_input": {"command": command}},
+                        root,
+                    )
+                    self.assertEqual(
+                        json.loads(pre.stdout)["hookSpecificOutput"]["permissionDecision"],
+                        "allow", pre.stdout,
+                    )
+                self._record_execution_status(
+                    root, task_id=task_id, intake_id=intake_id,
+                    tool_use_id=call_id,
+                )
+                post = self._run_entrypoint(
+                    "post_tool_use_receipt.py",
+                    {**common, "hook_event_name": "PostToolUse", "tool_name": "Bash",
+                     "tool_use_id": call_id, "tool_input": {"command": command},
+                     "tool_response": {"exit_code": 0}},
+                    root,
+                )
+                self.assertEqual(post.returncode, 0, post.stderr)
+            passed = self._run_entrypoint(
+                "stop_tool_enforcement.py",
+                {
+                    **common,
+                    "hook_event_name": "Stop",
+                    "stop_hook_active": False,
+                },
+                root,
+            )
+            self.assertEqual(json.loads(passed.stdout), {})
+
+            missing_id = "codegraph-missing-post"
+            missing_pre = self._run_entrypoint(
+                "pre_tool_use_policy.py",
+                {**common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                 "tool_use_id": missing_id,
+                 "tool_input": {"command": "rtk codegraph impact missing -p ."}},
+                root,
+            )
+            self.assertEqual(json.loads(missing_pre.stdout)["hookSpecificOutput"]["permissionDecision"], "allow")
+            conflict_id = "codegraph-conflict"
+            conflict_command = "rtk codegraph impact conflict -p ."
+            conflict_pre = self._run_entrypoint(
+                "pre_tool_use_policy.py",
+                {**common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                 "tool_use_id": conflict_id, "tool_input": {"command": conflict_command}},
+                root,
+            )
+            self.assertEqual(json.loads(conflict_pre.stdout)["hookSpecificOutput"]["permissionDecision"], "allow")
+            self._record_execution_status(
+                root, task_id=task_id, intake_id=intake_id,
+                tool_use_id=conflict_id, exit_code=7,
+            )
+            conflict_post = self._run_entrypoint(
+                "post_tool_use_receipt.py",
+                {**common, "hook_event_name": "PostToolUse", "tool_name": "Bash",
+                 "tool_use_id": conflict_id, "tool_input": {"command": conflict_command},
+                 "tool_response": {"exit_code": 0, "status": "failed"}},
+                root,
+            )
+            self.assertEqual(conflict_post.returncode, 0, conflict_post.stderr)
+            conflicted = self._run_entrypoint(
+                "stop_tool_enforcement.py",
+                {**common, "hook_event_name": "Stop", "stop_hook_active": False},
+                root,
+            )
+            self.assertEqual(json.loads(conflicted.stdout)["decision"], "block")
+            self.assertIn("successful_post_tool_receipts", conflicted.stdout)
+            self.assertIn("post_tool_receipt_count:1", conflicted.stdout)
+
+            missing_common = {**common, "turn_id": "turn-2"}
+            missing_intake = self._run_entrypoint(
+                "session_context.py",
+                {**missing_common, "hook_event_name": "UserPromptSubmit", "prompt": prompt},
+                root,
+            )
+            self.assertEqual(missing_intake.returncode, 0, missing_intake.stderr)
+            missing_task = hashlib.sha256(b"session-1\0turn-2").hexdigest()
+            missing_context = json.loads(missing_intake.stdout)["hookSpecificOutput"]["additionalContext"]
+            missing_intake_id = re.search(
+                r"--intake-id-sha256 ([0-9a-f]{64})", missing_context
+            ).group(1)
+            missing_recorder = (
+                recorder_command.replace(task_id, missing_task)
+                .replace(intake_id, missing_intake_id)
+            )
+            pre = self._run_entrypoint(
+                "pre_tool_use_policy.py",
+                {**missing_common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                 "tool_use_id": "contract-2", "tool_input": {"command": missing_recorder}},
+                root,
+            )
+            self.assertEqual(json.loads(pre.stdout)["hookSpecificOutput"]["permissionDecision"], "allow")
+            recorded = subprocess.run(
+                [
+                    sys.executable,
+                    str(pathlib.Path(__file__).parents[1] / "bin" / "toolchain-auto.py"),
+                    "--record-task-contract", "--repository-work",
+                    "--task-id-sha256", missing_task, "--task-shape-sha256", shape_id,
+                    "--intake-id-sha256", missing_intake_id,
+                    "--unknown-semantic-entrypoint",
+                ], text=True, capture_output=True, check=False, env=env,
+            )
+            self.assertEqual(recorded.returncode, 0, recorded.stderr)
+            self._record_execution_status(
+                root, task_id=missing_task, intake_id=missing_intake_id,
+                tool_use_id="contract-2",
+            )
+            post = self._run_entrypoint(
+                "post_tool_use_receipt.py",
+                {**missing_common, "hook_event_name": "PostToolUse", "tool_name": "Bash",
+                 "tool_use_id": "contract-2", "tool_input": {"command": missing_recorder},
+                 "tool_response": {"exit_code": 0}},
+                root,
+            )
+            self.assertEqual(post.returncode, 0, post.stderr)
+            first = self._run_entrypoint(
+                "stop_tool_enforcement.py",
+                {
+                    **missing_common,
+                    "hook_event_name": "Stop",
+                    "stop_hook_active": False,
+                },
+                root,
+            )
+            self.assertEqual(json.loads(first.stdout)["decision"], "block")
+            second = self._run_entrypoint(
+                "stop_tool_enforcement.py",
+                {
+                    **missing_common,
+                    "hook_event_name": "Stop",
+                    "stop_hook_active": True,
+                },
+                root,
+            )
+            second_output = json.loads(second.stdout)
+            self.assertNotIn("decision", second_output)
+            self.assertIn("circuit is open", second_output["systemMessage"])
+
+    def test_post_tool_failure_is_not_accepted_as_success(self):
+        self.assertFalse(post_tool_use_receipt.tool_succeeded({"exit_code": 7}))
+        self.assertFalse(post_tool_use_receipt.tool_succeeded({"isError": True}))
+        self.assertFalse(post_tool_use_receipt.tool_succeeded(None))
+        self.assertFalse(post_tool_use_receipt.tool_succeeded("success"))
+        self.assertFalse(post_tool_use_receipt.tool_succeeded({"output": "ok"}))
+        self.assertFalse(post_tool_use_receipt.tool_succeeded({"exit_code": 0, "status": "failed"}))
+        self.assertFalse(post_tool_use_receipt.tool_succeeded({"exit_code": 0, "success": False}))
+        self.assertTrue(post_tool_use_receipt.tool_succeeded({"exit_code": 0}))
+        self.assertTrue(post_tool_use_receipt.tool_succeeded({"status": "completed"}))
+        self.assertTrue(post_tool_use_receipt.tool_succeeded({"content": []}))
+
+    def test_codex_app_json_exec_envelope_is_explicit_and_fail_closed(self):
+        success = json.dumps({
+            "chunk_id": "opaque-runtime-id",
+            "wall_time_seconds": 0.25,
+            "exit_code": 0,
+            "original_token_count": 41,
+            "output": "PRIVATE tool output",
+        })
+        classified = post_tool_use_receipt.classify_tool_response(success)
+        self.assertTrue(classified.succeeded)
+        self.assertEqual(classified.reason_code, "tool_success")
+        self.assertEqual(classified.diagnostics["envelope_type"], "json_string")
+        self.assertEqual(classified.diagnostics["normalized_shape"], "codex_app_exec")
+        self.assertEqual(classified.diagnostics["normalized_status"], "success")
+        self.assertEqual(classified.diagnostics["key_types"]["exit_code"], "integer")
+        self.assertNotIn("PRIVATE", json.dumps(classified.diagnostics))
+        self.assertNotIn("opaque-runtime-id", json.dumps(classified.diagnostics))
+
+        for rejected in (
+            json.dumps({
+                "wall_time_seconds": 0.1, "exit_code": 7, "output": "failed"
+            }),
+            json.dumps({
+                "wall_time_seconds": 0.1, "exit_code": 0,
+                "session_id": 17, "output": "still running",
+            }),
+            json.dumps({"exit_code": 0, "session_id": 17, "output": "partial"}),
+            json.dumps({
+                "wall_time_seconds": float("inf"), "exit_code": 0, "output": "bad"
+            }),
+            json.dumps({
+                "wall_time_seconds": 0.1, "exit_code": 0,
+                "output": "masked", "status": "failed",
+            }),
+            json.dumps({"output": "ambiguous"}),
+            "plain successful-looking output",
+            "{not-json",
+        ):
+            with self.subTest(rejected=rejected[:30]):
+                self.assertFalse(post_tool_use_receipt.tool_succeeded(rejected))
+
+    def test_bash_success_is_bound_by_pretool_wrapper_not_model_facing_output(self):
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as repo:
+            root = pathlib.Path(directory)
+            pathlib.Path(repo, ".git").mkdir()
+            common = {
+                "session_id": "wire-session", "turn_id": "wire-turn",
+                "model": "gpt-5.6-sol", "cwd": repo,
+            }
+            prompt = "PRIVATE live wire counterexample"
+            intake_result = self._run_entrypoint(
+                "session_context.py",
+                {**common, "hook_event_name": "UserPromptSubmit", "prompt": prompt},
+                root,
+            )
+            context = json.loads(intake_result.stdout)["hookSpecificOutput"]["additionalContext"]
+            task_id = hashlib.sha256(b"wire-session\0wire-turn").hexdigest()
+            shape_id = hashlib.sha256(prompt.encode()).hexdigest()
+            intake_id = re.search(
+                r"--intake-id-sha256 ([0-9a-f]{64})", context
+            ).group(1)
+            env = os.environ.copy()
+            env["CODEX_TOOL_STATE_DIR"] = str(root / "tool-state")
+            recorded = subprocess.run(
+                [
+                    sys.executable,
+                    str(pathlib.Path(__file__).parents[1] / "bin" / "toolchain-auto.py"),
+                    "--record-task-contract", "--repository-work",
+                    "--task-id-sha256", task_id,
+                    "--task-shape-sha256", shape_id,
+                    "--intake-id-sha256", intake_id,
+                    "--machine-exact-only",
+                ],
+                text=True, capture_output=True, check=False, env=env,
+            )
+            self.assertEqual(recorded.returncode, 0, recorded.stderr)
+
+            for call_id, command, expected_exit, model_output, expected_stderr, decision in (
+                (
+                    "wire-ok",
+                    "rtk sh -c 'printf PRIVATE_SUCCESS; printf PRIVATE_OK_STDERR >&2'",
+                    0, "PRIVATE_SUCCESS", "PRIVATE_OK_STDERR", "allow",
+                ),
+                (
+                    "wire-fail",
+                    "rtk sh -c 'printf PRIVATE_FAILURE; printf PRIVATE_FAIL_STDERR >&2; exit 7'",
+                    7, "PRIVATE_FAILURE", "PRIVATE_FAIL_STDERR", "deny",
+                ),
+            ):
+                pre = self._run_entrypoint(
+                    "pre_tool_use_policy.py",
+                    {**common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                     "tool_use_id": call_id, "tool_input": {"command": command}},
+                    root,
+                )
+                specific = json.loads(pre.stdout)["hookSpecificOutput"]
+                self.assertEqual(specific["permissionDecision"], "allow")
+                wrapped = specific["updatedInput"]["command"]
+                self.assertIn("tool_execution_status.py", wrapped)
+                execution = subprocess.run(
+                    ["/bin/bash", "-lc", wrapped], cwd=repo, env=env,
+                    text=True, capture_output=True, check=False,
+                )
+                self.assertEqual(execution.returncode, expected_exit, execution.stderr)
+                self.assertEqual(execution.stdout, model_output)
+                self.assertEqual(execution.stderr, expected_stderr)
+                post = self._run_entrypoint(
+                    "post_tool_use_receipt.py",
+                    {**common, "hook_event_name": "PostToolUse", "tool_name": "Bash",
+                     "tool_use_id": call_id, "tool_response": model_output},
+                    root,
+                )
+                self.assertEqual(post.returncode, 0, post.stderr)
+                records = [
+                    json.loads(line)
+                    for path in root.glob("*.jsonl")
+                    for line in path.read_text(encoding="utf-8").splitlines()
+                ]
+                receipt = [
+                    item for item in records
+                    if item["event"] == "PostToolUse"
+                    and item["tool_call_id_sha256"] == hashlib.sha256(call_id.encode()).hexdigest()
+                ][0]
+                pre_receipt = [
+                    item for item in records
+                    if item["event"] == "PreToolUse"
+                    and item["tool_call_id_sha256"] == hashlib.sha256(call_id.encode()).hexdigest()
+                ][0]
+                self.assertEqual(receipt["decision"], decision)
+                self.assertNotEqual(pre_receipt["route_code"], "unspecified")
+                self.assertEqual(receipt["route_code"], pre_receipt["route_code"])
+                self.assertEqual(
+                    receipt["response_diagnostics"]["normalized_shape"],
+                    "pretool_wrapped_bash",
+                )
+                self.assertNotIn("PRIVATE", json.dumps(receipt, sort_keys=True))
+
+            spoofed = self._run_entrypoint(
+                "post_tool_use_receipt.py",
+                {**common, "hook_event_name": "PostToolUse", "tool_name": "rg",
+                 "tool_use_id": "wire-fail", "tool_response": {"exit_code": 0}},
+                root,
+            )
+            self.assertEqual(spoofed.returncode, 0, spoofed.stderr)
+            records = [
+                json.loads(line)
+                for path in root.glob("*.jsonl")
+                for line in path.read_text(encoding="utf-8").splitlines()
+            ]
+            spoofed_receipt = [
+                item for item in records
+                if item["event"] == "PostToolUse"
+                and item["tool_name"] == "rg"
+                and item["tool_call_id_sha256"]
+                == hashlib.sha256(b"wire-fail").hexdigest()
+            ][-1]
+            self.assertEqual(spoofed_receipt["decision"], "deny")
+            self.assertEqual(spoofed_receipt["reason_code"], "tool_identity_mismatch")
+            self.assertEqual(spoofed_receipt["route_code"], "rtk")
+
+            persisted_status = "".join(
+                path.read_text(encoding="utf-8")
+                for path in (root / "tool-state").glob("*.execution.*.json")
+            )
+            self.assertNotIn("PRIVATE", persisted_status)
+
+    def test_post_receipt_persists_only_safe_response_structure_and_intake(self):
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as repo:
+            root = pathlib.Path(directory)
+            pathlib.Path(repo, ".git").mkdir()
+            common = {
+                "session_id": "stable-session", "turn_id": "stable-turn",
+                "model": "gpt-5.6-sol", "cwd": repo,
+            }
+            intake = self._run_entrypoint(
+                "session_context.py",
+                {**common, "hook_event_name": "UserPromptSubmit", "prompt": "PRIVATE prompt"},
+                root,
+            )
+            context = json.loads(intake.stdout)["hookSpecificOutput"]["additionalContext"]
+            task_id = hashlib.sha256(b"stable-session\0stable-turn").hexdigest()
+            shape_id = hashlib.sha256(b"PRIVATE prompt").hexdigest()
+            intake_id = re.search(
+                r"--intake-id-sha256 ([0-9a-f]{64})", context
+            ).group(1)
+            command = (
+                "rtk python3 codex/bin/toolchain-auto.py --record-task-contract "
+                f"--repository-work --task-id-sha256 {task_id} "
+                f"--task-shape-sha256 {shape_id} --intake-id-sha256 {intake_id} "
+                "--machine-exact-only"
+            )
+            pre = self._run_entrypoint(
+                "pre_tool_use_policy.py",
+                {**common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                 "tool_use_id": "live-call", "tool_input": {"command": command}},
+                root,
+            )
+            self.assertEqual(
+                json.loads(pre.stdout)["hookSpecificOutput"]["permissionDecision"], "allow"
+            )
+            env = os.environ.copy()
+            env["CODEX_TOOL_STATE_DIR"] = str(root / "tool-state")
+            recorded = subprocess.run(
+                [
+                    sys.executable,
+                    str(pathlib.Path(__file__).parents[1] / "bin" / "toolchain-auto.py"),
+                    "--record-task-contract", "--repository-work",
+                    "--task-id-sha256", task_id,
+                    "--task-shape-sha256", shape_id,
+                    "--intake-id-sha256", intake_id,
+                    "--machine-exact-only",
+                ],
+                text=True, capture_output=True, check=False, env=env,
+            )
+            self.assertEqual(recorded.returncode, 0, recorded.stderr)
+            self._record_execution_status(
+                root, task_id=task_id, intake_id=intake_id,
+                tool_use_id="live-call",
+            )
+            post = self._run_entrypoint(
+                "post_tool_use_receipt.py",
+                {**common, "hook_event_name": "PostToolUse", "tool_name": "Bash",
+                 "tool_use_id": "live-call", "tool_input": {"command": command},
+                 "tool_response": json.dumps({
+                     "wall_time_seconds": 0.2, "exit_code": 0,
+                     "output": "PRIVATE successful output",
+                 })},
+                root,
+            )
+            self.assertEqual(post.returncode, 0, post.stderr)
+            records = [
+                json.loads(line)
+                for path in root.glob("*.jsonl")
+                for line in path.read_text(encoding="utf-8").splitlines()
+            ]
+            post_record = [record for record in records if record["event"] == "PostToolUse"][0]
+            self.assertEqual(post_record["decision"], "allow")
+            self.assertEqual(post_record["intake_id_sha256"], intake_id)
+            self.assertEqual(
+                post_record["response_diagnostics"]["normalized_status"], "success"
+            )
+            serialized = json.dumps(post_record, sort_keys=True)
+            for forbidden in ("PRIVATE", "successful output", command, "stable-session"):
+                self.assertNotIn(forbidden, serialized)
+
+    def test_subagent_start_creates_parent_bound_intake_without_prompt(self):
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as repo:
+            root = pathlib.Path(directory)
+            pathlib.Path(repo, ".git").mkdir()
+            parent = self._run_entrypoint(
+                "session_context.py",
+                {
+                    "hook_event_name": "UserPromptSubmit", "session_id": "session",
+                    "turn_id": "stable-turn", "prompt": "PRIVATE parent prompt",
+                },
+                root,
+            )
+            parent_context = json.loads(parent.stdout)["hookSpecificOutput"]["additionalContext"]
+            parent_intake = re.search(
+                r"--intake-id-sha256 ([0-9a-f]{64})", parent_context
+            ).group(1)
+            child = self._run_entrypoint(
+                "session_context.py",
+                {
+                    "hook_event_name": "SubagentStart", "session_id": "session",
+                    "turn_id": "child-turn", "agent_id": "PRIVATE child id",
+                    "agent_type": "explorer",
+                },
+                root,
+            )
+            child_context = json.loads(child.stdout)["hookSpecificOutput"]["additionalContext"]
+            child_intake = re.search(
+                r"--intake-id-sha256 ([0-9a-f]{64})", child_context
+            ).group(1)
+            self.assertNotEqual(child_intake, parent_intake)
+            state_files = list((root / "tool-state").glob("*.intake.*.json"))
+            child_states = [
+                json.loads(path.read_text(encoding="utf-8")) for path in state_files
+                if json.loads(path.read_text(encoding="utf-8")).get("intake_id_sha256") == child_intake
+            ]
+            self.assertEqual(len(child_states), 1)
+            self.assertEqual(child_states[0]["parent_intake_id_sha256"], parent_intake)
+            self.assertEqual(
+                child_states[0]["task_shape_sha256"], hashlib.sha256(b"PRIVATE parent prompt").hexdigest()
+            )
+            serialized = json.dumps(child_states[0], sort_keys=True)
+            self.assertNotIn("PRIVATE", serialized)
+
+            child_task = hashlib.sha256(b"session\0child-turn").hexdigest()
+            child_shape = hashlib.sha256(b"PRIVATE parent prompt").hexdigest()
+            recorder = (
+                "rtk python3 codex/bin/toolchain-auto.py --record-task-contract "
+                f"--repository-work --task-id-sha256 {child_task} "
+                f"--task-shape-sha256 {child_shape} "
+                f"--intake-id-sha256 {child_intake} --machine-exact-only"
+            )
+            child_common = {
+                "session_id": "session", "turn_id": "child-turn", "cwd": repo,
+                "model": "gpt-5.6-sol",
+            }
+            pre = self._run_entrypoint(
+                "pre_tool_use_policy.py",
+                {**child_common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                 "tool_use_id": "child-contract", "tool_input": {"command": recorder}},
+                root,
+            )
+            self.assertEqual(
+                json.loads(pre.stdout)["hookSpecificOutput"]["permissionDecision"], "allow"
+            )
+            env = os.environ.copy()
+            env["CODEX_TOOL_STATE_DIR"] = str(root / "tool-state")
+            recorded = subprocess.run(
+                [
+                    sys.executable,
+                    str(pathlib.Path(__file__).parents[1] / "bin" / "toolchain-auto.py"),
+                    "--record-task-contract", "--repository-work",
+                    "--task-id-sha256", child_task,
+                    "--task-shape-sha256", child_shape,
+                    "--intake-id-sha256", child_intake,
+                    "--machine-exact-only",
+                ],
+                text=True, capture_output=True, check=False, env=env,
+            )
+            self.assertEqual(recorded.returncode, 0, recorded.stderr)
+            calls = (
+                ("child-contract", recorder),
+                ("child-maintenance", "rtk python3 codex/bin/toolchain-auto.py --repo ."),
+            )
+            for call_id, command in calls:
+                if call_id == "child-maintenance":
+                    pre = self._run_entrypoint(
+                        "pre_tool_use_policy.py",
+                        {**child_common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                         "tool_use_id": call_id, "tool_input": {"command": command}},
+                        root,
+                    )
+                    self.assertEqual(
+                        json.loads(pre.stdout)["hookSpecificOutput"]["permissionDecision"],
+                        "allow",
+                    )
+                self._record_execution_status(
+                    root, task_id=child_task, intake_id=child_intake,
+                    tool_use_id=call_id,
+                )
+                post = self._run_entrypoint(
+                    "post_tool_use_receipt.py",
+                    {**child_common, "hook_event_name": "PostToolUse", "tool_name": "Bash",
+                     "tool_use_id": call_id, "tool_input": {"command": command},
+                     "tool_response": json.dumps({
+                         "wall_time_seconds": 0.1, "exit_code": 0, "output": "ok"
+                     })},
+                    root,
+                )
+                self.assertEqual(post.returncode, 0, post.stderr)
+            stopped = self._run_entrypoint(
+                "stop_tool_enforcement.py",
+                {**child_common, "hook_event_name": "SubagentStop",
+                 "agent_id": "PRIVATE child id", "stop_hook_active": False},
+                root,
+            )
+            self.assertEqual(json.loads(stopped.stdout), {})
+            records = [
+                json.loads(line)
+                for path in root.glob("*.jsonl")
+                for line in path.read_text(encoding="utf-8").splitlines()
+            ]
+            child_posts = [
+                record for record in records
+                if record["event"] == "PostToolUse"
+                and record.get("turn_id_sha256") == hashlib.sha256(b"child-turn").hexdigest()
+            ]
+            self.assertEqual(len(child_posts), 2)
+            self.assertTrue(all(
+                record["intake_id_sha256"] == child_intake for record in child_posts
+            ))
+            self.assertEqual(records[-1]["event"], "SubagentStop")
+            self.assertEqual(records[-1]["intake_id_sha256"], child_intake)
 
 
 if __name__ == '__main__': unittest.main()

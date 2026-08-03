@@ -1,56 +1,270 @@
 #!/usr/bin/env python3
+"""Manifest-bound, non-destructive Codex governance overlay installer."""
+
 from __future__ import annotations
-import argparse,hashlib,json,os,pathlib,shutil,tempfile
-FORBIDDEN=("sessions","hook-receipts","plugins","connections","models_cache.json",".env")
-def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
-def collect(src):
-    package=src/"codex"
-    if not package.is_dir(): raise SystemExit("missing codex package")
-    package_root=package.resolve(strict=True)
+
+import argparse
+import hashlib
+import json
+import os
+import pathlib
+import shutil
+import tempfile
+from typing import Any
+
+
+FORBIDDEN = ("sessions", "hook-receipts", "plugins", "connections", "models_cache.json", ".env")
+BACKUP_NAME = ".governance-v16-backup"
+PREVIOUS_BACKUP_NAME = BACKUP_NAME + ".previous"
+
+
+def sha(path: pathlib.Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _canonical_relative(value: str) -> pathlib.PurePosixPath:
+    path = pathlib.PurePosixPath(value)
+    if (
+        "\\" in value
+        or path.is_absolute()
+        or not path.parts
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        raise SystemExit("noncanonical manifest path:" + value)
+    return path
+
+
+def collect(src: pathlib.Path) -> list[tuple[str, pathlib.Path]]:
+    package = src / "codex"
+    if not package.is_dir():
+        raise SystemExit("missing codex package")
+    package_root = package.resolve(strict=True)
     try:
-        declared=json.loads((src/"manifest.json").read_text(encoding="utf-8"))["files"]
-    except (OSError,KeyError,TypeError,json.JSONDecodeError):
+        declared = json.loads((src / "manifest.json").read_text(encoding="utf-8"))["files"]
+    except (OSError, KeyError, TypeError, json.JSONDecodeError):
         raise SystemExit("invalid manifest")
-    if not isinstance(declared,dict): raise SystemExit("invalid manifest files")
-    out=[]
-    for source_rel,expected_hash in sorted(declared.items()):
-        if not isinstance(source_rel,str) or not source_rel.startswith("codex/"): continue
-        parts=source_rel.split("/")
-        if "\\" in source_rel or len(parts)<2 or parts[0]!="codex" or any(part in {"",".",".."} for part in parts):
-            raise SystemExit("noncanonical manifest path:"+source_rel)
-        rel="/".join(parts[1:])
-        p=package.joinpath(*parts[1:])
+    if not isinstance(declared, dict):
+        raise SystemExit("invalid manifest files")
+    output: list[tuple[str, pathlib.Path]] = []
+    for source_rel, expected_hash in sorted(declared.items()):
+        if not isinstance(source_rel, str) or not source_rel.startswith("codex/"):
+            continue
+        source_path = _canonical_relative(source_rel)
+        if len(source_path.parts) < 2 or source_path.parts[0] != "codex":
+            raise SystemExit("noncanonical manifest path:" + source_rel)
+        relative = pathlib.PurePosixPath(*source_path.parts[1:])
+        path = package.joinpath(*relative.parts)
         try:
-            resolved=p.resolve(strict=True)
-            resolved.relative_to(package_root)
-        except (FileNotFoundError,RuntimeError,ValueError):
-            raise SystemExit("source escape:"+source_rel)
-        if not p.is_file() or p.is_symlink() or sha(p)!=expected_hash:
-            raise SystemExit("manifest mismatch:"+source_rel)
-        out.append((rel,p))
-    if not out: raise SystemExit("empty codex package")
-    return out
-def main():
-    ap=argparse.ArgumentParser(); ap.add_argument('--source',default='.'); ap.add_argument('--codex-home',required=True); ap.add_argument('--dry-run',action='store_true'); ap.add_argument('--rollback',action='store_true'); a=ap.parse_args(); src=pathlib.Path(a.source).resolve(); dest=pathlib.Path(a.codex_home).resolve(); backup=dest.with_name(dest.name+'.v16-backup')
-    if a.rollback:
-        if not backup.exists(): raise SystemExit('no backup')
-        if dest.exists(): shutil.rmtree(dest)
-        backup.rename(dest); print(json.dumps({'status':'ROLLED_BACK','destination':str(dest)})); return 0
-    entries=collect(src); bad=[r for r,_ in entries if any(x in r for x in FORBIDDEN)]
-    if bad: raise SystemExit('forbidden:'+','.join(bad))
-    print(json.dumps({'status':'DRY_RUN' if a.dry_run else 'READY','files':len(entries),'destination':'$CODEX_HOME' if a.dry_run else str(dest),'hashes':{r:sha(p) for r,p in entries}},sort_keys=True))
-    if a.dry_run: return 0
-    tmp=pathlib.Path(tempfile.mkdtemp(prefix='codex-v16-',dir=dest.parent));
+            path.resolve(strict=True).relative_to(package_root)
+        except (FileNotFoundError, RuntimeError, ValueError):
+            raise SystemExit("source escape:" + source_rel)
+        if not path.is_file() or path.is_symlink() or sha(path) != expected_hash:
+            raise SystemExit("manifest mismatch:" + source_rel)
+        output.append((relative.as_posix(), path))
+    if not output:
+        raise SystemExit("empty codex package")
+    return output
+
+
+def _target(destination: pathlib.Path, relative: str) -> pathlib.Path:
+    target = destination.joinpath(*_canonical_relative(relative).parts)
     try:
-        for rel,p in entries:
-            q=tmp.joinpath(*rel.split("/"))
-            try: q.resolve(strict=False).relative_to(tmp.resolve(strict=True))
-            except (RuntimeError,ValueError): raise SystemExit("destination escape:"+rel)
-            q.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(p,q); os.chmod(q,0o600 if q.suffix=='.json' else 0o644)
-        if backup.exists(): shutil.rmtree(backup)
-        if dest.exists(): dest.rename(backup)
-        tmp.rename(dest)
-    except Exception:
-        shutil.rmtree(tmp,ignore_errors=True); raise
+        target.resolve(strict=False).relative_to(destination.resolve(strict=True))
+    except (RuntimeError, ValueError):
+        raise SystemExit("destination escape:" + relative)
+    return target
+
+
+def _write_json(path: pathlib.Path, value: Any) -> None:
+    path.write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+    os.chmod(path, 0o600)
+
+
+def _replace_json(path: pathlib.Path, value: Any) -> None:
+    staged = path.with_name(path.name + ".tmp")
+    _write_json(staged, value)
+    os.replace(staged, path)
+
+
+def _backup_metadata(backup: pathlib.Path) -> dict[str, Any]:
+    metadata_path = backup / "metadata.json"
+    if backup.is_symlink() or not backup.is_dir() or metadata_path.is_symlink():
+        raise SystemExit("no valid backup")
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        managed = metadata["managed"]
+        previous = set(metadata["previous"])
+    except (OSError, KeyError, TypeError, json.JSONDecodeError):
+        raise SystemExit("invalid backup metadata")
+    if (
+        metadata.get("schema") != "governance-overlay-backup.v16"
+        or not isinstance(managed, list)
+        or not all(isinstance(item, str) for item in managed)
+        or not all(isinstance(item, str) for item in previous)
+        or not previous.issubset(set(managed))
+        or (
+            "installed" in metadata
+            and (
+                not isinstance(metadata["installed"], dict)
+                or set(metadata["installed"]) != set(managed)
+                or not all(isinstance(value, str) for value in metadata["installed"].values())
+            )
+        )
+        or ("committed" in metadata and type(metadata["committed"]) is not bool)
+    ):
+        raise SystemExit("invalid backup metadata")
+    return metadata
+
+
+def _backup_committed(backup: pathlib.Path) -> bool:
+    metadata = _backup_metadata(backup)
+    return metadata.get("committed", True) is True
+
+
+def _apply_backup(destination: pathlib.Path, backup: pathlib.Path) -> None:
+    metadata = _backup_metadata(backup)
+    managed = metadata["managed"]
+    previous = set(metadata["previous"])
+    for relative in managed:
+        target = _target(destination, relative)
+        if target.exists() and (target.is_symlink() or not target.is_file()):
+            raise SystemExit("unsafe rollback target:" + relative)
+        if relative in previous:
+            source = backup / "files" / pathlib.PurePosixPath(relative)
+            if source.is_symlink() or not source.is_file():
+                raise SystemExit("missing backup file:" + relative)
+    for relative in managed:
+        target = _target(destination, relative)
+        if relative in previous:
+            source = backup / "files" / pathlib.PurePosixPath(relative)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            staged = target.with_name(target.name + ".governance-v16.rollback.tmp")
+            shutil.copy2(source, staged)
+            os.replace(staged, target)
+        elif target.exists():
+            target.unlink()
+    shutil.rmtree(backup)
+
+
+def _recover_interrupted_rotation(destination: pathlib.Path) -> None:
+    backup = destination / BACKUP_NAME
+    previous = destination / PREVIOUS_BACKUP_NAME
+    for path in (backup, previous):
+        if path.exists() and (path.is_symlink() or not path.is_dir()):
+            raise SystemExit("unsafe backup target")
+    if previous.exists() and not backup.exists():
+        previous.rename(backup)
+    elif previous.exists() and backup.exists():
+        if _backup_committed(backup):
+            shutil.rmtree(previous)
+        else:
+            _apply_backup(destination, backup)
+            previous.rename(backup)
+    elif backup.exists() and not _backup_committed(backup):
+        _apply_backup(destination, backup)
+
+
+def install(entries: list[tuple[str, pathlib.Path]], destination: pathlib.Path) -> None:
+    destination.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _recover_interrupted_rotation(destination)
+    backup = destination / BACKUP_NAME
+    previous_backup = destination / PREVIOUS_BACKUP_NAME
+    targets = [(relative, source, _target(destination, relative)) for relative, source in entries]
+    for relative, _source, target in targets:
+        if target.exists() and (target.is_symlink() or not target.is_file()):
+            raise SystemExit("unsafe existing target:" + relative)
+    temporary = pathlib.Path(tempfile.mkdtemp(prefix="governance-v16-", dir=destination))
+    previous: list[str] = []
+    rotated = published = False
+    try:
+        files_backup = temporary / "files"
+        for relative, _source, target in targets:
+            if target.is_file():
+                previous.append(relative)
+                saved = files_backup.joinpath(*pathlib.PurePosixPath(relative).parts)
+                saved.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(target, saved)
+        _write_json(temporary / "metadata.json", {
+            "schema": "governance-overlay-backup.v16",
+            "managed": [relative for relative, _source, _target_path in targets],
+            "previous": previous,
+            "installed": {relative: sha(source) for relative, source, _target in targets},
+            "committed": False,
+        })
+        if backup.exists():
+            backup.rename(previous_backup)
+            rotated = True
+        temporary.rename(backup)
+        published = True
+        for relative, source, target in targets:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            staged = target.with_name(target.name + ".governance-v16.tmp")
+            if staged.exists():
+                if staged.is_symlink() or not staged.is_file():
+                    raise SystemExit("unsafe staged target:" + relative)
+                staged.unlink()
+            shutil.copy2(source, staged)
+            os.chmod(staged, 0o600 if staged.suffix == ".json" else 0o644)
+            os.replace(staged, target)
+        metadata = _backup_metadata(backup)
+        metadata["committed"] = True
+        _replace_json(backup / "metadata.json", metadata)
+        if previous_backup.exists():
+            shutil.rmtree(previous_backup)
+    except BaseException:
+        if temporary.exists():
+            shutil.rmtree(temporary, ignore_errors=True)
+        if published and backup.exists():
+            try:
+                _apply_backup(destination, backup)
+            except BaseException as rollback_error:
+                raise SystemExit("install failed and rollback failed") from rollback_error
+        if rotated and previous_backup.exists() and not backup.exists():
+            previous_backup.rename(backup)
+        raise
+
+
+def rollback(destination: pathlib.Path) -> None:
+    backup = destination / BACKUP_NAME
+    previous = destination / PREVIOUS_BACKUP_NAME
+    if previous.exists() and not backup.exists():
+        previous.rename(backup)
+    if not backup.exists():
+        raise SystemExit("no valid backup")
+    _apply_backup(destination, backup)
+    if previous.exists():
+        previous.rename(backup)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--source", default=".")
+    parser.add_argument("--codex-home", required=True)
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--rollback", action="store_true")
+    args = parser.parse_args()
+    source = pathlib.Path(args.source).resolve()
+    destination = pathlib.Path(args.codex_home).expanduser().resolve()
+    if args.rollback:
+        rollback(destination)
+        print(json.dumps({"status": "ROLLED_BACK", "destination": str(destination)}))
+        return 0
+    entries = collect(source)
+    bad = [relative for relative, _source in entries if any(item in relative for item in FORBIDDEN)]
+    if bad:
+        raise SystemExit("forbidden:" + ",".join(bad))
+    result = {
+        "status": "DRY_RUN" if args.dry_run else "READY",
+        "mode": "managed-overlay",
+        "files": len(entries),
+        "destination": "$CODEX_HOME" if args.dry_run else str(destination),
+        "hashes": {relative: sha(path) for relative, path in entries},
+    }
+    print(json.dumps(result, sort_keys=True))
+    if not args.dry_run:
+        install(entries, destination)
     return 0
-if __name__=='__main__': main()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

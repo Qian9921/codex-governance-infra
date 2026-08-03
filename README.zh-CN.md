@@ -11,16 +11,17 @@ V16 提供：
 - affected-first 测试，而不是动不动全量 rebuild；
 - CodeGraph、Semble、`rtk` 的强制就绪检查与实际使用证据；
 - 单一风险路由的独立 reviewer，以及同 reviewer 的 delta-only 复审；
-- privacy-safe hook receipts；
+- 原生 `~/.codex/hooks.json` 生命周期门与 privacy-safe receipts；
 - 确定性 package verifier 和隔离试用安装器。
 
 它不声称兼容 Claude Code、Kimi Code、Zcode 或其他 agent runtime。
 
 > **安全边界**
 >
-> 安装器会替换传入的目标目录。只能使用新建的隔离 `CODEX_HOME`，绝不能指向正在使用的
-> `~/.codex`。仓库不会复制 credential、session、memory、plugin、connection、model cache 或
-> 其他私人数据。
+> 安装器是 manifest-bound managed overlay：只替换 package 自己管理的路径，保留
+> `CODEX_HOME` 中全部无关文件，并把旧 managed files 放到 `.governance-v16-backup` 供 rollback。
+> 必须先看 dry-run。仓库不会复制 credential、session、memory、plugin、connection、model cache
+> 或其他私人数据。
 
 ## 师兄师姐十分钟上手
 
@@ -73,30 +74,30 @@ rtk init --codex --global
 Semble 命令只安装 MCP，避免再注入一大段重复规则。审阅配置变化后，重启真正受影响的 Codex
 CLI、Desktop 或 app-server，并开启新任务。
 
-### 4. 准备当前仓库的 CodeGraph 索引
+### 4. 检查当前仓库的 CodeGraph 索引
 
 ```bash
 codegraph status --json .
 ```
 
-仓库尚未初始化且已授权索引时：
+仍可手动修复：
 
 ```bash
 codegraph init .
 ```
 
-结构改动后，仅在已授权时同步：
-
 ```bash
 codegraph sync .
 ```
 
-索引只属于 owning repository，绝不能把父 workspace 的图当作 child repo 真值。
+索引只属于 owning repository，绝不能把父 workspace 的图当作 child repo 真值。下一步的
+controller 可以只对这个 exact owning repo 自动执行一次 `init` 或 `sync`；该受限维护职责属于
+当前 execution lane，与模型名称无关。
 
-### 5. 运行严格 toolchain doctor
+### 5. 自动检查并做有界维护
 
 ```bash
-python3 scripts/toolchain-doctor.py \
+python3 codex/bin/toolchain-auto.py \
   --repo . \
   --semantic-query "deterministic inspection intent router" \
   --expected-path codex/v16/tool_routing.py
@@ -108,8 +109,10 @@ python3 scripts/toolchain-doctor.py \
 - Semble 已配置、可调用、repo scope 正确，语义 query 能返回预期源码；
 - `rtk` 能复现当前 Git identity，并保持确定性失败命令的非零退出码。
 
-binary 存在不等于就绪。doctor 只读，只保存 hash/reason code，不保存 raw output、绝对路径、
-prompt、环境变量或 credential。
+binary 存在不等于就绪。controller 先运行只读 doctor；若 CodeGraph index 可安全修复，它获取
+private single-flight lock，只对 exact repo 执行一次 `init|sync`，然后重新检查。它不会安装包、
+修改用户 config、清理全局 Semble cache、使用 sudo 或重复无进展修复。完全只读时加
+`--check-only`。
 
 ### 6. 在隔离目录试用治理包
 
@@ -137,7 +140,7 @@ JSON
 
 - dry-run 给出 managed file denominator；
 - 所有安装文件只在隔离目录；
-- hook 输出包含 `"receipt_status":"success"`；
+- hook 输出符合原生 `hookSpecificOutput` 协议，且指定的 test receipt 目录中生成 private receipt；
 - live Codex home 没有被修改。
 
 Rollback：
@@ -151,16 +154,37 @@ python3 scripts/install-governance.py \
 
 只有之前目标目录确实被备份时才能 rollback。
 
-### 7. 给 Codex 复制这一段
+### 7. 安装到正在使用的 Codex home
+
+隔离试用全绿后：
+
+```bash
+ACTIVE_CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+
+python3 scripts/install-governance.py \
+  --source . \
+  --codex-home "$ACTIVE_CODEX_HOME" \
+  --dry-run
+
+python3 scripts/install-governance.py \
+  --source . \
+  --codex-home "$ACTIVE_CODEX_HOME"
+```
+
+Overlay 会保留 `config.toml`、credential、plugin、memory、session、connection、cache、receipt
+以及其他全部 unmanaged path。确认 `[features] hooks = true`，重启真正受影响的 Codex surface，
+再用 `/hooks` 审阅并 trust 新的 exact hook hash。需要恢复旧 managed files 时加 `--rollback`。
+
+### 8. 给 Codex 复制这一段
 
 ```text
 阅读这个仓库的 README 和 AGENTS.md。验证 package；检查当前
-CodeGraph/Semble/rtk 配置；只有获得我的授权才准备 owning-repo CodeGraph
-索引；选择一个仓库专属 semantic sentinel 并运行 strict toolchain doctor；
-复用当期 preflight receipt。任务中：未知语义入口用 Semble，已知结构/影响
-用 CodeGraph，进入上下文的 shell output 用 rtk，精确文本用 rg，hash/parser/
-精确 denominator 用 raw command。记录带 receipt 的实际工具使用；不要做无关
-打卡调用。
+CodeGraph/Semble/rtk 配置；选择仓库专属 semantic sentinel，运行
+toolchain-auto.py，允许其只对 exact repo index 做一次有界维护。编译完整
+tool-task-contract.v16：需要未知语义入口时必须用 Semble，需要结构/影响时
+必须用 CodeGraph，shell context 用 rtk，精确文本用 rg。最终必须有
+receipt-backed 实际使用和 tool-enforcement.v16 completion_eligible=true；
+不要打卡，也不要对同一故障循环。
 ```
 
 师兄师姐只需完成 clone、审阅授权，剩余步骤可以交给 Codex 驱动，同时所有 mutation 和失败都
@@ -168,17 +192,40 @@ CodeGraph/Semble/rtk 配置；只有获得我的授权才准备 owning-repo Code
 
 ## “强制工具”到底是什么意思
 
-它包含两道不同的门。
+它包含四个合同和一个 reliability plane。
 
 ### Gate 1：就绪
 
 `tool-preflight.v16` 绑定当前 host/runtime、工具版本、Codex config、repo root、Git head、
 worktree、CodeGraph index 和 semantic sentinel。任一 identity 变化都使旧 receipt 失效。
 
-### Gate 2：实际使用
+### Gate 2：完整任务适用性
+
+`tool-task-contract.v16` 确定性覆盖四类 route：
+`semantic_discovery|structural_analysis|exact_lookup|shell_context`，每行必须是
+`required|not_applicable`，不允许漏声明。
+
+### Gate 3：实际使用
 
 `tool-usage.v16` 把每条 declared route 绑定到成功且与任务相关的调用、evidence reference 和
 privacy-safe hook receipt hash。
+
+### Gate 4：完成强制
+
+`tool-enforcement.v16` 要求每个 required preferred route 都有成功且 task-relevant 的实际调用；
+只有 `completion_eligible=true` 才能支持完成声明。
+
+原生 `UserPromptSubmit` hook 先建立只含 hash 的 turn intake，并把一次性 task-contract recorder
+所需的精确 hash 注入给 Codex；不可变完整 contract 建立前，`PreToolUse` 会拒绝仓库工具，并记录
+每个预期 call id。`PostToolUse` 只接受明确、受支持的成功结构；`Stop` 要求每个预期调用都有同一
+current hook snapshot 下的成功 receipt。缺证据只续跑一次，随后由 `stop_hook_active` 打开 circuit，
+不再死循环。Assistant 自己写的 marker 不具备裁决权。Hook 变化后须用 `/hooks` 审阅并 trust 新 hash。
+
+### Reliability plane
+
+`tool-maintenance.v16` 自动检查 3/3，只对 exact owning-repo CodeGraph index 修一次并重新检查，
+同时持久化 failure fingerprint；下一次遇到完全相同且未变化的失败时直接打开 circuit，不再修。
+普通 stale index 不是 `EXEC_INFRA_BLOCKED`。
 
 | 任务意图 | 强制路由 |
 |---|---|
@@ -240,7 +287,10 @@ manifest 是精确 tracked path/hash 边界。新增、删除或修改 tracked �
 | 现象 | 处理 |
 |---|---|
 | `CODEGRAPH_WRONG_PROJECT` | 停止，把 doctor/query 指向 owning child repo。 |
-| `CODEGRAPH_STALE` | 审阅变化，授权后运行 `codegraph sync .`。 |
+| `CODEGRAPH_STALE` | `toolchain-auto.py` 只同步 exact repo 一次并重新检查。 |
+| `AUTO_REPAIR_NO_PROGRESS` | circuit 打开为 `MAINTENANCE_REQUIRED`，不得重复 spawn/retry。 |
+| `AUTO_REPAIR_CIRCUIT_OPEN` | 同一未变化故障已经用完一次 repair；修复指定底层状态后再试。 |
+| `EXTERNAL_TOOL_REPAIR_REQUIRED` | package/config/system owner 处理；这不是模型执行 infra 故障。 |
 | `SEMBLE_MCP_NOT_CONFIGURED` | 运行已审阅的 Semble MCP 配置命令并重启 Codex。 |
 | `SEMBLE_SENTINEL_MISMATCH` | 改善 semantic query 或修复 repo/index scope；不得宣称 ready。 |
 | `RTK_FALSE_GREEN` | 硬停止；修复前不得接受 shell evidence。 |
@@ -254,10 +304,12 @@ manifest 是精确 tracked path/hash 边界。新增、删除或修改 tracked �
 codex/                     可安装治理包
   AGENTS.md
   BRIEF-TEMPLATES.md
+  hooks.json               原生 Codex 生命周期配置
   hooks/
   v16/
 docs/TOOLCHAIN.md          工具就绪与路由详细合同
 scripts/toolchain-doctor.py
+codex/bin/toolchain-auto.py
 scripts/install-governance.py
 scripts/verify-governance.py
 scripts/presubmit.py
@@ -271,4 +323,4 @@ manifest.json              精确 tracked path/hash 边界
 - [配置基础](https://developers.openai.com/codex/config-basic)
 - [配置参考](https://developers.openai.com/codex/config-reference)
 - [AGENTS.md 与定制](https://developers.openai.com/codex/concepts/customization)
-- [Hooks](https://developers.openai.com/codex/config-advanced#hooks)
+- [Codex Hooks](https://learn.chatgpt.com/docs/hooks)

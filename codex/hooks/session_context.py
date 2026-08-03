@@ -10,12 +10,23 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import sys
 
 try:  # Support both direct hook execution and package-based test discovery.
     from . import hook_receipt
 except ImportError:  # pragma: no cover - exercised by direct script invocation.
     import hook_receipt
+
+PACKAGE_ROOT = pathlib.Path(__file__).resolve().parents[1]
+if str(PACKAGE_ROOT) not in sys.path:
+    sys.path.insert(0, str(PACKAGE_ROOT))
+
+from v16.tool_runtime import (  # noqa: E402
+    ToolRuntimeError,
+    begin_child_turn_state,
+    begin_turn_state,
+)
 
 
 ROUTING_GUIDANCE = {
@@ -31,6 +42,12 @@ TOOL_PREFLIGHT_GUIDANCE = {
     "mandatory_tools": ["codegraph", "semble", "rtk"],
     "usage_schema": "tool-usage.v16",
     "receipt_backed_usage_required": True,
+    "task_contract_schema": "tool-task-contract.v16",
+    "enforcement_schema": "tool-enforcement.v16",
+    "maintenance_schema": "tool-maintenance.v16",
+    "automatic_repo_index_repair": True,
+    "repair_budget": 1,
+    "repair_owner": "assigned_execution_agent:tool_maintainer",
 }
 REVIEW_RUNTIME_GUIDANCE = {
     "initial_high": "fresh Sol xhigh",
@@ -63,10 +80,14 @@ def build_context(event: str | None = None, model: str | None = None) -> dict[st
         "(high-risk Sol high; low/medium Terra high), delta-only, 90s report/"
         "240s replan; one review call, zero "
         "duplicate full-scope reviews. TOOL-PREFLIGHT: before repository work "
-        "require tool-preflight.v16 status=ready for CodeGraph/Semble/rtk, "
-        "bound to current repo/head/worktree/config; then require receipt-backed "
-        "tool-usage.v16. Choose by task shape; do not infer intent from raw "
-        "command arguments."
+        "require current tool-preflight.v16 for CodeGraph/Semble/rtk. Compile "
+        "the complete tool-task-contract.v16 matrix; each required route needs "
+        "receipt-backed tool-usage.v16 and tool-enforcement.v16 completion. "
+        "On repairable index failure the execution lane is tool_maintainer: one "
+        "locked exact-repo init/sync and recheck; never loop or label ordinary "
+        "stale indexes EXEC_INFRA_BLOCKED. STOP-GATE: current-turn intake, "
+        "validated bound contract, expected tool calls and successful PostToolUse "
+        "receipts are mandatory; Stop continues at most once."
     )
     return {
         "event": event or "SessionStart",
@@ -76,7 +97,7 @@ def build_context(event: str | None = None, model: str | None = None) -> dict[st
         "routing": dict(ROUTING_GUIDANCE),
         "tool_preflight": dict(TOOL_PREFLIGHT_GUIDANCE),
         "review_runtime": dict(REVIEW_RUNTIME_GUIDANCE),
-        "additionalContext": guidance[:1200],
+        "additionalContext": guidance[:1500],
     }
 
 
@@ -91,12 +112,79 @@ if __name__ == "__main__":
     event = raw_event if isinstance(raw_event, str) else "SessionStart"
     model = payload.get("model") if isinstance(payload.get("model"), str) else None
     context = build_context(event, model)
+    intake_error: str | None = None
+    intake: dict[str, str | None] | None = None
+    if event == "UserPromptSubmit":
+        try:
+            intake = begin_turn_state(
+                session_id=payload.get("session_id"),
+                turn_id=payload.get("turn_id"),
+                prompt=payload.get("prompt"),
+            )
+        except (OSError, ToolRuntimeError) as exc:
+            intake_error = type(exc).__name__
+    elif event == "SubagentStart":
+        try:
+            intake = begin_child_turn_state(
+                session_id=payload.get("session_id"),
+                turn_id=payload.get("turn_id"),
+                agent_id=payload.get("agent_id"),
+            )
+        except (OSError, ToolRuntimeError) as exc:
+            intake_error = type(exc).__name__
+    if intake is not None:
+        choices = " ".join("--" + name.replace("_", "-") for name in (
+            "unknown_semantic_entrypoint", "similar_implementation",
+            "known_symbol_or_call", "dependency_or_blast_radius",
+            "exact_text_error_config_log", "shell_output_for_model",
+            "machine_exact_only",
+        ))
+        lineage = (
+            " This child intake inherits only the parent prompt-shape hash and "
+            "opaque parent intake identity; no child prompt was invented."
+            if event == "SubagentStart" else ""
+        )
+        intake_context = (
+            "V16 TOOL-TASK-INTAKE." + lineage
+            + " Route known symbol/call/impact to CodeGraph; unknown semantics/similar "
+            "code to Semble; exact text/error/config/log to rg; shell output shown to "
+            "the model through rtk. Before the first hook-observable repository tool, "
+            "run once: rtk python3 \"${CODEX_HOME:-$HOME/.codex}/bin/toolchain-auto.py\" "
+            "--record-task-contract --repository-work "
+            f"--task-id-sha256 {intake['task_id_sha256']} "
+            f"--task-shape-sha256 {intake['task_shape_sha256']} "
+            f"--intake-id-sha256 {intake['intake_id_sha256']} "
+            "plus only the applicable flags from: " + choices + "."
+        )
+        context["additionalContext"] = intake_context[:1900]
     receipt_value = hook_receipt.receipt(
         event,
         model or os.environ.get("CODEX_MODEL", "unknown"),
         decision="allow",
         reason_code="session_context_emitted",
         identifiers=payload,
+        task_id_sha256=intake.get("task_id_sha256") if intake else None,
+        intake_id_sha256=intake.get("intake_id_sha256") if intake else None,
+        parent_intake_id_sha256=(
+            intake.get("parent_intake_id_sha256") if intake else None
+        ),
+        agent_id_sha256=intake.get("agent_id_sha256") if intake else None,
     )
-    context["receipt_status"] = "success" if hook_receipt.write_receipt(receipt_value) else "write_failed"
-    print(json.dumps(context, sort_keys=True))
+    written = hook_receipt.write_receipt(receipt_value)
+    output = {
+        "continue": True,
+        "hookSpecificOutput": {
+            "hookEventName": event,
+            "additionalContext": context["additionalContext"],
+        },
+    }
+    if not written:
+        output["systemMessage"] = (
+            "V16 hook receipt write failed; runtime-proof acceptance is unavailable."
+        )
+    elif intake_error:
+        output["systemMessage"] = (
+            "V16 turn intake state failed (" + intake_error
+            + "); repository tools will fail closed until the next turn."
+        )
+    print(json.dumps(output, sort_keys=True))
