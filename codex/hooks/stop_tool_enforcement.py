@@ -182,9 +182,20 @@ def main() -> int:
         payload = {}
     if not isinstance(payload, dict):
         payload = {}
+    runtime_model = payload.get("model") or os.environ.get("CODEX_MODEL", "unknown")
+    identity = hook_receipt.identity_kwargs(payload, runtime_model=runtime_model)
+    identity_error = hook_receipt.identity_validation_error(
+        payload, runtime_model=runtime_model
+    )
     strict = is_strict()
     result = evaluate(payload) if strict else {"status": "advisory", "missing": []}
     blocked = strict and result["status"] == "blocked"
+    if identity_error:
+        blocked = True
+        result = {
+            "status": "blocked",
+            "missing": ["agent_identity_misrepresentation"],
+        }
     active = payload.get("stop_hook_active") is True
     try:
         intake = load_current_intake(
@@ -200,10 +211,11 @@ def main() -> int:
     )
     value = hook_receipt.receipt(
         receipt_event,
-        payload.get("model", os.environ.get("CODEX_MODEL", "unknown")),
+        runtime_model,
         decision="deny" if blocked else "allow",
         reason_code=(
-            "tool_enforcement_circuit_open" if blocked and active
+            "agent_identity_misrepresentation" if identity_error
+            else "tool_enforcement_circuit_open" if blocked and active
             else "tool_enforcement_blocked" if blocked
             else "adaptive_stop_pass" if not strict
             else "tool_enforcement_pass"
@@ -216,6 +228,7 @@ def main() -> int:
             intake.get("parent_intake_id_sha256") if intake else None
         ),
         agent_id_sha256=intake.get("agent_id_sha256") if intake else None,
+        **identity,
     )
     written = hook_receipt.write_receipt(value)
     if not written and strict:

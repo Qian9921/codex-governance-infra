@@ -333,6 +333,18 @@ if __name__ == "__main__":
     tool_name = x.get("tool_name", x.get("tool", ""))
     tool_input = x.get("tool_input", x.get("args"))
     result = decide(tool_name, tool_input)
+    runtime_model = x.get("model") or os.environ.get("CODEX_MODEL", "unknown")
+    identity = hook_receipt.identity_kwargs(x, runtime_model=runtime_model)
+    identity_error = hook_receipt.identity_validation_error(
+        x, runtime_model=runtime_model
+    )
+    if identity_error:
+        result = {
+            **result,
+            "decision": "deny",
+            "reason": "agent model identity validation failed",
+            "reason_code": "agent_identity_misrepresentation",
+        }
     governed_activity = _governed_activity(x, tool_name, result["route"])
     strict = is_strict()
     intake: Mapping[str, Any] | None = None
@@ -414,7 +426,7 @@ if __name__ == "__main__":
                     }
     receipt_value = hook_receipt.receipt(
         "PreToolUse",
-        x.get("model", os.environ.get("CODEX_MODEL", "unknown")),
+        runtime_model,
         tool=tool_name,
         decision=result["decision"],
         reason_code=result["reason_code"],
@@ -426,6 +438,7 @@ if __name__ == "__main__":
             intake.get("parent_intake_id_sha256") if intake else None
         ),
         agent_id_sha256=intake.get("agent_id_sha256") if intake else None,
+        **identity,
     )
     written = hook_receipt.write_receipt(receipt_value)
     if governed_activity and strict and not written:

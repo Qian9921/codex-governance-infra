@@ -252,6 +252,11 @@ def main() -> int:
         payload = {}
     if not isinstance(payload, dict):
         payload = {}
+    runtime_model = payload.get("model") or os.environ.get("CODEX_MODEL", "unknown")
+    identity = hook_receipt.identity_kwargs(payload, runtime_model=runtime_model)
+    identity_error = hook_receipt.identity_validation_error(
+        payload, runtime_model=runtime_model
+    )
     tool_name = payload.get("tool_name", payload.get("tool", ""))
     tool_input = payload.get("tool_input", payload.get("args"))
     route = pre_tool_use_policy.route_for(tool_name, tool_input)
@@ -268,6 +273,20 @@ def main() -> int:
     except (OSError, ToolRuntimeError):
         pass
     classification = classify_tool_response(payload.get("tool_response"))
+    if identity_error:
+        classification = ToolResponseClassification(
+            False,
+            "agent_identity_misrepresentation",
+            {
+                "schema": "tool-response-diagnostics.v16",
+                "envelope_type": "private_execution_state",
+                "normalized_shape": "unknown",
+                "normalized_status": "failure",
+                "known_keys": [],
+                "key_types": {},
+                "unknown_key_count": 0,
+            },
+        )
     tool_identity_matches = (
         intake is not None
         and isinstance(tool_name, (str, int))
@@ -275,7 +294,7 @@ def main() -> int:
         and hashlib.sha256(str(tool_name).strip().lower().encode("utf-8")).hexdigest()
         == binding["tool_name_sha256"]
     ) if intake is not None else False
-    if intake is not None and not tool_identity_matches:
+    if intake is not None and not tool_identity_matches and not identity_error:
         classification = ToolResponseClassification(
             False,
             "tool_identity_mismatch",
@@ -294,7 +313,7 @@ def main() -> int:
     # use the tool kind plus that binding instead of re-inferring repository
     # activity from fields that are not portable on the Post wire.
     is_repo_bash = intake is not None and binding["wrapped_bash"]
-    if intake is not None and tool_identity_matches and is_repo_bash:
+    if intake is not None and tool_identity_matches and is_repo_bash and not identity_error:
         try:
             execution = load_tool_execution_status(
                 session_id=payload.get("session_id"),
@@ -324,15 +343,16 @@ def main() -> int:
                 shape="pretool_wrapped_bash",
                 status="success" if execution["exit_code"] == 0 else "failure",
             )
-    succeeded = classification.succeeded and intake is not None
+    succeeded = classification.succeeded and intake is not None and not identity_error
     reason_code = (
-        classification.reason_code
+        "agent_identity_misrepresentation" if identity_error
+        else classification.reason_code
         if intake is not None or not classification.succeeded
         else "tool_activity_state_unavailable"
     )
     value = hook_receipt.receipt(
         "PostToolUse",
-        payload.get("model", os.environ.get("CODEX_MODEL", "unknown")),
+        runtime_model,
         tool=tool_name,
         decision="allow" if succeeded else "deny",
         reason_code=reason_code,
@@ -345,6 +365,7 @@ def main() -> int:
         ),
         agent_id_sha256=intake.get("agent_id_sha256") if intake else None,
         response_diagnostics=classification.diagnostics,
+        **identity,
     )
     written = hook_receipt.write_receipt(value)
     output = {} if written or not is_strict() else {

@@ -55,6 +55,12 @@ hook, and model-routing repairs use `STANDARD`.
 - Spark: short bounded work delegated by Luna.
 - Terra: execution/recovery fallback only when Luna is unavailable.
 
+Spawn task names expose the actual model family and role (`luna-execution-*`,
+`spark-audit-*`). Fallback names expose the actual fallback family and never
+retain a `luna-` prefix for Sol/Terra. Receipts and reports record
+`requested_model`, `actual_model`, `role`, and `fallback_reason`; this telemetry
+is advisory unless model identity is deliberately misrepresented.
+
 Sol audits recovery evidence. Roles are routing defaults, not capability bans.
 
 ## Self-healing execution

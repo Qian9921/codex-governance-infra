@@ -20,6 +20,11 @@ import time
 from collections.abc import Mapping
 from typing import Any
 
+try:  # Support package and direct hook execution.
+    from .delegation_contract import ContractError, validate_task_identity
+except ImportError:  # pragma: no cover - direct script execution.
+    from delegation_contract import ContractError, validate_task_identity
+
 
 _LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,95}$")
 _HASH = re.compile(r"^[0-9a-f]{64}$")
@@ -81,6 +86,11 @@ _SAFE_FIELDS = frozenset(
         "utc",
         "event",
         "model",
+        "requested_model",
+        "actual_model",
+        "role",
+        "fallback_reason",
+        "task_name",
         "tool_name",
         "decision",
         "reason",
@@ -181,6 +191,59 @@ def _reason_code(value: Any) -> str:
     return normalized.lower()
 
 
+def identity_kwargs(
+    payload: Mapping[str, Any] | None,
+    *,
+    runtime_model: Any = None,
+) -> dict[str, Any]:
+    """Extract non-sensitive model/task identity metadata from a hook payload."""
+
+    if not isinstance(payload, Mapping):
+        return {}
+    effective_runtime_model = (
+        runtime_model if runtime_model is not None else payload.get("model")
+    )
+    runtime_present = (
+        isinstance(effective_runtime_model, str)
+        and bool(effective_runtime_model.strip())
+    )
+    return {
+        "requested_model": payload.get("requested_model", payload.get("assigned_model")),
+        # Runtime model identity is authoritative whenever supplied by the
+        # hook runner; payload actual_model is only an offline fallback.
+        "actual_model": (
+            effective_runtime_model if runtime_present
+            else payload.get("actual_model", payload.get("model"))
+        ),
+        "role": payload.get("role"),
+        "fallback_reason": payload.get("fallback_reason"),
+        "task_name": payload.get("task_name", payload.get("child_task_id")),
+    }
+
+
+def identity_validation_error(
+    payload: Mapping[str, Any] | None,
+    *,
+    runtime_model: Any = None,
+) -> str | None:
+    """Return a blocking identity error; missing metadata remains advisory."""
+
+    if not isinstance(payload, Mapping):
+        return None
+    identity = identity_kwargs(payload, runtime_model=runtime_model)
+    try:
+        validate_task_identity(
+            identity.get("task_name"),
+            requested_model=identity.get("requested_model"),
+            actual_model=identity.get("actual_model"),
+            role=identity.get("role"),
+            fallback_reason=identity.get("fallback_reason"),
+        )
+    except ContractError as exc:
+        return str(exc)
+    return None
+
+
 def _response_diagnostics(value: Any) -> dict[str, Any] | None:
     """Normalize a fixed structural diagnostic schema; raw values never pass."""
 
@@ -236,6 +299,11 @@ def receipt(
     parent_intake_id_sha256: Any = None,
     agent_id_sha256: Any = None,
     response_diagnostics: Any = None,
+    requested_model: Any = None,
+    actual_model: Any = None,
+    role: Any = None,
+    fallback_reason: Any = None,
+    task_name: Any = None,
 ) -> dict[str, Any]:
     """Create a normalized in-memory receipt; no file is written here."""
 
@@ -249,6 +317,19 @@ def receipt(
         "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "event": _label(event, "unknown_event"),
         "model": _label(model, "unknown_model"),
+        # Identity telemetry is always present.  Unknown values are explicit
+        # and advisory; a known mismatch is handled by delegation validation.
+        "requested_model": _label(
+            requested_model if requested_model is not None else model,
+            "unknown_requested_model",
+        ),
+        "actual_model": _label(
+            actual_model if actual_model is not None else model,
+            "unknown_actual_model",
+        ),
+        "role": _label(role, "unknown_role"),
+        "fallback_reason": _reason_code(fallback_reason),
+        "task_name": _label(task_name, "unknown_task_name"),
         "tool_name": _label(tool, "unknown_tool") if tool is not None else None,
         "decision": normalized_decision,
         "reason": _reason_code(normalized_reason),
@@ -292,6 +373,13 @@ def _portable_record(value: Mapping[str, Any]) -> dict[str, Any]:
     result["utc"] = _label(result.get("utc"), "unknown_time")
     result["event"] = _label(result.get("event"), "unknown_event")
     result["model"] = _label(result.get("model"), "unknown_model")
+    result["requested_model"] = _label(
+        result.get("requested_model"), "unknown_requested_model"
+    )
+    result["actual_model"] = _label(result.get("actual_model"), "unknown_actual_model")
+    result["role"] = _label(result.get("role"), "unknown_role")
+    result["fallback_reason"] = _reason_code(result.get("fallback_reason"))
+    result["task_name"] = _label(result.get("task_name"), "unknown_task_name")
     result["tool_name"] = (
         _label(result.get("tool_name"), "unknown_tool")
         if result.get("tool_name") is not None
