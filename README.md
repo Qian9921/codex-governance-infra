@@ -1,4 +1,4 @@
-# Codex Adaptive Governance Infra
+# Codex Adaptive Governance Infra V17
 
 [简体中文](README.zh-CN.md) · English
 
@@ -33,7 +33,7 @@ Claude Code, Kimi Code, Zcode, or other agent runtimes.
 |---|---|---|---|
 | `QUICK` | explanations, inventory, docs, reversible mechanics | targeted; formal review optional | advisory |
 | `STANDARD` | normal development and research engineering | affected-first; one independent review | advisory |
-| `STRICT` | security/privacy, exact math, public contracts, irreversible changes, installers/hooks/releases | V16 FAST/CANDIDATE/FINAL proof | fail-closed integrity |
+| `STRICT` | security/privacy, exact math, public contracts, irreversible changes, production releases | retained V16 FAST/CANDIDATE/FINAL proof | fail-closed integrity |
 
 Adaptive mode is the default. To run the installed hooks in strict mode, start
 the relevant Codex surface with:
@@ -43,6 +43,9 @@ export CODEX_GOVERNANCE_MODE=strict
 ```
 
 Strict mode is intentional, not an automatic penalty for every repository task.
+V17 is the adaptive product policy. The `codex/v16` package remains only as the
+backward-compatible strict evidence engine; ordinary reversible installer,
+hook, and model-routing repairs use `STANDARD`.
 
 ## Model roles
 
@@ -84,6 +87,7 @@ opt-in.
 git clone https://github.com/Qian9921/codex-governance-infra.git
 cd codex-governance-infra
 
+python3 -m pip install --user -r requirements.txt
 python3 scripts/verify-governance.py --repo .
 python3 -m unittest discover -s tests -p 'test_*.py'
 python3 -m unittest discover -s tests/v16 -p 'test_*.py'
@@ -129,6 +133,41 @@ all unrelated files.
 python3 scripts/install-governance.py \
   --source . \
   --codex-home "$ACTIVE_CODEX_HOME"
+```
+
+### 5. Keep Luna and Spark available to native multi-agent V2
+
+Codex currently advertises Luna and Spark in the general model catalog while
+their upstream `multi_agent_version` metadata can exclude them from native V2
+`spawn_agent`. Install the supported startup catalog overlay after the managed
+files are present:
+
+```bash
+ACTIVE_CODEX_BIN="$(command -v codex)"
+USER_SYSTEMD_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+
+python3 scripts/configure-model-routing.py \
+  --codex-home "$ACTIVE_CODEX_HOME" \
+  --codex-bin "$ACTIVE_CODEX_BIN" \
+  --systemd-user-dir "$USER_SYSTEMD_DIR"
+
+systemctl --user daemon-reload
+systemctl --user restart codex-app-server.service
+```
+
+The refresher uses an isolated temporary Codex home, never copies or prints
+credentials, changes only the allowlisted multi-agent backend fields, publishes
+atomically, and retains a last-known-good catalog. If the app-server service
+requires a network wrapper, add `--exec-wrapper /absolute/path/to/wrapper`.
+
+Model-routing rollback:
+
+```bash
+python3 scripts/configure-model-routing.py \
+  --codex-home "$ACTIVE_CODEX_HOME" \
+  --codex-bin "$ACTIVE_CODEX_BIN" \
+  --systemd-user-dir "$USER_SYSTEMD_DIR" \
+  --rollback
 ```
 
 Ensure `[features] hooks = true`, restart the affected Codex CLI/Desktop/app

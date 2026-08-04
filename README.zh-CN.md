@@ -1,4 +1,4 @@
-# Codex 自适应治理 Infra
+# Codex 自适应治理 Infra V17
 
 简体中文 · [English](README.md)
 
@@ -26,7 +26,7 @@
 |---|---|---|---|
 | `QUICK` | 解释、盘点、文档、可逆机械修改 | targeted；正式 review 可选 | advisory |
 | `STANDARD` | 普通研究工程和开发 | affected-first；一次独立 review | advisory |
-| `STRICT` | 安全/隐私、精确数学、公共合同、不可逆变更、installer/hook/发布 | V16 FAST/CANDIDATE/FINAL | fail-closed integrity |
+| `STRICT` | 安全/隐私、精确数学、公共合同、不可逆变更、生产发布 | 保留的 V16 FAST/CANDIDATE/FINAL | fail-closed integrity |
 
 默认是 adaptive。需要严格 Hook 时，在启动对应 Codex surface 前设置：
 
@@ -35,6 +35,8 @@ export CODEX_GOVERNANCE_MODE=strict
 ```
 
 严格模式是显式选择，不再自动惩罚所有仓库任务。
+V17 是默认的 adaptive 产品规范；`codex/v16` 只作为向后兼容的严格证据引擎保留。
+普通、可逆的 installer、hook 和模型路由修复都走 `STANDARD`。
 
 ## 模型分工
 
@@ -72,6 +74,7 @@ fail-closed gate 仍仅在显式 `STRICT` 时启用。
 git clone https://github.com/Qian9921/codex-governance-infra.git
 cd codex-governance-infra
 
+python3 -m pip install --user -r requirements.txt
 python3 scripts/verify-governance.py --repo .
 python3 -m unittest discover -s tests -p 'test_*.py'
 python3 -m unittest discover -s tests/v16 -p 'test_*.py'
@@ -113,6 +116,39 @@ Overlay 只拥有 manifest 中列出的路径。现有 config、credential、plu
 python3 scripts/install-governance.py \
   --source . \
   --codex-home "$ACTIVE_CODEX_HOME"
+```
+
+### 5. 让 Luna 和 Spark 持续进入原生 multi-agent V2
+
+Codex 的普通模型列表可能显示 Luna/Spark，但上游 `multi_agent_version` 元数据会把
+它们排除在原生 V2 `spawn_agent` 之外。安装 managed files 后启用官方支持的启动级
+模型目录覆盖：
+
+```bash
+ACTIVE_CODEX_BIN="$(command -v codex)"
+USER_SYSTEMD_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+
+python3 scripts/configure-model-routing.py \
+  --codex-home "$ACTIVE_CODEX_HOME" \
+  --codex-bin "$ACTIVE_CODEX_BIN" \
+  --systemd-user-dir "$USER_SYSTEMD_DIR"
+
+systemctl --user daemon-reload
+systemctl --user restart codex-app-server.service
+```
+
+刷新器使用隔离临时 Codex home，不复制或输出 credential；只修改 allowlist 中的
+multi-agent backend 字段，原子发布并保留 last-known-good。若 app-server 必须经由
+网络 wrapper，增加 `--exec-wrapper /absolute/path/to/wrapper`。
+
+模型路由 rollback：
+
+```bash
+python3 scripts/configure-model-routing.py \
+  --codex-home "$ACTIVE_CODEX_HOME" \
+  --codex-bin "$ACTIVE_CODEX_BIN" \
+  --systemd-user-dir "$USER_SYSTEMD_DIR" \
+  --rollback
 ```
 
 确认 `[features] hooks = true`，重启真正受影响的 Codex CLI、Desktop 或 app server，然后在 `/hooks` 信任新的精确 Hook hash。
