@@ -87,7 +87,9 @@ style belongs to formatters, linters, compilers, and static analysis.
 Semble discovers unknown semantic candidates; CodeGraph validates known
 structure and impact; `rg` resolves exact literals; `rtk` transports shell
 context. A tool call is valid only when its result changes discovery, design,
-verification, or review. The execution lead owns one exact-repository repair.
+verification, or review. In adaptive mode, Luna owns bounded distinct-strategy
+exact-repository recovery; explicit `STRICT` V16 retains the one-attempt
+controller.
 
 Tool readiness is lazy in `QUICK` and `STANDARD`: verify a tool before relying
 on its answer. `STRICT` additionally supports the V16 task-contract, preflight,

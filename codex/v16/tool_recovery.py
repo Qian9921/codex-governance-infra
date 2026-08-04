@@ -18,6 +18,7 @@ import os
 import pathlib
 import shutil
 import stat
+import subprocess
 import time
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -158,9 +159,17 @@ def _recovery_fingerprint(
     for tool in report.get("tools", []):
         if isinstance(tool, Mapping) and tool.get("tool") == "codegraph":
             tool_state.append({
+                "status": tool.get("status"),
                 "version": tool.get("version"),
-                "evidence_sha256": tool.get("evidence_sha256"),
-                "checks": tool.get("checks"),
+                "checks": [
+                    {
+                        "name": check.get("name"),
+                        "status": check.get("status"),
+                        "reason_code": check.get("reason_code"),
+                    }
+                    for check in tool.get("checks", [])
+                    if isinstance(check, Mapping)
+                ],
             })
     return _sha256(_canonical_json({
         "repo_identity": report.get("repo_identity"),
@@ -297,6 +306,22 @@ def _strategy_record(
     }
 
 
+def _run_recovery_command(
+    runner: CommandRunner,
+    argv: Sequence[str],
+    repo: pathlib.Path,
+    timeout_sec: float,
+) -> subprocess.CompletedProcess[str]:
+    """Turn ordinary command failures into privacy-safe strategy evidence."""
+
+    try:
+        return runner(argv, repo, timeout_sec)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(argv, 124, "", "")
+    except (subprocess.SubprocessError, OSError):
+        return subprocess.CompletedProcess(argv, 1, "", "")
+
+
 def _final_status(reasons: list[str]) -> tuple[str, str, str, str, int | None]:
     if set(reasons) & PROVEN_EXTERNAL_REASONS:
         return (
@@ -398,9 +423,15 @@ def recover_toolchain(
                     history = _read_history(history_path)
                     recovery_state = "running"
                     parent_sha: str | None = None
-                    candidate_action, candidate_argv = _select_codegraph_action(
-                        root, command_runner, float(timeout_sec)
-                    )
+                    try:
+                        candidate_action, candidate_argv = _select_codegraph_action(
+                            root, command_runner, float(timeout_sec)
+                        )
+                    except (subprocess.SubprocessError, OSError):
+                        # Match the existing invalid-status fallback without
+                        # publishing host exception details.
+                        candidate_action = "init"
+                        candidate_argv = ("codegraph", "init", os.fspath(root))
                     candidates = [
                         (f"codegraph.{candidate_action}", candidate_action, candidate_argv, False),
                         ("codegraph.backup_index_rebuild", "index", (
@@ -424,7 +455,9 @@ def recover_toolchain(
                             _backup_index(state, root, fingerprint)
                             if needs_backup else (None, None)
                         )
-                        result = command_runner(argv, root, float(timeout_sec))
+                        result = _run_recovery_command(
+                            command_runner, argv, root, float(timeout_sec)
+                        )
                         # Read health even after a nonzero command: readiness, not
                         # command success alone, is the safe close condition.
                         health_after_action = validate_preflight(

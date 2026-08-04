@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import pathlib
+import subprocess
 import sys
 
 
@@ -136,7 +137,23 @@ def main(argv: list[str] | None = None) -> int:
             allow_repo_index_mutation=not args.check_only,
             state_dir=args.state_dir,
         )
-    except (OSError, PreflightError, ToolMaintenanceError) as exc:
+    except subprocess.SubprocessError:
+        print(json.dumps({
+            "schema": "tool-maintenance-error.v16",
+            "status": "blocked",
+            "terminal_reason_code": "ToolActionFailed",
+            "message": "tool action failed",
+        }, sort_keys=True))
+        return 5
+    except OSError:
+        print(json.dumps({
+            "schema": "tool-maintenance-error.v16",
+            "status": "blocked",
+            "terminal_reason_code": "ToolchainUnavailable",
+            "message": "toolchain controller unavailable",
+        }, sort_keys=True))
+        return 5
+    except (PreflightError, ToolMaintenanceError) as exc:
         print(json.dumps({
             "schema": "tool-maintenance-error.v16",
             "status": "blocked",

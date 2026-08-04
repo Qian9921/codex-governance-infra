@@ -1,5 +1,7 @@
+import contextlib
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import pathlib
@@ -454,6 +456,72 @@ class ToolRecoveryTests(unittest.TestCase):
             )
         self.assertEqual(upgraded["strategy_attempts"], 2)
         self.assertEqual(upgraded_runner.calls[1][1], "sync")
+
+    def test_changed_codegraph_evidence_does_not_unlock_no_progress_strategy(self):
+        stale = preflight(failed_tool="codegraph", reason="CODEGRAPH_STALE")
+        changed_evidence = preflight(
+            failed_tool="codegraph", reason="CODEGRAPH_STALE"
+        )
+        for tool in changed_evidence["tools"]:
+            if tool["tool"] == "codegraph":
+                tool["evidence_sha256"] = "f" * 64
+        with tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as state:
+            recover_toolchain(
+                repo,
+                semantic_query="semantic sentinel",
+                expected_path="src/router.py",
+                state_dir=state,
+                preflight_runner=SequencePreflight(stale, stale, stale),
+                command_runner=CommandRunner(),
+            )
+            repeated_runner = CommandRunner()
+            repeated = recover_toolchain(
+                repo,
+                semantic_query="semantic sentinel",
+                expected_path="src/router.py",
+                state_dir=state,
+                preflight_runner=SequencePreflight(changed_evidence),
+                command_runner=repeated_runner,
+            )
+        self.assertEqual(repeated["strategy_attempts"], 0)
+        self.assertEqual(repeated_runner.calls, [("codegraph", "status", "--json", repo)])
+
+    def test_action_timeout_is_a_privacy_safe_recovering_strategy_failure(self):
+        stale = preflight(failed_tool="codegraph", reason="CODEGRAPH_STALE")
+
+        class TimeoutRunner(CommandRunner):
+            def __call__(self, argv, cwd, timeout):
+                if argv[1:3] == ("status", "--json"):
+                    return super().__call__(argv, cwd, timeout)
+                raise subprocess.TimeoutExpired(
+                    ["codegraph", argv[1], "/private/repository"], timeout
+                )
+
+        report = self.run_case([stale, stale, stale], TimeoutRunner())
+        self.assertEqual(report["status"], "recovering")
+        self.assertEqual(report["strategy_attempts"], 2)
+        self.assertEqual(
+            [strategy["returncode"] for strategy in report["strategies"]], [124, 124]
+        )
+        self.assertNotIn("/private/repository", json.dumps(report, sort_keys=True))
+
+    def test_cli_normalizes_remaining_subprocess_errors_without_path_leak(self):
+        script = pathlib.Path(__file__).parents[2] / "codex" / "bin" / "toolchain-auto.py"
+        spec = importlib.util.spec_from_file_location("toolchain_auto_timeout_test", script)
+        module = importlib.util.module_from_spec(spec)
+        self.assertIsNotNone(spec.loader)
+        spec.loader.exec_module(module)
+        output = io.StringIO()
+        with mock.patch.object(
+            module, "recover_toolchain",
+            side_effect=subprocess.TimeoutExpired(["codegraph", "/private/repository"], 1),
+        ), contextlib.redirect_stdout(output):
+            status = module.main([
+                "--adaptive-recovery", "--semantic-query", "q", "--expected-path", "a.py",
+            ])
+        self.assertEqual(status, 5)
+        self.assertIn("tool action failed", output.getvalue())
+        self.assertNotIn("/private/repository", output.getvalue())
 
     def test_backup_retention_is_bounded(self):
         with tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as state:
