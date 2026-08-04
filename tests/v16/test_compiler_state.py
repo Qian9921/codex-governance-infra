@@ -98,7 +98,7 @@ class CompilerStateTests(unittest.TestCase):
             self.assertEqual(state["reviewer_route"], "high_risk" if risk == "high" else "general")
             self.assertEqual(state["review_policy_sha256"], canonical_sha256({k: state[k] for k in ("required_stages", "reviewer_model", "reasoning_effort", "review_risk", "reviewer_route", "classifier_identity", "high_risk_triggers")}))
             spoof = dict(state)
-            spoof["reviewer_model"] = "gpt-5.6-terra" if risk == "high" else "gpt-5.6-sol"
+            spoof["reviewer_model"] = "gpt-5.6-terra"
             with self.assertRaises(ReadinessError):
                 validate_state(spoof)
             spoof = dict(state)

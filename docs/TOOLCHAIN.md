@@ -1,7 +1,13 @@
-# Mandatory toolchain: readiness before routing
+# Toolchain: adaptive routing and strict proof
 
 This document is the operational contract for CodeGraph, Semble, and `rtk`.
 The short path is in [README.md](../README.md).
+
+In `QUICK` and `STANDARD`, use only task-relevant routes and verify a semantic
+or structural tool before relying on its answer. Missing contracts and optional
+receipts are advisory. The full four-contract chain below is mandatory only for
+an explicitly `STRICT` mission. In every profile, a tool blocks completion only
+when its missing fact is essential to the correctness claim.
 
 ## The four contracts and reliability plane
 
@@ -23,7 +29,7 @@ is not an evidence gate and never changes success criteria.
 A binary on `PATH` is not readiness. One irrelevant call to each tool is not
 usage compliance.
 
-Repository source/read/write tasks record `--repository-work`, declare the
+Strict repository source/read/write tasks record `--repository-work`, declare the
 applicable route signals, and run readiness before routing. A plugin, model,
 user-configuration, service, or machine inventory that performs no repository
 read or write records `--non-repository-task` with no route signals and skips

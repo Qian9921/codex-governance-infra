@@ -104,7 +104,7 @@ class ReviewRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(
             (runtime["reviewer_model"], runtime["reasoning_effort"]),
-            ("gpt-5.6-terra", "high"),
+            ("gpt-5.6-sol", "high"),
         )
 
     def test_small_high_risk_delta_reuses_sol_at_high_effort(self):
@@ -139,7 +139,7 @@ class ReviewRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(
             (runtime["reviewer_model"], runtime["reasoning_effort"]),
-            ("gpt-5.6-terra", "high"),
+            ("gpt-5.6-sol", "high"),
         )
         self.assertTrue(runtime["reuse_prior_reviewer"])
 

@@ -86,8 +86,8 @@ def _resolved_review_identity(policy: Mapping[str, Any]) -> dict[str, Any]:
     triggers = policy.get("high_risk_triggers", [])
     route = "high_risk" if risk == "high" else "general"
     expected_model, expected_effort = {
-        "low": ("gpt-5.6-terra", "high"),
-        "medium": ("gpt-5.6-terra", "high"),
+        "low": ("gpt-5.6-sol", "high"),
+        "medium": ("gpt-5.6-sol", "high"),
         "high": ("gpt-5.6-sol", "xhigh"),
     }[risk]
     if stages not in (["targeted"], ["targeted", "full"], ["targeted", "full", "fresh"]):

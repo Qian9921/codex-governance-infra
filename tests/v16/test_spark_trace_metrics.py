@@ -57,8 +57,8 @@ def sha(index):
 
 def decision_basis(index, risk="low", *, closure_receipt=None, closure_aware=True):
     route, model, effort = {
-        "low": ("general", "gpt-5.6-terra", "high"),
-        "medium": ("general", "gpt-5.6-terra", "high"),
+        "low": ("general", "gpt-5.6-sol", "high"),
+        "medium": ("general", "gpt-5.6-sol", "high"),
         "high": ("high_risk", "gpt-5.6-sol", "xhigh"),
     }[risk]
     policy = {
@@ -643,7 +643,7 @@ class SparkTraceMetricsTests(unittest.TestCase):
             ingest(packet, same_task_as_parent)
 
         malformed_policy = copy.deepcopy(packet["decision_basis"])
-        malformed_policy["reviewer_model"] = "gpt-5.6-sol"
+        malformed_policy["reviewer_model"] = "gpt-5.6-terra"
         with self.assertRaisesRegex(TraceError, "risk/route/model/effort"):
             trace_packet(basis=malformed_policy)
 

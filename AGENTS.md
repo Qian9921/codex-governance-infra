@@ -1,18 +1,19 @@
 # Repository contribution rules
 
-- Keep governance portable and privacy-safe; never commit live sessions, receipts, secrets, or machine paths.
+- Keep governance portable and privacy-safe. Never commit credentials, live
+  sessions, prompts, receipts, private paths, or machine-specific state.
 - Python implementation uses the standard library only.
-- Changes must preserve the v15 acceptance envelope, exact identity, lease, and review gates.
-- Known symbol/call/dependency/impact work uses this repository's CodeGraph;
-  unknown semantic entrypoints/similar implementations use Semble; exact text
-  uses `rg`; shell output shown to the model uses `rtk`. Fall back only after a
-  real failure with a reason code and evidence reference.
-- `.codegraph/` is local generated state. Build or sync only with explicit
-  authorization, then refresh after edits; never substitute another project's
-  index.
-- Run `python3 scripts/verify-governance.py --repo .` and the contract test suite before review.
-- Compile and obey `codex.v16.review_runtime`: one formal review call, bounded
-  delta/context/tool scope, soft report deadline, hard interrupt-and-replan
-  deadline, and no duplicate full-scope review. Runtime budgets select routing;
-  they never waive correctness or evidence.
-- The repository is authored by Qian9921; Liang9921 is the independent governance reviewer.
+- Preserve the existing V16 strict contracts as an opt-in release/high-risk
+  proof engine. The default adaptive path must remain non-blocking for missing
+  ceremony while preserving real safety, correctness, and privacy blockers.
+- Before new implementation, search for an existing owner and record
+  `REUSE|EXTEND|NEW` when the change introduces a meaningful abstraction.
+- Use this repository's revision-matching CodeGraph for known structure and
+  impact, Semble for unknown semantics or similar code, `rg` for exact text,
+  and `rtk` for shell output. Calls must answer a real task question.
+- Run the smallest affected tests during development and
+  `python3 scripts/verify-governance.py --repo .` before final review.
+- One independent review owns the formal verdict. Contract-stable fixes receive
+  delta-only follow-up; do not duplicate full evidence or full-scope review.
+- Qian9921 authors repository changes. Liang9921 independently reviews,
+  approves, and merges the exact reviewed head.

@@ -113,8 +113,8 @@ class ReviewDecisionBasisTests(unittest.TestCase):
 
     def test_policy_routes_are_resolved_without_writer_or_codegraph_fallback(self):
         expected = {
-            "low": ("general", "gpt-5.6-terra", "high"),
-            "medium": ("general", "gpt-5.6-terra", "high"),
+            "low": ("general", "gpt-5.6-sol", "high"),
+            "medium": ("general", "gpt-5.6-sol", "high"),
             "high": ("high_risk", "gpt-5.6-sol", "xhigh"),
         }
         with patch("codex.v16.presubmit.git_identity", return_value=(HEAD, TREE, False)), patch(
@@ -132,7 +132,7 @@ class ReviewDecisionBasisTests(unittest.TestCase):
                         "classifier_identity": "classifier-v1",
                         "required_stages": ["targeted", "full", "fresh"],
                     }
-                    mission["reviewer_separation"]["independent_model"] = "gpt-5.6-terra"
+                    mission["reviewer_separation"]["independent_model"] = "gpt-5.6-sol"
                 basis = self._basis(compiled=_compiled(mission))
                 self.assertEqual((basis["reviewer_route"], basis["reviewer_model"], basis["reasoning_effort"]), (route, model, effort))
                 self.assertEqual(basis["evidence_denominator"], 2)

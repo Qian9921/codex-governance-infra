@@ -19,8 +19,10 @@ from typing import Any
 
 try:
     from . import hook_receipt
+    from .governance_mode import is_strict
 except ImportError:  # pragma: no cover - direct hook execution.
     import hook_receipt
+    from governance_mode import is_strict
 
 PACKAGE_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
@@ -180,8 +182,9 @@ def main() -> int:
         payload = {}
     if not isinstance(payload, dict):
         payload = {}
-    result = evaluate(payload)
-    blocked = result["status"] == "blocked"
+    strict = is_strict()
+    result = evaluate(payload) if strict else {"status": "advisory", "missing": []}
+    blocked = strict and result["status"] == "blocked"
     active = payload.get("stop_hook_active") is True
     try:
         intake = load_current_intake(
@@ -202,6 +205,7 @@ def main() -> int:
         reason_code=(
             "tool_enforcement_circuit_open" if blocked and active
             else "tool_enforcement_blocked" if blocked
+            else "adaptive_stop_pass" if not strict
             else "tool_enforcement_pass"
         ),
         route_code="unspecified",
@@ -214,7 +218,7 @@ def main() -> int:
         agent_id_sha256=intake.get("agent_id_sha256") if intake else None,
     )
     written = hook_receipt.write_receipt(value)
-    if not written:
+    if not written and strict:
         blocked = True
         result = {"status": "blocked", "missing": ["stop_hook_receipt"]}
     if not blocked:
@@ -236,7 +240,7 @@ def main() -> int:
                 "maintenance, and use every applicable preferred route successfully."
             ),
         }
-    if not written:
+    if not written and strict:
         output["systemMessage"] = (
             "V16 Stop receipt write failed; runtime-proof acceptance is unavailable."
         )

@@ -53,7 +53,8 @@ class HooksContractTests(unittest.TestCase):
         self.assertEqual(
             context["tool_preflight"],
             {
-                "required_before_repo_work": True,
+                "required_before_repo_work": False,
+                "required_before_relying_on_semantic_or_structural_tool": True,
                 "schema": "tool-preflight.v16",
                 "strict_ready_status": "ready",
                 "mandatory_tools": ["codegraph", "semble", "rtk"],
@@ -67,16 +68,15 @@ class HooksContractTests(unittest.TestCase):
                 "repair_owner": "assigned_execution_agent:tool_maintainer",
             },
         )
-        self.assertIn("TOOL-PREFLIGHT", guidance)
+        self.assertIn("ADAPTIVE-GOVERNANCE", guidance)
         self.assertEqual(context["review_runtime"]["formal_review_calls"], 1)
         self.assertEqual(
             context["review_runtime"]["duplicate_full_scope_reviews"], 0
         )
         self.assertIn("delta-only", context["review_runtime"]["delta_continuation"])
-        self.assertIn("high-risk Sol high", context["review_runtime"]["delta_continuation"])
-        self.assertIn("low/medium Terra high", context["review_runtime"]["delta_continuation"])
-        self.assertIn("REVIEW-RUNTIME", guidance)
-        self.assertIn("low/medium Terra high", guidance)
+        self.assertIn("Sol high", context["review_runtime"]["delta_continuation"])
+        self.assertIn("Luna", guidance)
+        self.assertIn("at most five short points", guidance)
 
     def test_receipt_allowlists_private_fields(self):
         raw = "PRIVATE_PROMPT_VALUE /cwd /secret"
@@ -134,8 +134,9 @@ class HooksContractTests(unittest.TestCase):
             self.assertFalse(hook_receipt.write_receipt(value, occupied / "receipt.jsonl"))
         self.assertEqual(value["receipt_status"], "write_failed")
 
-    def _run_entrypoint(self, name, payload, directory):
+    def _run_entrypoint(self, name, payload, directory, mode="strict"):
         env = os.environ.copy()
+        env["CODEX_GOVERNANCE_MODE"] = mode
         env["CODEX_HOOK_SOURCE"] = "test"
         env["CODEX_HOOK_RECEIPT_DIR"] = str(directory)
         env["CODEX_TOOL_STATE_DIR"] = str(pathlib.Path(directory) / "tool-state")
@@ -143,6 +144,51 @@ class HooksContractTests(unittest.TestCase):
             [sys.executable, str(pathlib.Path(__file__).with_name(name))],
             input=json.dumps(payload), text=True, capture_output=True, check=False, env=env,
         )
+
+    def test_adaptive_mode_does_not_require_turn_contract_or_stop_receipts(self):
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as repo:
+            pathlib.Path(repo, ".git").mkdir()
+            common = {
+                "session_id": "adaptive-session", "turn_id": "adaptive-turn",
+                "model": "gpt-5.6-luna", "cwd": repo,
+            }
+            pre = self._run_entrypoint(
+                "pre_tool_use_policy.py",
+                {**common, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                 "tool_use_id": "adaptive-call", "tool_input": {"command": "git status --short"}},
+                directory, mode="adaptive",
+            )
+            self.assertEqual(pre.returncode, 0, pre.stderr)
+            self.assertEqual(
+                json.loads(pre.stdout)["hookSpecificOutput"]["permissionDecision"],
+                "allow",
+            )
+            stop = self._run_entrypoint(
+                "stop_tool_enforcement.py",
+                {**common, "hook_event_name": "Stop", "stop_hook_active": False},
+                directory, mode="adaptive",
+            )
+            self.assertEqual(stop.returncode, 0, stop.stderr)
+            self.assertEqual(json.loads(stop.stdout), {})
+
+    def test_adaptive_post_receipt_write_failure_is_non_blocking(self):
+        with tempfile.TemporaryDirectory() as directory:
+            occupied = pathlib.Path(directory) / "occupied"
+            occupied.write_text("not a directory", encoding="utf-8")
+            payload = {
+                "hook_event_name": "PostToolUse", "tool_name": "rg",
+                "tool_use_id": "adaptive-post", "tool_response": {"exit_code": 0},
+            }
+            adaptive = self._run_entrypoint(
+                "post_tool_use_receipt.py", payload, occupied, mode="adaptive"
+            )
+            self.assertEqual(adaptive.returncode, 0, adaptive.stderr)
+            self.assertEqual(json.loads(adaptive.stdout), {})
+            strict = self._run_entrypoint(
+                "post_tool_use_receipt.py", payload, occupied, mode="strict"
+            )
+            self.assertEqual(strict.returncode, 0, strict.stderr)
+            self.assertEqual(json.loads(strict.stdout)["decision"], "block")
 
     def _record_execution_status(
         self, directory, *, task_id, intake_id, tool_use_id, exit_code=0,

@@ -9,7 +9,7 @@ review, approve, or merge.
 
 ## Risk route
 
-- `low`/`medium`: fresh `gpt-5.6-terra` high
+- `low`/`medium`: fresh `gpt-5.6-sol` high
   `independent_clean_room`.
 - `high`: fresh `gpt-5.6-sol` xhigh `independent_clean_room`.
 
@@ -40,7 +40,7 @@ latency contract, not an acceptance threshold:
   characters, eight read-only tool calls, a 90-second soft report deadline, and
   a 240-second hard deadline. Exceeding its static size route selects
   `escalated_fresh`; it is not a blocker or a reason to relax acceptance.
-- Initial low/medium review uses a 180/480-second soft/hard budget; initial or
+- Initial low/medium Sol review uses a 180/480-second soft/hard budget; initial or
   escalated high-risk review uses 300/900 seconds. Exactly one formal review
   call and zero duplicate full-scope reviews are permitted per identity.
 - At the soft deadline the controller requests the current formal report. At

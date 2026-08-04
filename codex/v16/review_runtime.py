@@ -485,9 +485,7 @@ def validate_review_runtime(
         raise ReviewRuntimeError("$: bounded delta continuation requires high effort")
     if not is_delta and result["review_risk"] == "high" and result["reasoning_effort"] != "xhigh":
         raise ReviewRuntimeError("$: fresh high-risk review requires xhigh effort")
-    expected_model = (
-        "gpt-5.6-sol" if result["review_risk"] == "high" else "gpt-5.6-terra"
-    )
+    expected_model = "gpt-5.6-sol"
     if result["reviewer_model"] != expected_model:
         raise ReviewRuntimeError("$: reviewer model does not match risk route")
     if result["review_risk"] in {"low", "medium"} and result["reasoning_effort"] != "high":
