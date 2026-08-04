@@ -9,6 +9,56 @@ receipts are advisory. The full four-contract chain below is mandatory only for
 an explicitly `STRICT` mission. In every profile, a tool blocks completion only
 when its missing fact is essential to the correctness claim.
 
+## Self-healing capability recovery
+
+This policy covers required tools, libraries, datasets, environments, and their
+task-specific configuration/access—not just the V16 CodeGraph controller.
+Luna owns recovery; Sol audits the evidence; Terra may execute recovery only
+when Luna is genuinely unavailable, with the requested and actual model plus
+reason recorded.
+
+| State | Meaning and required handling |
+|---|---|
+| `HEALTHY` | Usable and exercised by the real dependent task slice; retain the task-relevant evidence. |
+| `RECOVERING` | A relevant capability has a machine-owned scheduled continuation; Luna owns its bounded next evidence-producing strategy, so do not claim the dependent capability yet. |
+| `DEGRADED` | An **explicitly optional** capability failed; unrelated work may continue with explicitly lost coverage and owned repair debt. |
+| `EXTERNAL_WAIT` | A genuinely outside service, provider, or dependency must change; retain the exact failed boundary and automatically recheck with bounded backoff. |
+| `USER_ACTION_REQUIRED` | Only a scientific/product choice, credential/licensing decision, irreversible/shared-state action, material unapproved cost, or privacy decision is needed from the user. A check-only/no-mutation result is not this state. |
+| `UNRECOVERABLE` | Evidence proves the whole permitted recovery graph is exhausted; block only the dependent claim or slice and report the evidence boundary. A controller or one-strategy budget ending is never sufficient. |
+
+Start with the least invasive strategy that can produce useful evidence. If it
+fails or makes no progress, record the stable failure fingerprint, never repeat
+that strategy, and continue the recovery mission with a materially distinct,
+safe strategy. Examples include correcting an exact repository binding,
+repairing a local index, using an already-authorized compatible environment,
+repairing a package/configuration, or resolving an approved dataset route.
+Each successful repair must be exercised by the real dependent task, not merely
+detected as installed. Preserve unrelated user state and rollback reversible
+repairs on failure.
+
+Normal authorized machine repair remains Luna's execution-owner work; a
+check-only/no-mutation invocation is evidence, not a user boundary. Use
+`EXTERNAL_WAIT` only for a genuinely outside dependency and schedule bounded
+backoff rechecks. A circuit record or exhausted controller budget closes one
+strategy only. It becomes `UNRECOVERABLE` only after evidence shows the whole
+permitted recovery graph has no remaining distinct, safe strategy.
+
+The adaptive `tool-recovery.v1` report records the owner and schedule of an
+ongoing recovery as `continuation_owner` and `recheck_after_sec`. A relevant
+capability with those machine-owned continuation fields is `RECOVERING`, not
+`DEGRADED`. Use `DEGRADED` only when the mission explicitly classifies the
+capability as optional. This adaptive status report does not alter the separate
+V16 receipts, contracts, or enforcement required by explicit `STRICT`.
+
+Required failure blocks only its dependent claim/slice; it is not permission to
+stop unrelated work. Optional failure becomes `DEGRADED` with an owner, failed
+strategy/fingerprint, lost coverage, next distinct strategy, and revisit
+condition as repair debt. `QUICK` and `STANDARD` keep this lightweight in the
+normal task evidence or status update—no new hook gate. Explicit `STRICT`
+continues to use the V16 task-contract, receipts, and fail-closed enforcement
+below; its controller circuit opens one strategy, not the whole recovery
+mission.
+
 ## The four contracts and reliability plane
 
 1. `tool-preflight.v16` proves the tools are current and trustworthy for one
@@ -21,10 +71,12 @@ when its missing fact is essential to the correctness claim.
 4. `tool-enforcement.v16` proves every applicable preferred route was
    satisfied before completion.
 
-`tool-maintenance.v16` is the separate reliability plane: it wraps the
-read-only preflight, performs at most one allowlisted exact-repo CodeGraph
-repair under a lock, rechecks, and persists the stable failure fingerprint. It
-is not an evidence gate and never changes success criteria.
+Default/adaptive maintenance uses `tool-recovery.v1`: a finite sequence of
+distinct, exact-repository recovery strategies with health evidence after each.
+`tool-maintenance.v16` remains the separate explicit-`STRICT` reliability
+plane: it performs at most one allowlisted exact-repo CodeGraph repair under a
+lock, rechecks, and persists the stable failure fingerprint. Neither is an
+evidence gate or changes the acceptance criteria.
 
 A binary on `PATH` is not readiness. One irrelevant call to each tool is not
 usage compliance.
@@ -109,7 +161,7 @@ Exit `0` and `"status":"ready"` require a known denominator of `3/3`:
 The report stores hashes and reason codes, not raw command output, absolute
 paths, prompts, environment variables, or credentials. It performs no writes.
 
-## Run the automatic bounded controller
+## Run adaptive recovery (default)
 
 ```bash
 python3 codex/bin/toolchain-auto.py \
@@ -118,10 +170,19 @@ python3 codex/bin/toolchain-auto.py \
   --expected-path codex/v16/tool_routing.py
 ```
 
-The controller always checks first. When CodeGraph is stale, invalid,
-uninitialized, or bound to the wrong project, it selects `init` or `sync`
-for this exact canonical repo, acquires a private owner-only single-flight
-lock, executes one direct-argv repair, and reruns strict preflight.
+Without `--strict-maintenance` (and outside strict mode), this produces a
+`tool-recovery.v1` report. The controller checks health first, then for the
+exact canonical repository tries the appropriate `sync` or `init` strategy.
+It checks health after that action. If needed, it makes a private owner-only backup
+and performs the distinct exact-repository index-rebuild strategy,
+again checking health; an unhealthy rebuild is rolled back from that backup.
+Every strategy records privacy-safe evidence, and a strategy-specific
+no-progress fingerprint is never replayed.
+
+An incomplete adaptive recovery reports machine continuation through
+`continuation_owner` and `recheck_after_sec`; it is `RECOVERING` rather than a
+claim that the capability is unavailable. A controller/strategy budget ends
+only that strategy set, never the wider recovery mission.
 
 It never:
 
@@ -132,15 +193,34 @@ It never:
 - edits user Codex configuration;
 - uses sudo, background processes, or shell command strings.
 
-Terminal states are `ready`, `maintenance_required`,
-`external_action_required`, and security/policy `blocked`. Ordinary stale
-indexes are never `EXEC_INFRA_BLOCKED`.
+The adaptive report distinguishes `HEALTHY`, `RECOVERING`, `DEGRADED`,
+`EXTERNAL_WAIT`, `USER_ACTION_REQUIRED`, and `UNRECOVERABLE` as defined above.
+Ordinary stale indexes are never `EXEC_INFRA_BLOCKED`.
 
-If the repair fails or makes no progress, the controller writes an owner-only
-circuit record containing hashes and a reason code only. Re-invoking it for the
-same repo/config/revision/query/path failure returns
-`AUTO_REPAIR_CIRCUIT_OPEN` with zero repair attempts. A changed fingerprint can
-receive one new bounded attempt.
+If a strategy fails or makes no progress, the controller records an owner-only
+circuit entry containing hashes and a reason code only, then selects an untried
+safe strategy or schedules machine continuation. A changed fingerprint can
+receive a new bounded strategy attempt.
+
+## Run strict V16 maintenance (unchanged)
+
+Use this path only for an explicit strict maintenance operation:
+
+```bash
+python3 codex/bin/toolchain-auto.py \
+  --strict-maintenance \
+  --repo . \
+  --semantic-query "deterministic inspection intent router" \
+  --expected-path codex/v16/tool_routing.py
+```
+
+`CODEX_GOVERNANCE_MODE=strict` selects the same `tool-maintenance.v16` path
+unless `--adaptive-recovery` is explicitly supplied. Strict maintenance checks
+first, performs at most one allowlisted `init` or `sync` exact-repository
+repair under its lock, and rechecks. Its legacy terminal states
+`ready`, `maintenance_required`, `external_action_required`, and
+security/policy `blocked`, plus the one-attempt reason codes below, apply only
+to this strict V16 artifact—not to the adaptive recovery mission.
 
 ## Cache and invalidation
 
@@ -240,15 +320,15 @@ For CLI transport, the hook recognizes `rtk codegraph ...`,
 persisting no raw command or path. Plain `rtk <shell-command>` remains the
 shell-context route. MCP tools are recognized by stable server prefixes.
 
-## Reason codes and remediation
+## Strict V16 reason codes and one-attempt remediation
 
 | Reason code | Meaning | Remedy |
 |---|---|---|
 | `CODEGRAPH_NOT_FOUND` | Binary is unavailable | Install CodeGraph, then configure Codex |
 | `CODEGRAPH_MCP_NOT_CONFIGURED` | Codex config has no CodeGraph MCP table | Run the reviewed CodeGraph install command |
-| `CODEGRAPH_WRONG_PROJECT` | Index belongs to another repository | Controller initializes the exact owning repo once |
-| `CODEGRAPH_STALE` | Indexed state differs from the worktree | Controller runs one exact-repo `codegraph sync` and rechecks |
-| `CODEGRAPH_INDEX_INVALID` | Index is missing/incomplete/reindex-required | Controller chooses exact-repo `init` or `sync` once |
+| `CODEGRAPH_WRONG_PROJECT` | Index belongs to another repository | Strict controller initializes the exact owning repo once |
+| `CODEGRAPH_STALE` | Indexed state differs from the worktree | Strict controller runs one exact-repo `codegraph sync` and rechecks |
+| `CODEGRAPH_INDEX_INVALID` | Index is missing/incomplete/reindex-required | Strict controller chooses exact-repo `init` or `sync` once |
 | `CODEGRAPH_SENTINEL_MISMATCH` | Current expected source was not found | Check index, query, path, and revision |
 | `SEMBLE_NOT_FOUND` | CLI capability is unavailable | Install Semble and configure MCP |
 | `SEMBLE_MCP_NOT_CONFIGURED` | Codex config has no Semble MCP table | Run the reviewed Semble MCP command |
@@ -257,8 +337,8 @@ shell-context route. MCP tools are recognized by stable server prefixes.
 | `RTK_NOT_FOUND` | `rtk` is unavailable | Install it and initialize Codex guidance |
 | `RTK_OUTPUT_MISMATCH` | Wrapped Git identity differs from raw Git | Do not use rtk as evidence until repaired |
 | `RTK_FALSE_GREEN` | A failing command became successful | Hard stop; rtk cannot support acceptance |
-| `AUTO_REPAIR_NO_PROGRESS` | One allowlisted repair did not shrink the failure set | Open circuit; return `MAINTENANCE_REQUIRED`, do not retry/spawn |
-| `AUTO_REPAIR_CIRCUIT_OPEN` | The same stable failure already consumed its repair budget | Do not retry; change the underlying state or route to the named external owner |
+| `AUTO_REPAIR_NO_PROGRESS` | One strict allowlisted repair did not shrink the failure set | Open strict circuit; return `MAINTENANCE_REQUIRED`, do not retry that strict strategy |
+| `AUTO_REPAIR_CIRCUIT_OPEN` | The same stable failure already consumed its strict repair budget | Do not retry that strict strategy; change the underlying state or route to the named external owner |
 | `EXTERNAL_TOOL_REPAIR_REQUIRED` | Package/config/system action is needed | Return the exact owner/action; do not relabel as model infra failure |
 
 Use `--advisory` only for diagnosis. Advisory failures return `degraded`, never

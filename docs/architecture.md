@@ -33,7 +33,10 @@ flowchart LR
     P --> A[Architecture and reuse scan]
     A --> L[Luna execution lead]
     L --> S[Spark bounded parallel tasks]
-    L --> E[Affected evidence]
+    L --> H{Capability healthy?}
+    H -- recovering --> L
+    H -- healthy --> E[Affected evidence]
+    H -- optional unavailable --> D
     E --> D{Acceptance met?}
     D -- no --> L
     D -- yes --> R[One independent Sol review]
@@ -43,8 +46,9 @@ flowchart LR
     G --> K[Reusable knowledge]
 ```
 
-Terra appears only as a recorded execution fallback when Luna is unavailable.
-It never silently replaces the required independent reviewer.
+Terra appears only as a recorded execution/recovery fallback when Luna is
+unavailable. Sol audits recovery evidence; Terra never silently replaces the
+required independent reviewer.
 
 ## Adaptive profiles
 
@@ -89,6 +93,33 @@ Tool readiness is lazy in `QUICK` and `STANDARD`: verify a tool before relying
 on its answer. `STRICT` additionally supports the V16 task-contract, preflight,
 usage, receipt, and enforcement chain. A degraded fallback reports lost
 coverage and blocks only when the missing fact is essential.
+
+### 4a. Self-healing capability recovery
+
+Capabilities include required tools, libraries, datasets, environments, and
+their task-specific access/configuration. `HEALTHY` means the capability is
+usable and was exercised by the actual dependent slice. `RECOVERING` means
+Luna owns a machine-scheduled bounded next strategy with new evidence.
+`DEGRADED` means an explicitly optional capability failed without blocking
+unrelated work and has repair debt. The adaptive `tool-recovery.v1` report
+records scheduled continuation in `continuation_owner` and `recheck_after_sec`;
+that relevant capability is `RECOVERING`, not `DEGRADED`.
+`EXTERNAL_WAIT` means a genuinely outside dependency must change and gets
+bounded-backoff rechecks;
+`USER_ACTION_REQUIRED` is reserved for a scientific/product choice,
+credentials/licensing, irreversible/shared-state action, material unapproved
+cost, or privacy decision—never a check-only/no-mutation result.
+`UNRECOVERABLE` means evidence proves the whole permitted recovery graph is
+exhausted and a dependent slice cannot make its claim; one strategy or
+controller budget ending only opens that strategy's circuit.
+
+A no-progress strategy is fingerprinted, reported, and not repeated. It ends
+that strategy—not the recovery mission: Luna chooses a materially different,
+safe evidence-producing strategy. The failed required capability blocks only
+its dependent claim/slice; a failed optional one carries owned repair debt.
+Normal machine repair remains Luna's execution work.
+`QUICK` and `STANDARD` record this proportionately without new hook gates;
+explicit `STRICT` uses the separate, unchanged V16 proof chain.
 
 ### 5. Execution and evidence
 

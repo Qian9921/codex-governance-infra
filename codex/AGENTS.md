@@ -45,12 +45,14 @@ blocker. Missing ceremony alone is not a correctness failure in `QUICK` or
 - Sol owns ambiguous planning, architecture, synthesis, and independent review.
 - Luna is the default execution lead: repository discovery, implementation,
   package/tool installation, bounded tool maintenance, tests, data runs, and
-  Git/GitHub work.
+  Git/GitHub work. Luna owns recovery: repair each required capability through
+  distinct, evidence-producing strategies until it works and is exercised by
+  the dependent task slice.
 - Luna may delegate short, isolated, parallel work to Spark with explicit path
   ownership and a hard call/token budget.
-- Terra is a continuity fallback only when Luna is genuinely unavailable; log
-  requested and actual model plus the reason. Never silently substitute the
-  independent reviewer.
+- Terra is a continuity fallback for Luna's execution/recovery only when Luna
+  is genuinely unavailable; log requested and actual model plus the reason.
+  Sol audits recovery evidence and never silently loses the independent review.
 - The persistent parent remains accountable. Use at most two concurrent writers,
   exclusive path leases, one Git owner, and no parent/child same-file writes.
 
@@ -69,11 +71,13 @@ Use tools because they answer a task question, never to tick a box:
 - parsers, hashes, byte identity, and exact denominators -> raw output.
 
 Before relying on CodeGraph or Semble, verify that tool's exact repo/worktree
-identity. The execution lead owns one locked, exact-repo repair and recheck.
-After no progress, open the circuit, use a bounded degraded fallback when the
-decision remains supportable, and report the lost coverage. A broken optional
-tool must not imprison unrelated work. It blocks only when the missing result is
-necessary for a correctness decision.
+identity. The execution lead owns bounded, exact-scope repair and recheck. A
+no-progress strategy opens its circuit and must not repeat; Luna continues with
+a materially distinct recovery strategy and records its evidence. Optional
+failure may degrade unrelated work but creates owned repair debt. Required
+failure blocks only the dependent claim or slice, not unrelated work.
+A relevant capability with machine-owned scheduled continuation is
+`RECOVERING`; `DEGRADED` is only for an explicitly optional capability.
 
 `STRICT` missions may use `tool-preflight.v16`, `tool-task-contract.v16`,
 receipt-backed usage, and `tool-enforcement.v16`. `QUICK` and `STANDARD` hooks
@@ -132,7 +136,12 @@ required only when the frozen acceptance envelope says exact parity.
 
 Installing or repairing ordinary libraries and tools is normal execution work
 when scoped, reversible, and verifiable. Do not stall from excessive caution;
-preserve unrelated user state and roll back failed changes.
+preserve unrelated user state and roll back failed changes. Repair required
+tools, libraries, datasets, and environments until the real dependent slice
+exercises them; ask the user only for scientific/product choices,
+credentials/licensing, irreversible or shared-state action, material unapproved
+cost, privacy, or genuine external impossibility. Check-only/no-mutation
+results are not user action; normal machine repair remains execution work.
 
 ## 7. Review that converges
 

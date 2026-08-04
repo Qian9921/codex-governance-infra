@@ -47,11 +47,34 @@ Strict mode is intentional, not an automatic penalty for every repository task.
 ## Model roles
 
 - Sol: planning, architecture, synthesis, independent review.
-- Luna: default execution lead, tools, implementation, tests, data, Git/GitHub.
+- Luna: default execution lead and recovery owner for tools, libraries, data,
+  environments, implementation, tests, and Git/GitHub.
 - Spark: short bounded work delegated by Luna.
-- Terra: execution fallback only when Luna is unavailable.
+- Terra: execution/recovery fallback only when Luna is unavailable.
 
-Roles are routing defaults, not capability bans.
+Sol audits recovery evidence. Roles are routing defaults, not capability bans.
+
+## Self-healing execution
+
+Luna repairs a required capability through distinct, evidence-producing
+strategies until it is usable **and exercised by the real dependent task
+slice**. A stable no-progress strategy opens a circuit and is never repeated;
+the recovery mission continues with a materially different safe strategy.
+Optional failure may degrade unrelated work, but creates owned repair debt.
+Required failure blocks only the claim or slice that depends on it.
+
+`HEALTHY`, `RECOVERING`, `DEGRADED`, `EXTERNAL_WAIT`,
+`USER_ACTION_REQUIRED`, and `UNRECOVERABLE` are defined in the
+[toolchain contract](docs/TOOLCHAIN.md#self-healing-capability-recovery).
+`UNRECOVERABLE` requires evidence that the whole permitted recovery graph is
+exhausted—not that one strategy or controller budget ended. `EXTERNAL_WAIT`
+uses bounded-backoff rechecks of a genuinely outside dependency.
+Involve the user only for scientific/product choices, credentials or licensing,
+irreversible/shared-state actions, material unapproved cost, privacy, or a
+genuine external impossibility. A check-only/no-mutation result is not a user
+action; normal machine repair remains Luna's work. `QUICK` and `STANDARD`
+remain advisory; V16 receipts and fail-closed gates remain explicit `STRICT`
+opt-in.
 
 ## Ten-minute setup
 
@@ -133,9 +156,10 @@ Tell Codex the desired result. The installed policy then:
 6. leaves author/reviewer history and reusable knowledge.
 
 Tool calls are not a checklist. Verify CodeGraph or Semble before relying on
-its answer. The execution lead may repair the exact owning-repository index
-once. A broken optional tool reports degraded coverage; it blocks only when the
-missing fact is essential to the decision.
+its answer. The bounded V16 controller may repair the exact owning-repository
+index once; that circuit is one recovery strategy, not the end of Luna's
+evidence-backed recovery mission. A broken optional tool reports degraded
+coverage and repair debt; it blocks only the dependent claim.
 
 ## Code standards
 

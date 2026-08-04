@@ -39,11 +39,30 @@ export CODEX_GOVERNANCE_MODE=strict
 ## 模型分工
 
 - Sol：规划、架构、综合判断和独立审查。
-- Luna：默认执行主力，负责工具、实现、测试、数据和 Git/GitHub。
+- Luna：默认执行主力，也是工具、库、数据、环境、实现、测试和 Git/GitHub
+  的恢复 owner。
 - Spark：由 Luna 派发短小、隔离、可并行任务。
-- Terra：只有 Luna 确实不可用时才作为执行 fallback。
+- Terra：只有 Luna 确实不可用时才作为执行/恢复 fallback。
 
-这些是路由默认值，不是能力封禁。
+Sol 审计恢复证据。这些是路由默认值，不是能力封禁。
+
+## 自愈式执行
+
+Luna 对必需能力采用彼此不同、能产生证据的恢复策略，直到能力可用，且已由
+**真实的依赖任务切片实际使用**。一个稳定的无进展策略会打开 circuit，绝不
+重复；恢复任务继续采用实质不同且安全的策略。可选能力失败可以降级无关工作，
+但会留下有 owner 的 repair debt。必需能力失败只阻塞依赖它的 claim 或切片。
+
+`HEALTHY`、`RECOVERING`、`DEGRADED`、`EXTERNAL_WAIT`、
+`USER_ACTION_REQUIRED` 和 `UNRECOVERABLE` 的语义见
+[工具链约定](docs/TOOLCHAIN.md#self-healing-capability-recovery)。
+只有整张允许的 recovery graph 已被证据证明穷尽时才能称为 `UNRECOVERABLE`；一个
+策略或 controller budget 结束并不够。`EXTERNAL_WAIT` 对真正的外部依赖做
+bounded-backoff recheck。
+只有科学/产品选择、credential 或 license、不可逆/共享状态操作、未获批准的实质成本、隐私，或真正的
+外部不可能性才需要用户介入。check-only/no-mutation 结果不是用户 action；常规机器
+修复仍由 Luna 执行。`QUICK`、`STANDARD` 仍为 advisory；V16 receipt 和
+fail-closed gate 仍仅在显式 `STRICT` 时启用。
 
 ## 十分钟安装
 
@@ -118,7 +137,10 @@ python3 scripts/install-governance.py \
 5. 做一次独立审查和 delta-only 闭环；
 6. 留下双账号 PR 记录和可复用知识。
 
-工具不是打卡表。依赖 CodeGraph 或 Semble 的答案前先验证其仓库身份。执行主力可以只对 exact owning repo 修复一次。可选工具损坏时报告覆盖降级；只有缺失事实对正确判断不可替代时才阻塞。
+工具不是打卡表。依赖 CodeGraph 或 Semble 的答案前先验证其仓库身份。有界 V16
+controller 可以只对 exact owning repo 修复一次；该 circuit 只是一个恢复策略，
+不是 Luna 证据化恢复任务的终点。可选工具损坏时报告覆盖降级和 repair debt；只有
+依赖它的 claim 才会被阻塞。
 
 ## 代码规范
 
