@@ -47,10 +47,17 @@ TOOL_PREFLIGHT_GUIDANCE = {
     "receipt_backed_usage_required": True,
     "task_contract_schema": "tool-task-contract.v16",
     "enforcement_schema": "tool-enforcement.v16",
-    "maintenance_schema": "tool-maintenance.v16",
+    "adaptive_recovery_schema": "tool-recovery.v1",
+    "adaptive_recovery_default": True,
+    "strict_maintenance_schema": "tool-maintenance.v16",
+    "strict_maintenance_flag": "--strict-maintenance",
     "automatic_repo_index_repair": True,
-    "repair_budget": 1,
-    "repair_owner": "assigned_execution_agent:tool_maintainer",
+    "strict_repair_budget": 1,
+    "strict_repair_owner": "assigned_execution_agent:tool_maintainer",
+    "recovery_policy": (
+        "do not repeat no-progress strategy; continue distinct evidence-producing "
+        "recovery until the required capability is usable"
+    ),
 }
 REVIEW_RUNTIME_GUIDANCE = {
     "planner": "Sol",
@@ -87,11 +94,18 @@ def build_context(event: str | None = None, model: str | None = None) -> dict[st
         "checking existing ownership. ROUTING: unknown semantics/similar code -> "
         "Semble; known structure/calls/impact -> revision-matching CodeGraph; exact "
         "text/config/error -> rg; shell display -> rtk. Verify a semantic/structural "
-        "tool before relying on it and repair the exact repo once; optional tool "
-        "failure must not imprison unrelated work. Evidence is affected-first; one "
+        "tool before relying on it. Luna owns recovery: never repeat a no-progress "
+        "strategy; continue autonomous, distinct evidence-producing recovery until a "
+        "required capability is usable and exercised by its dependent slice. Optional "
+        "failure creates repair debt and may degrade unrelated work; required failure "
+        "blocks only its slice. Escalate only scientific/product choices, credentials/"
+        "licensing, irreversible/shared-state action, material unapproved cost, privacy, "
+        "or genuine external impossibility. Evidence is affected-first; one "
         "reviewer closes stable fixes delta-only. Default response: outcome, status, "
         "decisive evidence, risk, next action; at most five short points. Current "
-        f"hook mode={mode}. STRICT alone requires the full V16 receipt gate."
+        f"hook mode={mode}. No-flag maintenance is adaptive tool-recovery.v1; explicit "
+        "STRICT tool-maintenance.v16 uses --strict-maintenance and keeps its one-attempt "
+        "V16 route."
     )
     return {
         "event": event or "SessionStart",
@@ -152,11 +166,16 @@ if __name__ == "__main__":
         mode = current_mode()
         intake_context = (
             "ADAPTIVE TOOL INTAKE." + lineage
-            + " Use Semble for unknown semantics/similar code, CodeGraph for known "
-            "structure/impact, rg for exact text, and rtk for shell display. Calls must "
-            "answer a real task question. Verify CodeGraph/Semble before relying on them; "
-            "the execution lead may repair the exact repo once. In adaptive mode missing "
-            "contracts or optional receipts are advisory and must not stop unrelated work. "
+            + " ROUTES: unknown/similar -> Semble; structure/impact -> CodeGraph; exact "
+            "-> rg; shell -> rtk. Verify Semble/CodeGraph first. Default maintenance is "
+            "adaptive tool-recovery.v1; "
+            "explicit STRICT tool-maintenance.v16 uses --strict-maintenance (one V16 "
+            "attempt). Never repeat a no-progress strategy; Luna continues distinct "
+            "evidence-producing recovery until the dependent slice uses the required "
+            "capability. Escalate only for scientific/product choices, credentials/"
+            "licensing, irreversible/shared-state action, material unapproved cost, privacy, "
+            "or genuine external impossibility. In adaptive mode missing contracts/optional "
+            "receipts are advisory; unrelated work continues. "
             "For an explicitly STRICT mission, record once: rtk python3 "
             "\"${CODEX_HOME:-$HOME/.codex}/bin/toolchain-auto.py\" "
             "--record-task-contract [--repository-work|--non-repository-task] "
@@ -167,7 +186,7 @@ if __name__ == "__main__":
             "non-repository task do not run repository preflight. "
             f"Current hook mode={mode}."
         )
-        context["additionalContext"] = intake_context[:1900]
+        context["additionalContext"] = intake_context[:1450]
     receipt_value = hook_receipt.receipt(
         event,
         model or os.environ.get("CODEX_MODEL", "unknown"),

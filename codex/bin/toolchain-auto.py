@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
+import subprocess
 import sys
 
 
@@ -15,6 +17,7 @@ if str(PACKAGE_ROOT) not in sys.path:
 
 from v16.tool_maintenance import ToolMaintenanceError, maintain_toolchain  # noqa: E402
 from v16.tool_preflight import PreflightError  # noqa: E402
+from v16.tool_recovery import recover_toolchain  # noqa: E402
 from v16.tool_runtime import (  # noqa: E402
     SIGNALS,
     ToolRuntimeError,
@@ -25,8 +28,13 @@ from v16.tool_runtime import (  # noqa: E402
 
 EXIT_BY_STATUS = {
     "ready": 0,
+    "recovering": 3,
+    "user_action_required": 3,
     "maintenance_required": 3,
+    "external_wait": 4,
     "external_action_required": 4,
+    "degraded": 5,
+    "unrecoverable": 5,
     "blocked": 5,
 }
 
@@ -34,9 +42,10 @@ EXIT_BY_STATUS = {
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Run strict CodeGraph/Semble/rtk checks for one exact repository; "
-            "initialize or synchronize only that repository's CodeGraph index "
-            "at most once when a local repair is required."
+            "Run exact-repository toolchain checks and bounded local recovery. "
+            "Adaptive mode tries distinct safe CodeGraph strategies until "
+            "health checks pass; strict mode preserves the V16 one-attempt "
+            "maintenance proof artifact."
         )
     )
     parser.add_argument("--repo", default=".", help="exact owning Git repository")
@@ -47,7 +56,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--check-only",
         action="store_true",
-        help="do not initialize or synchronize a repository index",
+        help="do not mutate a repository index (records machine continuation)",
+    )
+    recovery_mode = parser.add_mutually_exclusive_group()
+    recovery_mode.add_argument(
+        "--strict-maintenance",
+        action="store_true",
+        help="emit the legacy strict tool-maintenance.v16 one-attempt artifact",
+    )
+    recovery_mode.add_argument(
+        "--adaptive-recovery",
+        action="store_true",
+        help="use bounded multi-strategy recovery even when strict mode is set",
     )
     parser.add_argument(
         "--state-dir",
@@ -102,7 +122,12 @@ def main(argv: list[str] | None = None) -> int:
     if not args.semantic_query or not args.expected_path:
         parser.error("maintenance requires --semantic-query and --expected-path")
     try:
-        report = maintain_toolchain(
+        use_strict_maintenance = args.strict_maintenance or (
+            not args.adaptive_recovery
+            and os.environ.get("CODEX_GOVERNANCE_MODE", "").strip().lower() == "strict"
+        )
+        controller = maintain_toolchain if use_strict_maintenance else recover_toolchain
+        report = controller(
             args.repo,
             semantic_query=args.semantic_query,
             expected_path=args.expected_path,
@@ -112,7 +137,23 @@ def main(argv: list[str] | None = None) -> int:
             allow_repo_index_mutation=not args.check_only,
             state_dir=args.state_dir,
         )
-    except (OSError, PreflightError, ToolMaintenanceError) as exc:
+    except subprocess.SubprocessError:
+        print(json.dumps({
+            "schema": "tool-maintenance-error.v16",
+            "status": "blocked",
+            "terminal_reason_code": "ToolActionFailed",
+            "message": "tool action failed",
+        }, sort_keys=True))
+        return 5
+    except OSError:
+        print(json.dumps({
+            "schema": "tool-maintenance-error.v16",
+            "status": "blocked",
+            "terminal_reason_code": "ToolchainUnavailable",
+            "message": "toolchain controller unavailable",
+        }, sort_keys=True))
+        return 5
+    except (PreflightError, ToolMaintenanceError) as exc:
         print(json.dumps({
             "schema": "tool-maintenance-error.v16",
             "status": "blocked",

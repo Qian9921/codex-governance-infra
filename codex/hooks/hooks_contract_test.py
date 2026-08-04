@@ -62,10 +62,17 @@ class HooksContractTests(unittest.TestCase):
                 "receipt_backed_usage_required": True,
                 "task_contract_schema": "tool-task-contract.v16",
                 "enforcement_schema": "tool-enforcement.v16",
-                "maintenance_schema": "tool-maintenance.v16",
+                "adaptive_recovery_schema": "tool-recovery.v1",
+                "adaptive_recovery_default": True,
+                "strict_maintenance_schema": "tool-maintenance.v16",
+                "strict_maintenance_flag": "--strict-maintenance",
                 "automatic_repo_index_repair": True,
-                "repair_budget": 1,
-                "repair_owner": "assigned_execution_agent:tool_maintainer",
+                "strict_repair_budget": 1,
+                "strict_repair_owner": "assigned_execution_agent:tool_maintainer",
+                "recovery_policy": (
+                    "do not repeat no-progress strategy; continue distinct "
+                    "evidence-producing recovery until the required capability is usable"
+                ),
             },
         )
         self.assertIn("ADAPTIVE-GOVERNANCE", guidance)
@@ -76,7 +83,37 @@ class HooksContractTests(unittest.TestCase):
         self.assertIn("delta-only", context["review_runtime"]["delta_continuation"])
         self.assertIn("Sol high", context["review_runtime"]["delta_continuation"])
         self.assertIn("Luna", guidance)
+        self.assertIn("never repeat a no-progress strategy", guidance)
+        self.assertIn("distinct evidence-producing recovery", guidance)
+        self.assertIn("exercised by its dependent slice", guidance)
+        self.assertIn("genuine external impossibility", guidance)
+        self.assertIn("No-flag maintenance is adaptive tool-recovery.v1", guidance)
+        self.assertIn("--strict-maintenance", guidance)
+        self.assertLessEqual(len(guidance), 1500)
         self.assertIn("at most five short points", guidance)
+
+    def test_intake_context_keeps_recovery_autonomous_and_bounded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proc = self._run_entrypoint(
+                "session_context.py",
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "recovery-session",
+                    "turn_id": "recovery-turn",
+                    "prompt": "repair the required tool",
+                },
+                pathlib.Path(directory),
+                mode="adaptive",
+            )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        guidance = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Never repeat a no-progress strategy", guidance)
+        self.assertIn("distinct evidence-producing recovery", guidance)
+        self.assertIn("genuine external impossibility", guidance)
+        self.assertIn("adaptive tool-recovery.v1", guidance)
+        self.assertIn("--strict-maintenance", guidance)
+        self.assertLess(len(guidance), 1500)
+        self.assertTrue(guidance.endswith("Current hook mode=adaptive."))
 
     def test_receipt_allowlists_private_fields(self):
         raw = "PRIVATE_PROMPT_VALUE /cwd /secret"
