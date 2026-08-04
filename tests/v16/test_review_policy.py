@@ -40,7 +40,7 @@ class ReviewPolicyTests(unittest.TestCase):
             "reasons": ["documentation-only change"],
             "classifier_identity": "classifier-v1",
         }
-        mission["reviewer_separation"]["independent_model"] = "gpt-5.6-terra"
+        mission["reviewer_separation"]["independent_model"] = "gpt-5.6-sol"
         mission["gates"] = [mission["gates"][0]]
         for item in mission["counterexamples"]:
             item["gate_id"] = "G-TARGETED"
@@ -60,7 +60,7 @@ class ReviewPolicyTests(unittest.TestCase):
             "reasons": ["bounded internal behavior change"],
             "classifier": "classifier-v1",
         }
-        mission["reviewer_separation"]["independent_model"] = "gpt-5.6-terra"
+        mission["reviewer_separation"]["independent_model"] = "gpt-5.6-sol"
         mission["gates"] = mission["gates"][:2]
         plan = compile_mission(mission)
         self.assertEqual(plan["review_policy"]["required_stages"], ["targeted", "full"])
@@ -88,7 +88,7 @@ class ReviewPolicyTests(unittest.TestCase):
             }
         )
         self.assertEqual(low_all["required_stages"], ["targeted", "full", "fresh"])
-        self.assertEqual(low_all["reviewer_model"], "gpt-5.6-terra")
+        self.assertEqual(low_all["reviewer_model"], "gpt-5.6-sol")
 
     def test_malformed_stage_routes_rejected(self):
         base = {"review_risk": "high", "high_risk_triggers": ["security"]}
@@ -181,7 +181,7 @@ class ReviewPolicyTests(unittest.TestCase):
             "classifier_identity": "classifier-v1",
             "required_stages": ["targeted", "full", "fresh"],
         }
-        mission["reviewer_separation"]["independent_model"] = "gpt-5.6-terra"
+        mission["reviewer_separation"]["independent_model"] = "gpt-5.6-sol"
         plan = compile_mission(mission)
         self.assertEqual(plan["review_policy"]["required_stages"], ["targeted", "full", "fresh"])
 

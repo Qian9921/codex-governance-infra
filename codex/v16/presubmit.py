@@ -433,8 +433,8 @@ def build_review_decision_basis(
     reviewer_model = policy.get("reviewer_model")
     reasoning_effort = policy.get("reasoning_effort")
     expected_reviewers = {
-        "low": ("general", "gpt-5.6-terra", "high"),
-        "medium": ("general", "gpt-5.6-terra", "high"),
+        "low": ("general", "gpt-5.6-sol", "high"),
+        "medium": ("general", "gpt-5.6-sol", "high"),
         "high": ("high_risk", "gpt-5.6-sol", "xhigh"),
     }
     if risk not in expected_reviewers or (reviewer_model, reasoning_effort) != expected_reviewers[risk][1:]:

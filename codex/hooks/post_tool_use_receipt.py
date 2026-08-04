@@ -20,9 +20,11 @@ from typing import Any
 
 try:
     from . import hook_receipt, pre_tool_use_policy
+    from .governance_mode import is_strict
 except ImportError:  # pragma: no cover - direct hook execution.
     import hook_receipt
     import pre_tool_use_policy
+    from governance_mode import is_strict
 
 PACKAGE_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
@@ -345,7 +347,7 @@ def main() -> int:
         response_diagnostics=classification.diagnostics,
     )
     written = hook_receipt.write_receipt(value)
-    output = {} if written else {
+    output = {} if written or not is_strict() else {
         "decision": "block",
         "reason": "V16 PostToolUse receipt persistence failed; runtime proof is unavailable.",
         "systemMessage": "V16 hook receipt write failed; current-turn evidence is incomplete.",

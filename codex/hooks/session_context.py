@@ -15,8 +15,10 @@ import sys
 
 try:  # Support both direct hook execution and package-based test discovery.
     from . import hook_receipt
+    from .governance_mode import current_mode
 except ImportError:  # pragma: no cover - exercised by direct script invocation.
     import hook_receipt
+    from governance_mode import current_mode
 
 PACKAGE_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
@@ -36,7 +38,8 @@ ROUTING_GUIDANCE = {
     "exact_text_log_config": "rg",
 }
 TOOL_PREFLIGHT_GUIDANCE = {
-    "required_before_repo_work": True,
+    "required_before_repo_work": False,
+    "required_before_relying_on_semantic_or_structural_tool": True,
     "schema": "tool-preflight.v16",
     "strict_ready_status": "ready",
     "mandatory_tools": ["codegraph", "semble", "rtk"],
@@ -50,9 +53,14 @@ TOOL_PREFLIGHT_GUIDANCE = {
     "repair_owner": "assigned_execution_agent:tool_maintainer",
 }
 REVIEW_RUNTIME_GUIDANCE = {
+    "planner": "Sol",
+    "execution_lead": "Luna",
+    "spark_owner": "Luna",
+    "terra_fallback": "only when Luna is unavailable",
+    "initial": "one independent Sol review when required by profile",
     "initial_high": "fresh Sol xhigh",
     "delta_continuation": (
-        "same reviewer and model; high-risk Sol high, low/medium Terra high; "
+        "same reviewer and model; Sol high; "
         "delta-only; 90s soft/240s hard"
     ),
     "escalated_high": "fresh Sol xhigh",
@@ -69,29 +77,26 @@ def build_context(event: str | None = None, model: str | None = None) -> dict[st
     not parse prose.
     """
 
+    mode = current_mode()
     guidance = (
-        "ACTIVE-MISSION-LOCK: parent brief controls role, scope, permissions "
-        "and budget; assigned models are unrestricted technically; plugin "
-        "inventory informational. ROUTING: known structure/symbol/call/impact "
-        "-> CodeGraph; unknown semantic or similar implementation -> Semble; "
-        "shell output/display -> rtk; exact text/log/config/error -> rg. "
-        "REVIEW-RUNTIME: compile review-runtime.v16; initial/escalated high "
-        "risk -> fresh Sol xhigh; contract-stable delta -> same reviewer/model "
-        "(high-risk Sol high; low/medium Terra high), delta-only, 90s report/"
-        "240s replan; one review call, zero "
-        "duplicate full-scope reviews. TOOL-PREFLIGHT: before repository work "
-        "require current tool-preflight.v16 for CodeGraph/Semble/rtk. Compile "
-        "the complete tool-task-contract.v16 matrix; each required route needs "
-        "receipt-backed tool-usage.v16 and tool-enforcement.v16 completion. "
-        "On repairable index failure the execution lane is tool_maintainer: one "
-        "locked exact-repo init/sync and recheck; never loop or label ordinary "
-        "stale indexes EXEC_INFRA_BLOCKED. STOP-GATE: current-turn intake, "
-        "validated bound contract, expected tool calls and successful PostToolUse "
-        "receipts are mandatory; Stop continues at most once."
+        "ADAPTIVE-GOVERNANCE: freeze one outcome and choose QUICK, STANDARD, or "
+        "STRICT. Sol plans and independently reviews; Luna leads execution and "
+        "may delegate bounded work to Spark; Terra is fallback only when Luna is "
+        "unavailable; assigned models are unrestricted technically. Before new "
+        "abstractions, choose REUSE, EXTEND, or NEW after "
+        "checking existing ownership. ROUTING: unknown semantics/similar code -> "
+        "Semble; known structure/calls/impact -> revision-matching CodeGraph; exact "
+        "text/config/error -> rg; shell display -> rtk. Verify a semantic/structural "
+        "tool before relying on it and repair the exact repo once; optional tool "
+        "failure must not imprison unrelated work. Evidence is affected-first; one "
+        "reviewer closes stable fixes delta-only. Default response: outcome, status, "
+        "decisive evidence, risk, next action; at most five short points. Current "
+        f"hook mode={mode}. STRICT alone requires the full V16 receipt gate."
     )
     return {
         "event": event or "SessionStart",
         "policy": "v16",
+        "governance_mode": mode,
         "model": model or os.environ.get("CODEX_MODEL", "unknown"),
         "spark_supported": True,
         "routing": dict(ROUTING_GUIDANCE),
@@ -144,24 +149,23 @@ if __name__ == "__main__":
             "opaque parent intake identity; no child prompt was invented."
             if event == "SubagentStart" else ""
         )
+        mode = current_mode()
         intake_context = (
-            "V16 TOOL-TASK-INTAKE." + lineage
-            + " Route known symbol/call/impact to CodeGraph; unknown semantics/similar "
-            "code to Semble; exact text/error/config/log to rg; shell output shown to "
-            "the model through rtk. Classify scope before the first hook-observable tool. "
-            "run once: rtk python3 \"${CODEX_HOME:-$HOME/.codex}/bin/toolchain-auto.py\" "
+            "ADAPTIVE TOOL INTAKE." + lineage
+            + " Use Semble for unknown semantics/similar code, CodeGraph for known "
+            "structure/impact, rg for exact text, and rtk for shell display. Calls must "
+            "answer a real task question. Verify CodeGraph/Semble before relying on them; "
+            "the execution lead may repair the exact repo once. In adaptive mode missing "
+            "contracts or optional receipts are advisory and must not stop unrelated work. "
+            "For an explicitly STRICT mission, record once: rtk python3 "
+            "\"${CODEX_HOME:-$HOME/.codex}/bin/toolchain-auto.py\" "
             "--record-task-contract [--repository-work|--non-repository-task] "
             f"--task-id-sha256 {intake['task_id_sha256']} "
             f"--task-shape-sha256 {intake['task_shape_sha256']} "
             f"--intake-id-sha256 {intake['intake_id_sha256']} "
-            "For repository source/read/write work select --repository-work, add only "
-            "applicable flags from: " + choices + ", then run strict repo preflight. "
-            "For plugin/model/user-config/service/machine inventory with no repository "
-            "read or write select --non-repository-task, add no route flags, and do not "
-            "run repository preflight. The task may be attached to a repository project, "
-            "but its calls must not target repository paths or repository-only tools; "
-            "actual repository activity requires a new repository-scoped intake. "
-            "Exactly one scope flag is required."
+            "and only applicable flags from: " + choices + ". For a strict "
+            "non-repository task do not run repository preflight. "
+            f"Current hook mode={mode}."
         )
         context["additionalContext"] = intake_context[:1900]
     receipt_value = hook_receipt.receipt(

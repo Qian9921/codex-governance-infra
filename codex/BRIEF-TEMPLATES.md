@@ -1,321 +1,139 @@
-# Brief templates
+# Adaptive brief templates
 
-## Mission packet
+Use the smallest template that changes a decision. `QUICK` work may need only
+the first four mission lines. `STRICT` work compiles the existing V16 JSON
+contracts after this human-readable brief is frozen.
 
-`assigned_model` is selected from the authorized live models for this task. It
-is not a capability declaration.
+## Mission card
 
-```json
-{
-  "schema": "mission.v1",
-  "milestone": "HARDENING",
-  "objective": "<one vertical slice>",
-  "owner": "<task>",
-  "assigned_model": "<authorized-live-model>",
-  "role": "execution",
-  "permissions": ["read", "write", "test"],
-  "scope": {"paths": ["<exact paths>"]},
-  "reviewer_separation": {
-    "independent": "<resolved-by-review-risk>",
-    "fork_turns": "none",
-    "report_only": true
-  },
-  "review_policy": {
-    "review_risk": "medium",
-    "reasons": ["<bounded internal behavior change>"],
-    "classifier_identity": "<classifier/version>",
-    "high_risk_triggers": [],
-    "required_stages": ["targeted", "full"],
-    "context_mode": "independent_clean_room"
-  },
-  "operating_domain": "<units/frame/runtime>",
-  "invariants": ["<required>"],
-  "non_goals": ["<excluded>"],
-  "evidence_budget": {
-    "checks": [{
-      "name": "<check>",
-      "why_red": "<failure mechanism>",
-      "cost": "<estimate>",
-      "denominator": "<known>"
-    }]
-  },
-  "rollback": "<reversible action>"
-}
+```text
+Outcome:
+Owner:
+Profile: QUICK | STANDARD | STRICT
+Scope and owning repository:
+Producer -> consumer:
+Operating domain / reference identity:
+Must remain true:
+Non-goals:
+Rollback:
+Evidence and usage budget:
+Stop when:
 ```
 
-## Tool routing sidecar
+Choose a vertical slice by coupling, independent usefulness, rollback, and
+validation cost. Do not use line quotas or repeatedly raise a frozen target.
 
-Before declaring routes, bind a strict read-only preflight to the exact
-repo/head/worktree/Codex-config identity:
+## Model routing card
 
-```json
-{
-  "schema": "tool-preflight.v16",
-  "status": "ready",
-  "strict": true,
-  "preflight_cache_key_sha256": "<doctor cache.key_sha256>",
-  "mandatory_tools": ["codegraph", "semble", "rtk"],
-  "semantic_sentinel": {
-    "query": "<behavior description, not only a filename>",
-    "expected_path": "<repo-relative current source>"
-  }
-}
+```text
+Planner / architect: Sol
+Execution lead: Luna
+Spark tasks: <0..N bounded independent tasks>
+Terra fallback authorized: <yes only if Luna unavailable | no>
+Independent reviewer: Sol
+Max writers / review calls / model calls / tokens:
 ```
 
-Directory/binary presence is not readiness. CodeGraph must prove correct
-project/index/revision plus a sentinel; Semble must prove configured live
-repo-scoped retrieval; `rtk` must prove positive output and non-zero failure
-preservation. Reuse is allowed only while host/runtime/tool/config/repo/head/
-worktree/index/sentinel identity remains unchanged.
+Record requested model, actual model, and fallback reason. One Git owner
+integrates the work. Parallel writers require exclusive path leases.
 
-Then declare only the inspection intents the mission actually needs. Resolve
-every declared row through `codex.v16.tool_routing.route_tool`; do not
-hand-author a successful decision.
+## Tool intent card
 
-```json
-{
-  "declared_intents": [
-    {"intent": "known_symbol", "preferred_tool": "codegraph"},
-    {"intent": "semantic_entry", "preferred_tool": "semble"},
-    {"intent": "shell_output", "preferred_tool": "rtk"},
-    {"intent": "exact_error", "preferred_tool": "rg"}
-  ],
-  "fallback_contract": {
-    "requires_preferred_attempt": true,
-    "requires_reason_code": true,
-    "requires_evidence_ref": true,
-    "silent_fallback": false
-  }
-}
+```text
+Unknown semantics or similar implementation: Semble | N/A
+Known structure, dependency, or impact: CodeGraph | N/A
+Exact text, error, config, or log: rg | N/A
+Shell output shown to model: rtk | N/A
+Essential decision if a preferred tool fails:
 ```
 
-Known symbol/call/dependency/blast-radius work routes to a revision-matching
-child CodeGraph. Unknown semantic entrypoints and similar implementations route
-to Semble. Exact strings/errors/configuration/logs route to `rg` or a bounded
-exact read. Shell output shown to the model routes through `rtk`; raw output is
-allowed for downstream machine input or exact denominator computation. A
-missing intent is `not_declared`, not a fabricated blocker. A declared
-preferred tool may fall back only after a real failure/unavailable observation
-with a stable reason code and evidence reference; the fallback does not claim
-equivalent structural or semantic coverage.
+Calls must be task-relevant. Verify CodeGraph/Semble identity before relying on
+their answers. The execution lead owns one exact-repo repair and recheck. In
+adaptive mode, lost optional coverage is reported but does not stop unrelated
+work. Strict receipt-backed enforcement is reserved for `STRICT` missions.
 
-At closure, bind every declared decision to actual use:
+## Reuse decision
 
-```json
-{
-  "schema": "tool-usage.v16",
-  "status": "compliant",
-  "routing_compliant": true,
-  "coverage_equivalent": true,
-  "preflight_cache_key_sha256": "<same current preflight>",
-  "calls": [{
-    "intent": "semantic_entry",
-    "tool": "semble",
-    "status": "success",
-    "evidence_ref": "<candidate path/line artifact>",
-    "receipt_sha256": "<privacy-safe hook receipt line hash>",
-    "used_for": "discovery"
-  }],
-  "violations": []
-}
+```text
+Intent:
+Existing candidates:
+Decision: REUSE | EXTEND | NEW
+Contract match or mismatch:
+Owning module and dependency direction:
+Evidence references:
 ```
 
-One irrelevant call to each tool is not compliance. Each call must match the
-selected tool, succeed, carry receipt/evidence references, and materially
-determine discovery, structure/impact, context display, or literal truth.
+Use this only for meaningful new abstractions. Prefer composition and existing
+domain ownership; do not build speculative frameworks.
 
-## Routing and usage sidecar
+## Evidence card
 
-This sidecar is the input to `codex.v16.metrics.choose_model` and
-`BudgetLedger`. Scores and `token_cost_rank` are relative, current control-plane
-metadata. They are not hard-coded model capabilities or invented dollar
-prices.
-
-```json
-{
-  "task_kind": "implementation",
-  "risk": "medium",
-  "authorized_models": ["<model-a>", "<model-b>"],
-  "live_models": {
-    "<model-a>": {
-      "available": true,
-      "risks": ["low", "medium", "high"],
-      "token_cost_rank": 1
-    },
-    "<model-b>": {
-      "available": true,
-      "risks": ["low", "medium", "high"],
-      "token_cost_rank": 2
-    }
-  },
-  "preferences": {
-    "<model-a>": {"implementation:medium": 10, "default": 0},
-    "<model-b>": {"implementation:medium": 8, "default": 0}
-  },
-  "limits": {
-    "max_model_calls": 4,
-    "max_review_calls": 1,
-    "max_parallel_agents": 2,
-    "max_input_tokens": 60000,
-    "max_output_tokens": 20000,
-    "max_total_tokens": 80000
-  }
-}
+```text
+Acceptance claim:
+Counterexample / WHY-RED:
+Exact snapshot, runtime, config, reference, and data identity:
+Affected check and known denominator:
+Synthetic sample: result | N/A
+Representative real-data sample: result | N/A
+Pass condition / tolerance:
+Cost and reusable evidence hash:
 ```
 
-Reserve the conservative per-call maximum before dispatch. On completion,
-`settle` that reservation with provider-reported input/output counts; this also
-releases its active-agent slot. If counts are unavailable, settle at the
-reserved maxima rather than inventing a smaller number. Persist only the
-aggregate `BudgetLedger.usage()` receipt. For a ChatGPT subscription,
-`usd_cost` remains `null` unless the provider exposes exact plan-specific
-attribution. Do not infer API prices or divide the monthly subscription by
-guessed calls.
-
-## Nested delegation packet
-
-```json
-{
-  "schema": "delegation.v1",
-  "parent_task_id": "<parent>",
-  "child_task_id": "<child>",
-  "assigned_model": "<authorized-live-model>",
-  "role": "specialist",
-  "max_depth": 1,
-  "depth": 1,
-  "permissions": ["read", "write_paths"],
-  "forbidden_permissions": ["git", "github", "review", "merge"],
-  "lease": {"paths": ["<exclusive path>"]},
-  "retry_budget": {"semantic_contamination": 1},
-  "active_mission_lock": true,
-  "plugin_inventory": "informational",
-  "result_schema": "delegation-result.v1"
-}
-```
+Required arithmetic is `total=passed+failed+skipped+unknown` and
+`ran=passed+failed`. A required unknown, skip, xfail, NaN/Inf, stale identity,
+or missing oracle cannot support a green parity claim.
 
 ## Review packet
 
-Freeze exact Git head or non-Git snapshot, Acceptance Envelope, risk decision,
-coverage, direct dependencies, evidence envelopes with known denominators,
-externally delivered lineage, and prior findings/dispositions. Hash the packet
-before dispatch. The reviewer artifact must bind that packet hash, envelope,
-base/head/tree/diff or snapshot identity, reviewed scope, evidence artifact
-hashes, reviewer-owned findings/limitations, context mode, escalation reason,
-and verdict. A bare verdict or author-supplied finding set is never sufficient.
+```text
+Context: independent_clean_room | delta_continuation | escalated_fresh
+Objective and non-goals:
+Exact base/head/tree/diff or snapshot:
+Acceptance envelope and risk:
+Reuse decision:
+Affected evidence and denominators:
+Known limitations:
+Prior findings and author dispositions:
+Requested verdict: APPROVE | REQUEST_CHANGES
+```
 
-Context modes are:
+The initial reviewer receives the compact clean-room packet, not the author's
+full chat. Stable fixes return to the same reviewer with only finding lineage,
+exact delta, new evidence, and direct boundaries. A fresh reviewer requires an
+explicit escalation trigger.
 
-- `author_contextual`: writer pre-mortem only; never a gate.
-- `independent_clean_room`: fresh initial report-only gate with
-  `fork_turns=none` and a curated packet.
-- `delta_continuation`: same reviewer continuity identity, distinct new run and
-  verdict, old→new delta, prior findings/dispositions, and affected evidence.
-- `escalated_fresh`: new reviewer after contract/risk/scope drift, material
-  rewrite, missed/new P1 evidence, incident, lineage loss, governance change,
-  dispute, or two non-converging rounds.
+Review feedback uses `BLOCKING`, `SHOULD_FIX`, `NIT`, `QUESTION`, or
+`FOLLOW_UP`. Only the first category prevents approval.
 
-Before dispatch, compile `codex.v16.review_runtime.compile_review_runtime` and
-record the resulting `review-runtime.v16` hash. The controller must provide:
+## GitHub trace
 
 ```text
-context_mode
-changed_files / changed_lines
-review_identity_sha256
-prior_review_artifact_sha256 / reviewer_continuity_id
-prior_coverage_status / prior_unreviewed_count
-same_reviewer_available
-contract_drift
-escalation_triggers
+Author: Qian9921
+Reviewer / approver / merger: Liang9921
+PR objective:
+Evidence summary:
+Findings and dispositions:
+Limitations / follow-ups:
+Exact reviewed head:
 ```
 
-For a contract-stable continuation, use the original reviewer with a distinct
-run and high effort; send only the exact delta, prior findings/dispositions,
-reused evidence, and direct affected boundaries. Do not repeat the original
-full-scope review. Obey the compiled file/line/context/tool limits and
-soft/hard deadlines. At soft deadline request a report; at hard deadline use
-`INTERRUPT_REPLAN`. A PARTIAL report or runtime timeout cannot approve. New
-falsifiable evidence selects `escalated_fresh`; unsupported scope expansion
-must stop.
-
-Every progress receipt must carry observed `context_chars`, `review_calls`, and
-`duplicate_full_scope_reviews`, and validation must separately supply the
-frozen review policy plus caller-owned expectations for context mode, exact
-changed-file/line counts, review identity, prior artifact, and reviewer
-continuity. Do not trust a runtime payload or its digest as its own authority.
-
-`APPROVE` requires complete coverage, empty unreviewed scope, no active
-P1/BLOCKING, a matching caller-bound Independent artifact, and valid evidence.
-Otherwise use `REQUEST_CHANGES` or `null` for infrastructure failure.
-
-## V16 productivity mission
-
-The strict `mission.v16` JSON uses the same fields as
-`codex/v16/fixtures/mission.valid.json`. Set `assigned_model` to the model chosen
-by the routing sidecar. Add an explicit `review_policy` for new missions:
-
-```json
-{
-  "review_risk": "high",
-  "reasons": [],
-  "high_risk_triggers": ["hook_reviewer_model_routing"],
-  "required_stages": ["targeted", "full", "fresh"],
-  "context_mode": "independent_clean_room",
-  "fork_turns": "none",
-  "report_only": true
-}
-```
-
-Allowed high-risk triggers are `math_numeric`, `exact_parity`, `security`,
-`privacy`, `public_contract`, `schema_data_format`, `irreversible_migration`,
-`supply_chain_installer`, `production_runtime`, `formal_research_release`, and
-`hook_reviewer_model_routing`. Low/medium routes must not contain one; high must
-contain at least one. Missing, invalid, ambiguous, or legacy policy resolves
-fail-closed to high. The resolver, not the writer, fixes the reviewer route:
-low/medium → `gpt-5.6-terra` high; high → `gpt-5.6-sol` xhigh.
-That xhigh default applies to initial or escalated high-risk review. A
-contract-stable `delta_continuation` retains Sol but uses high effort under its
-bounded runtime contract.
-`required_stages` is an independent frozen evidence route and must be one
-ordered prefix: targeted; targeted+full; or targeted+full+fresh. Its default is
-risk-informed, but an explicit route follows the mission's affected WHY-RED
-plan rather than reviewer convenience. Executable risk and escalation enum
-sources are `codex.v16.review_policy.HIGH_RISK_TRIGGERS` and
-`codex.v16.trace._ESCALATION_TRIGGERS`; prose does not create new identities.
-
-Select zero to three bounded Spark audits from actual risk and scope; the
-current frozen V16 acceptance lock happens to select three. Do not add audits
-merely to fill a quota.
-
-Every blocking invariant/counterexample maps to an entrypoint and gate with
-WHY-RED, cost, a known denominator, and red/green meaning. The observed gate
-total must equal the mapped acceptance denominator.
-
-Compile only (never executes argv):
+## Knowledge deposit
 
 ```text
-python3 -m codex.v16.compiler codex/v16/fixtures/mission.valid.json -o plan.json
+Decision or root cause:
+Reusable abstraction / fixture / test:
+Reference and data identity:
+Accepted limitation:
+Follow-up owner:
 ```
 
-Execution tiers:
+Do not retain raw prompts, sessions, transcripts, credentials, receipts, or
+private paths as project knowledge.
 
-- `FAST`: targeted gates against an exact staged/worktree content snapshot;
-  dirty worktrees are allowed only with an externally supplied matching
-  snapshot hash. Put runner artifacts outside the repository and require the
-  before/after snapshot hashes to match. Staged mode runs an isolated local
-  materialization of the index, not the unstaged worktree.
-- `CANDIDATE`: targeted plus full gates on the exact clean candidate.
-- `FINAL`: the risk policy's required current evidence followed by exactly one
-  `independent_clean_room` report-only review. Low/medium use
-  `gpt-5.6-terra` high; high and fail-closed policy use `gpt-5.6-sol` xhigh.
+## Strict compatibility
 
-The complete clean-candidate/fresh workflow remains:
-
-```text
-python3 scripts/presubmit.py --repo .
-```
-
-The writer records inner-audit dispositions and generated trace bodies. The
-formal reviewer covers the frozen exact scope once at `REVIEW_READY`. Ordinary
-fixes return to the same reviewer as `delta_continuation`; escalation triggers
-select a fresh reviewer. Review is not iterative debugging, and
-`REQUEST_CHANGES` cannot be waived by changing thresholds or denominators.
+The V16 modules under `codex/v16/` remain the opt-in machine-verifiable engine
+for high-risk and release work. `STRICT` missions may compile their full mission,
+FAST/CANDIDATE/FINAL evidence, review-runtime, tool-preflight, usage, and
+enforcement artifacts. Adaptive profiles do not fabricate those artifacts and
+do not treat their absence as a correctness failure.

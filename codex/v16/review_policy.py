@@ -37,8 +37,8 @@ CONTEXT_MODES = frozenset(
 STAGE_ORDER = ("targeted", "full", "fresh")
 DEFAULT_STAGES = {"low": ("targeted",), "medium": ("targeted", "full"), "high": STAGE_ORDER}
 DEFAULT_REVIEWER = {
-    "low": ("gpt-5.6-terra", "high"),
-    "medium": ("gpt-5.6-terra", "high"),
+    "low": ("gpt-5.6-sol", "high"),
+    "medium": ("gpt-5.6-sol", "high"),
     "high": ("gpt-5.6-sol", "xhigh"),
 }
 

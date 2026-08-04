@@ -36,8 +36,8 @@ _IDENTITY_MODE_ALIASES = {
 }
 _RISK_LEVELS = frozenset({"low", "medium", "high"})
 _REVIEWER_DEFAULTS = {
-    "low": ("general", "gpt-5.6-terra", "high"),
-    "medium": ("general", "gpt-5.6-terra", "high"),
+    "low": ("general", "gpt-5.6-sol", "high"),
+    "medium": ("general", "gpt-5.6-sol", "high"),
     "high": ("high_risk", "gpt-5.6-sol", "xhigh"),
 }
 _FINDING_LABELS = frozenset(

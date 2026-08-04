@@ -19,7 +19,7 @@ def mission_for(risk):
         if risk in {"low", "medium"}
         else {"review_risk": "high", "high_risk_triggers": ["security"]}
     )
-    mission["reviewer_separation"]["independent_model"] = "gpt-5.6-sol" if risk == "high" else "gpt-5.6-terra"
+    mission["reviewer_separation"]["independent_model"] = "gpt-5.6-sol"
     return mission
 
 

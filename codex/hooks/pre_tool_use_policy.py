@@ -20,8 +20,10 @@ from typing import Any
 
 try:  # Support both direct hook execution and package-based test discovery.
     from . import hook_receipt
+    from .governance_mode import is_strict
 except ImportError:  # pragma: no cover - exercised by direct script invocation.
     import hook_receipt
+    from governance_mode import is_strict
 
 PACKAGE_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
@@ -332,10 +334,11 @@ if __name__ == "__main__":
     tool_input = x.get("tool_input", x.get("args"))
     result = decide(tool_name, tool_input)
     governed_activity = _governed_activity(x, tool_name, result["route"])
+    strict = is_strict()
     intake: Mapping[str, Any] | None = None
     updated_command: str | None = None
     bash_command = _bash_command(tool_name, tool_input)
-    if result["decision"] == "allow" and governed_activity:
+    if result["decision"] == "allow" and governed_activity and strict:
         try:
             intake = load_current_intake(
                 session_id=x.get("session_id"), turn_id=x.get("turn_id"),
@@ -425,7 +428,7 @@ if __name__ == "__main__":
         agent_id_sha256=intake.get("agent_id_sha256") if intake else None,
     )
     written = hook_receipt.write_receipt(receipt_value)
-    if governed_activity and not written:
+    if governed_activity and strict and not written:
         result = {
             **result,
             "decision": "deny",
@@ -443,7 +446,7 @@ if __name__ == "__main__":
     if not written:
         output["systemMessage"] = (
             "V16 hook receipt write failed; "
-            + ("governed tool call denied fail-closed." if governed_activity else
+            + ("governed tool call denied fail-closed." if governed_activity and strict else
                "runtime-proof acceptance is unavailable.")
         )
     print(json.dumps(output, sort_keys=True))
