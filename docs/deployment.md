@@ -23,3 +23,22 @@ MCP capability and remains `unknown` until the orchestrator provides a current
 observation. CodeGraph index build/sync is a separate, project-local authorized
 mutation. Unknown or degraded health stays visible and fallback requires a real
 reason code plus evidence reference.
+
+## V17 native model routing overlay
+
+V17 keeps the adaptive policy separate from the retained V16 strict evidence
+engine. Reversible machine-local model routing is a `STANDARD` operation.
+
+`codex/bin/refresh-model-catalog.py` discovers the current catalog through the
+installed Codex binary in an isolated temporary home, normalizes only the
+allowlisted Luna/Spark multi-agent backend selector, validates the required
+Luna route, and atomically publishes a private catalog. It never copies or
+prints authentication content. A valid prior catalog remains available if a
+later network refresh fails.
+
+`scripts/configure-model-routing.py` adds the supported top-level
+`model_catalog_json` setting and a user-systemd `ExecStartPre` drop-in. It
+backs up the preexisting config and drop-in with hashes, is idempotent, and has
+an explicit rollback. The drop-in resolves the stable `standalone/current`
+binary path supplied at installation, so a Codex package update is picked up on
+the next app-server start.

@@ -32,9 +32,10 @@ Use one of three profiles:
 - `STANDARD` (default): implementation or research engineering with affected
   evidence and one independent review.
 - `STRICT`: safety/privacy/security, mathematical or exact numeric parity,
-  public API/schema/data format, irreversible migration, installer/hook/model
-  routing, production release, or an explicit user request. Use the V16 frozen
-  evidence and review contracts.
+  public API/schema/data format, irreversible migration, production release,
+  or an explicit user request. Use the retained V16 frozen evidence and review
+  contracts. Reversible, machine-local installer, hook, and model-routing work
+  remains `STANDARD` unless it crosses one of those risk boundaries.
 
 Profiles may upgrade on new evidence. Do not downgrade merely to avoid a real
 blocker. Missing ceremony alone is not a correctness failure in `QUICK` or
