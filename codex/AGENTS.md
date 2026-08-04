@@ -53,6 +53,12 @@ blocker. Missing ceremony alone is not a correctness failure in `QUICK` or
   ownership and a hard call/token budget.
 - Terra is a continuity fallback for Luna's execution/recovery only when Luna
   is genuinely unavailable; log requested and actual model plus the reason.
+- Every spawned task name exposes the actual model family and role (for example,
+  `luna-execution-*` or `spark-audit-*`). A fallback name exposes the actual
+  fallback family; a Sol/Terra fallback must never retain a `luna-` prefix.
+  Spawn receipts and reports record `requested_model`, `actual_model`, `role`,
+  and `fallback_reason`. Naming/telemetry is advisory unless it deliberately
+  misrepresents model identity, which is rejected.
   Sol audits recovery evidence and never silently loses the independent review.
 - The persistent parent remains accountable. Use at most two concurrent writers,
   exclusive path leases, one Git owner, and no parent/child same-file writes.

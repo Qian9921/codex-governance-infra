@@ -59,6 +59,18 @@ TOOL_PREFLIGHT_GUIDANCE = {
         "recovery until the required capability is usable"
     ),
 }
+
+
+def _bounded_context(text: str, limit: int = 1500) -> str:
+    """Keep the portable context bounded while retaining decisive tail facts."""
+
+    if len(text) <= limit:
+        return text
+    tail = (
+        " ... --strict-maintenance remains explicit; at most five short points; "
+        "Current hook mode=" + current_mode() + "."
+    )
+    return text[: max(0, limit - len(tail))] + tail
 REVIEW_RUNTIME_GUIDANCE = {
     "planner": "Sol",
     "execution_lead": "Luna",
@@ -76,7 +88,16 @@ REVIEW_RUNTIME_GUIDANCE = {
 }
 
 
-def build_context(event: str | None = None, model: str | None = None) -> dict[str, object]:
+def build_context(
+    event: str | None = None,
+    model: str | None = None,
+    *,
+    requested_model: str | None = None,
+    actual_model: str | None = None,
+    role: str | None = None,
+    task_name: str | None = None,
+    fallback_reason: str | None = None,
+) -> dict[str, object]:
     """Build deterministic hook context without carrying user input.
 
     ``additionalContext`` remains bounded for compatibility with the v15 hook
@@ -87,9 +108,14 @@ def build_context(event: str | None = None, model: str | None = None) -> dict[st
     mode = current_mode()
     guidance = (
         "ADAPTIVE-GOVERNANCE: freeze one outcome and choose QUICK, STANDARD, or "
-        "STRICT. Sol plans and independently reviews; Luna leads execution and "
+        "STRICT. No-flag maintenance is adaptive tool-recovery.v1. Sol plans and "
+        "independently reviews; Luna leads execution and "
         "may delegate bounded work to Spark; Terra is fallback only when Luna is "
-        "unavailable; assigned models are unrestricted technically. Before new "
+        "unavailable; assigned models are unrestricted technically. Spawn names "
+        "expose actual model family+role; fallback names expose the actual family "
+        "and never luna-prefix Sol/Terra. Receipts record requested_model, "
+        "actual_model, role, fallback_reason; advisory unless deliberately "
+        "misrepresented. Before new "
         "abstractions, choose REUSE, EXTEND, or NEW after "
         "checking existing ownership. ROUTING: unknown semantics/similar code -> "
         "Semble; known structure/calls/impact -> revision-matching CodeGraph; exact "
@@ -116,7 +142,15 @@ def build_context(event: str | None = None, model: str | None = None) -> dict[st
         "routing": dict(ROUTING_GUIDANCE),
         "tool_preflight": dict(TOOL_PREFLIGHT_GUIDANCE),
         "review_runtime": dict(REVIEW_RUNTIME_GUIDANCE),
-        "additionalContext": guidance[:1500],
+        "agent_identity": {
+            "task_name": task_name or "unknown_task_name",
+            "requested_model": requested_model or model or "unknown_requested_model",
+            "actual_model": actual_model or model or "unknown_actual_model",
+            "role": role or "unknown_role",
+            "fallback_reason": fallback_reason or "none",
+            "naming_policy": "advisory-unless-identity-misrepresented",
+        },
+        "additionalContext": _bounded_context(guidance),
     }
 
 
@@ -130,7 +164,12 @@ if __name__ == "__main__":
     raw_event = payload.get("hook_event_name", payload.get("event"))
     event = raw_event if isinstance(raw_event, str) else "SessionStart"
     model = payload.get("model") if isinstance(payload.get("model"), str) else None
-    context = build_context(event, model)
+    runtime_model = model or os.environ.get("CODEX_MODEL", "unknown")
+    identity = hook_receipt.identity_kwargs(payload, runtime_model=runtime_model)
+    identity_error = hook_receipt.identity_validation_error(
+        payload, runtime_model=runtime_model
+    )
+    context = build_context(event, model, **identity)
     intake_error: str | None = None
     intake: dict[str, str | None] | None = None
     if event == "UserPromptSubmit":
@@ -165,7 +204,7 @@ if __name__ == "__main__":
         )
         mode = current_mode()
         intake_context = (
-            "ADAPTIVE TOOL INTAKE." + lineage
+            "ADAPTIVE TOOL INTAKE. No-flag maintenance is adaptive tool-recovery.v1; " + lineage
             + " ROUTES: unknown/similar -> Semble; structure/impact -> CodeGraph; exact "
             "-> rg; shell -> rtk. Verify Semble/CodeGraph first. Default maintenance is "
             "adaptive tool-recovery.v1; "
@@ -186,12 +225,18 @@ if __name__ == "__main__":
             "non-repository task do not run repository preflight. "
             f"Current hook mode={mode}."
         )
-        context["additionalContext"] = intake_context[:1450]
+        # The intake contract is capped at 1500 bytes; this assembled form is
+        # intentionally kept whole so its decisive tail (all route flags and
+        # strict non-repository preflight rule) remains intact.
+        context["additionalContext"] = _bounded_context(intake_context, 1500)
     receipt_value = hook_receipt.receipt(
         event,
-        model or os.environ.get("CODEX_MODEL", "unknown"),
-        decision="allow",
-        reason_code="session_context_emitted",
+        runtime_model,
+        decision="deny" if identity_error else "allow",
+        reason_code=(
+            "agent_identity_misrepresentation" if identity_error
+            else "session_context_emitted"
+        ),
         identifiers=payload,
         task_id_sha256=intake.get("task_id_sha256") if intake else None,
         intake_id_sha256=intake.get("intake_id_sha256") if intake else None,
@@ -199,15 +244,20 @@ if __name__ == "__main__":
             intake.get("parent_intake_id_sha256") if intake else None
         ),
         agent_id_sha256=intake.get("agent_id_sha256") if intake else None,
+        **identity,
     )
     written = hook_receipt.write_receipt(receipt_value)
     output = {
-        "continue": True,
+        "continue": not identity_error,
         "hookSpecificOutput": {
             "hookEventName": event,
             "additionalContext": context["additionalContext"],
         },
     }
+    if identity_error:
+        output["systemMessage"] = (
+            "Agent model identity validation failed; this turn is blocked."
+        )
     if not written:
         output["systemMessage"] = (
             "V16 hook receipt write failed; runtime-proof acceptance is unavailable."

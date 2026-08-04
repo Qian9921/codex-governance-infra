@@ -46,6 +46,12 @@ V17 是默认的 adaptive 产品规范；`codex/v16` 只作为向后兼容的严
 - Spark：由 Luna 派发短小、隔离、可并行任务。
 - Terra：只有 Luna 确实不可用时才作为执行/恢复 fallback。
 
+每个 spawned task 的名称都应暴露实际模型族和 role（如
+`luna-execution-*`、`spark-audit-*`）。Fallback 名称必须暴露实际 fallback
+模型族；Sol/Terra fallback 绝不能保留 `luna-` 前缀。Receipt 和报告记录
+`requested_model`、`actual_model`、`role`、`fallback_reason`；除非故意伪造模型
+身份，否则命名/telemetry 只产生 advisory 提示。
+
 Sol 审计恢复证据。这些是路由默认值，不是能力封禁。
 
 ## 自愈式执行

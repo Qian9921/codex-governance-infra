@@ -139,6 +139,45 @@ class HooksContractTests(unittest.TestCase):
         self.assertNotIn("cwd", persisted)
         self.assertNotIn("prompt", persisted)
 
+    def test_receipt_records_model_identity_telemetry(self):
+        value = hook_receipt.receipt(
+            "SubagentStart", "gpt-5.6-terra", task_name="terra-execution-recovery",
+            requested_model="gpt-5.6-luna", actual_model="gpt-5.6-terra",
+            role="execution", fallback_reason="luna_unavailable",
+        )
+        self.assertEqual(value["requested_model"], "gpt-5.6-luna")
+        self.assertEqual(value["actual_model"], "gpt-5.6-terra")
+        self.assertEqual(value["role"], "execution")
+        self.assertEqual(value["fallback_reason"], "luna_unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            destination = pathlib.Path(directory) / "receipt.jsonl"
+            self.assertTrue(hook_receipt.write_receipt(value, destination))
+            persisted = json.loads(destination.read_text(encoding="utf-8"))
+        for key in ("requested_model", "actual_model", "role", "fallback_reason"):
+            self.assertIn(key, persisted)
+
+    def test_runtime_model_is_authoritative_over_payload_actual_model(self):
+        payload = {
+            "model": "gpt-5.6-terra",
+            "requested_model": "gpt-5.6-luna",
+            "actual_model": "gpt-5.6-luna",
+            "role": "execution",
+            "task_name": "luna-execution-retry",
+        }
+        identity = hook_receipt.identity_kwargs(
+            payload, runtime_model="gpt-5.6-terra"
+        )
+        self.assertEqual(identity["actual_model"], "gpt-5.6-terra")
+        self.assertEqual(
+            hook_receipt.identity_kwargs(payload)["actual_model"],
+            "gpt-5.6-terra",
+        )
+        self.assertIsNotNone(
+            hook_receipt.identity_validation_error(
+                payload, runtime_model="gpt-5.6-terra"
+            )
+        )
+
     def test_receipt_uses_validated_intake_task_identity_without_environment(self):
         task_id = "a" * 64
         with mock.patch.dict(os.environ, {}, clear=True):
@@ -531,6 +570,44 @@ class HooksContractTests(unittest.TestCase):
                     root,
                 )
                 self.assertEqual(post.returncode, 0, post.stderr)
+
+            # Runtime Terra is authoritative even when the payload reports
+            # Luna. A successful bound-Bash status must not overwrite the
+            # identity denial with ``tool_success``.
+            identity_post = self._run_entrypoint(
+                "post_tool_use_receipt.py",
+                {
+                    **common,
+                    "model": "gpt-5.6-terra",
+                    "requested_model": "gpt-5.6-luna",
+                    "actual_model": "gpt-5.6-luna",
+                    "role": "execution",
+                    "task_name": "luna-execution-codegraph",
+                    "hook_event_name": "PostToolUse",
+                    "tool_name": "Bash",
+                    "tool_use_id": "codegraph-call",
+                    "tool_response": {"exit_code": 0},
+                },
+                root,
+            )
+            self.assertEqual(identity_post.returncode, 0, identity_post.stderr)
+            records = [
+                json.loads(line)
+                for path in root.glob("*.jsonl")
+                for line in path.read_text(encoding="utf-8").splitlines()
+            ]
+            identity_record = [
+                item for item in records
+                if item["event"] == "PostToolUse"
+                and item["tool_call_id_sha256"]
+                == hashlib.sha256(b"codegraph-call").hexdigest()
+            ][-1]
+            self.assertEqual(identity_record["decision"], "deny")
+            self.assertEqual(
+                identity_record["reason_code"],
+                "agent_identity_misrepresentation",
+            )
+
             passed = self._run_entrypoint(
                 "stop_tool_enforcement.py",
                 {

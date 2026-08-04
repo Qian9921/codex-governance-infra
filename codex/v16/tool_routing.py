@@ -68,7 +68,9 @@ CALL_FIELDS = frozenset(
 )
 HOOK_RECEIPT_FIELDS = frozenset(
     {
-        "schema", "schema_version", "utc", "event", "model", "tool_name",
+        "schema", "schema_version", "utc", "event", "model",
+        "requested_model", "actual_model", "role", "fallback_reason", "task_name",
+        "tool_name",
         "decision", "reason", "reason_code", "route", "route_code",
         "snapshot_sha256", "identifiers_sha256", "session_id_sha256",
         "turn_id_sha256", "tool_call_id_sha256", "intake_id_sha256",
@@ -193,7 +195,10 @@ def _normalize_receipts(
         _require_sha(receipt["intake_id_sha256"], "hook receipt intake_id_sha256")
         if receipt["response_diagnostics"] is not None:
             raise RoutingError("PreToolUse receipt cannot carry response diagnostics")
-        for field in ("utc", "model", "tool_name", "reason", "reason_code"):
+        for field in (
+            "utc", "model", "requested_model", "actual_model", "role",
+            "fallback_reason", "task_name", "tool_name", "reason", "reason_code",
+        ):
             if not isinstance(receipt[field], str) or not receipt[field]:
                 raise RoutingError(f"hook receipt {field} required")
         for field in (
