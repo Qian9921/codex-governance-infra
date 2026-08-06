@@ -68,6 +68,7 @@ SNAPSHOT_FILES = (
     _PACKAGE_ROOT / "hooks" / "hooks.json",
     _PACKAGE_ROOT / "hooks" / "governance_mode.py",
     _PACKAGE_ROOT / "hooks" / "session_context.py",
+    _PACKAGE_ROOT / "hooks" / "model_roles.py",
     _PACKAGE_ROOT / "hooks" / "pre_tool_use_policy.py",
     _PACKAGE_ROOT / "hooks" / "post_tool_use_receipt.py",
     _PACKAGE_ROOT / "hooks" / "tool_execution_status.py",

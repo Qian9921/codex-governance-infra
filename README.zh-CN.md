@@ -40,10 +40,14 @@ V17 是默认的 adaptive 产品规范；`codex/v16` 只作为向后兼容的严
 
 ## 模型分工
 
-- Sol：规划、架构、综合判断和独立审查。
-- Luna：默认执行主力，也是工具、库、数据、环境、实现、测试和 Git/GitHub
-  的恢复 owner。
-- Spark：由 Luna 派发短小、隔离、可并行任务。
+- Luna 默认负责生命周期控制、执行、恢复、Git/CI 和证据。`R0`/`R1` 稳定任务
+  留在 Luna 执行环，不强制插入 Sol 内循环。
+- `R2`/`R3` 数学、数值、公共 API 和新算法先经过一次简短 Sol 合同门，再交回
+  Luna 执行。`R4` 研究解释在解释有实质影响时由 Sol 主导。
+- Sol 做 fresh、只读的最终审查。高风险审查必须看源码、合同和测试，并构造
+  一个源代码推导的反例；稳定修复回到同一 reviewer 做 delta-only，最多两轮。
+- Spark 仍保留在模型目录中，供旧合同或显式选择使用；当前角色策略将其禁用，默认
+  流程绝不路由到 Spark。
 - Terra：只有 Luna 确实不可用时才作为执行/恢复 fallback。
 
 每个 spawned task 的名称都应暴露实际模型族和 role（如
@@ -53,6 +57,13 @@ V17 是默认的 adaptive 产品规范；`codex/v16` 只作为向后兼容的严
 身份，否则命名/telemetry 只产生 advisory 提示。
 
 Sol 审计恢复证据。这些是路由默认值，不是能力封禁。
+
+只有确有价值时才嵌套子代理：Sol 可以让 Luna 做有界的机械提取/构建/测试/日志
+工作；Luna 可以就一个狭窄的数学、符号、shape 或无法解释的数值问题咨询 Sol。
+子任务 scope 只能缩小，控制器以下最多两层；禁止 Luna↔Sol 来回乒乓和重复咨询
+同一 uncertainty。作者链中的 Sol consultant 不能担任最终 reviewer。可执行策略见
+`codex/hooks/model_roles.py`；`QUICK`/`STANDARD` 的 hook 默认仍是 advisory，只有
+身份、租约、安全和隐私违规才阻塞。
 
 ## 自愈式执行
 
