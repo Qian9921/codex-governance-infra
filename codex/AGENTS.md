@@ -57,7 +57,7 @@ blocker. Missing ceremony alone is not a correctness failure in `QUICK` or
   contract, and tests and constructs at least one source-derived counterexample;
   stable fixes use the same reviewer delta-only, with at most two rounds.
 - Spark remains catalog-supported for legacy or explicitly selected contracts,
-  but this role policy does not route work to it by default.
+  but this role policy disables it and never routes the default flow to it.
 - Terra is a continuity fallback for Luna's execution/recovery only when Luna
   is genuinely unavailable; log requested and actual model plus the reason.
 - Every spawned task name exposes the actual model family and role (for example,

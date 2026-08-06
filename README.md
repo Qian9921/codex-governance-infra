@@ -59,7 +59,7 @@ hook, and model-routing repairs use `STANDARD`.
   contract, and tests and adds a source-derived counterexample; stable fixes
   return to the same reviewer delta-only, for at most two rounds.
 - Spark remains catalog-supported for legacy or explicitly selected contracts;
-  this role policy does not route work to it by default.
+  it is disabled by this role policy and is never part of the default flow.
 - Terra: execution/recovery fallback only when Luna is unavailable.
 
 Spawn task names expose the actual model family and role (`luna-execution-*`,

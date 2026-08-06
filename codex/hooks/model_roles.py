@@ -106,17 +106,21 @@ def validate_receipt_identity(receipt: Mapping[str, Any]) -> dict[str, str]:
     actual = _family(receipt["actual_model"])
     task_name = receipt["task_name"]
     tokens = _name_tokens(task_name)
+    named_families = tokens & {"sol", "luna", "terra", "spark"}
+    if len(named_families) > 1:
+        raise ModelRoleError("task_name model family is ambiguous")
     if actual not in tokens:
         raise ModelRoleError("task_name must expose actual model family")
     if not (_role_tokens(receipt["role"]) & tokens):
         raise ModelRoleError("task_name must expose role")
-    fallback = receipt["fallback_reason"]
+    fallback = _text(receipt["fallback_reason"], "fallback_reason").strip()
+    fallback_kind = fallback.lower()
     if requested != actual:
-        if not fallback or fallback.lower() in {"none", "null", "n/a"}:
+        if fallback_kind in {"none", "null", "n/a"}:
             raise ModelRoleError("fallback_reason required when model changes")
         if requested in tokens:
             raise ModelRoleError("fallback task_name retains requested model family")
-    elif fallback.lower() not in {"none", "null", "n/a"}:
+    elif fallback_kind not in {"none", "null", "n/a"}:
         raise ModelRoleError("fallback_reason must be none when model is unchanged")
     return {
         "requested_model": receipt["requested_model"],
@@ -136,8 +140,10 @@ def validate_controller_request(
     """Validate the controller choice without silently changing models."""
 
     requested = _family(requested_model)
-    if requested == "terra" and luna_available:
+    if requested == "terra":
         raise ModelRoleError("Terra cannot be the universal controller")
+    if requested == "sol":
+        raise ModelRoleError("Sol is a gate/reviewer, not the universal lifecycle controller")
     if requested == "spark":
         raise ModelRoleError("Spark is not enabled by the adaptive role policy")
     if requested == "luna" and not luna_available:
@@ -216,7 +222,7 @@ def route_mission(
             "allowed_edges": ["sol->luna:mechanical", "luna->sol:consultant"],
             "ping_pong": False,
         },
-        "spark_policy": "unused",
+        "spark_policy": "legacy/explicit only; disabled by policy",
     }
 
 
@@ -243,6 +249,8 @@ def validate_nested_delegation(
     child_paths = _scope(child_scope, "child_scope")
     if not all(any(_path_within(path, allowed) for allowed in parent_paths) for path in child_paths):
         raise ModelRoleError("child scope must be contained by parent scope")
+    if set(child_paths) == set(parent_paths):
+        raise ModelRoleError("child scope must strictly narrow the parent scope")
     prior = tuple(_family(item) for item in lineage) if lineage else (parent_model,)
     if prior[-1] != parent_model:
         raise ModelRoleError("lineage does not end at parent model")
@@ -289,6 +297,24 @@ def validate_final_review(
         raise ModelRoleError("review must be an object")
     if _family(review.get("reviewer_model")) != "sol":
         raise ModelRoleError("final reviewer must be Sol")
+    parent_task_id = _text(review.get("parent_task_id"), "parent_task_id")
+    controller_task_id = _text(review.get("controller_task_id"), "controller_task_id")
+    reviewer_parent_task_id = _text(
+        review.get("reviewer_parent_task_id"), "reviewer_parent_task_id"
+    )
+    author_lineage_id = _text(review.get("author_lineage_id"), "author_lineage_id")
+    reviewer_lineage_id = _text(
+        review.get("reviewer_lineage_id"), "reviewer_lineage_id"
+    )
+    if reviewer_parent_task_id != parent_task_id:
+        raise ModelRoleError("reviewer parent identity does not match mission parent")
+    if reviewer_lineage_id == author_lineage_id:
+        raise ModelRoleError("reviewer and author lineage must be distinct")
+    author_ids = set(author_lineage)
+    if controller_task_id not in author_ids:
+        raise ModelRoleError("controller identity must be bound to author lineage")
+    if reviewer_lineage_id in author_ids:
+        raise ModelRoleError("reviewer lineage overlaps author lineage")
     for field in ("fresh", "read_only", "reviewer_is_writer"):
         if field not in review:
             raise ModelRoleError(f"{field} is required")
@@ -313,15 +339,21 @@ def validate_final_review(
         if _text(review.get("reviewer_continuity_id"), "reviewer_continuity_id") != reviewer_id:
             raise ModelRoleError("delta review must reuse the same reviewer")
     if risk in HIGH_RISK_LEVELS:
-        for field in (
-            "source_inspection", "contract_inspection", "tests_inspection",
-            "source_derived_counterexample",
-        ):
-            if not _bool(review.get(field), field):
-                raise ModelRoleError("R2+ review requires source, contract, tests, and counterexample analysis")
+        for field in ("source_ref", "contract_ref", "tests_ref"):
+            _text(review.get(field), field)
+        counterexample_ref = review.get("source_derived_counterexample_ref")
+        if counterexample_ref is not None:
+            _text(counterexample_ref, "source_derived_counterexample_ref")
+        else:
+            _text(review.get("boundary_analysis_ref"), "boundary_analysis_ref")
     return {
         "reviewer_model": review["reviewer_model"],
         "reviewer_task_id": reviewer_id,
+        "parent_task_id": parent_task_id,
+        "controller_task_id": controller_task_id,
+        "reviewer_parent_task_id": reviewer_parent_task_id,
+        "author_lineage_id": author_lineage_id,
+        "reviewer_lineage_id": reviewer_lineage_id,
         "round": rounds,
         "delta_only": bool(review.get("delta_only", False)),
         "risk": risk,
@@ -335,7 +367,7 @@ POLICY_SUMMARY = {
     "sol_contract_gate": "R2+",
     "sol_final_review": True,
     "terra": "continuity fallback only when Luna is unavailable",
-    "spark": "unused by this policy",
+    "spark": "legacy/explicit only; disabled by this policy",
     "nested_max_depth": MAX_NESTED_DEPTH,
     "nested_edges": ["sol->luna:mechanical", "luna->sol:consultant"],
     "no_ping_pong": True,

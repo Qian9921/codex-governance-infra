@@ -76,7 +76,7 @@ def _bounded_context(text: str, limit: int = 1500) -> str:
 REVIEW_RUNTIME_GUIDANCE = {
     "planner": "Sol",
     "execution_lead": "Luna",
-    "spark_owner": "legacy/explicit only; unused by current role policy",
+    "spark_owner": "legacy/explicit only; disabled by current role policy",
     "terra_fallback": "only when Luna is unavailable",
     "initial": "one independent Sol review when required by profile",
     "initial_high": "fresh Sol xhigh",
@@ -112,8 +112,9 @@ def build_context(
     guidance = (
         "ADAPTIVE-GOVERNANCE: freeze one outcome and choose QUICK, STANDARD, or "
         "STRICT. No-flag maintenance is adaptive tool-recovery.v1. Sol plans and "
-        "independently reviews; Luna leads execution and may delegate bounded work "
-        "to Spark; Terra is fallback only when Luna is unavailable; assigned models "
+        "independently reviews; Luna leads execution; Spark is legacy/explicit only "
+        "and disabled by this policy; Terra is fallback only when Luna is unavailable; "
+        "assigned models "
         "are unrestricted technically. Spawn names "
         "expose actual model family+role; fallback names expose the actual family "
         "and never luna-prefix Sol/Terra. Receipts record requested_model, "

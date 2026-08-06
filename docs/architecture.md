@@ -35,7 +35,6 @@ flowchart LR
     G -- no --> A[Architecture and reuse scan]
     SG --> A
     A --> L[Luna controller and execution lead]
-    L --> S[Spark bounded parallel tasks]
     L -. narrow math uncertainty .-> C[Sol consultant]
     L --> H{Capability healthy?}
     H -- recovering --> L
