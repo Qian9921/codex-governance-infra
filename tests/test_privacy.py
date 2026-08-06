@@ -49,12 +49,12 @@ class Privacy(unittest.TestCase):
    path.write_text('{"task_id":"' + '/' + 'root/real-task"}')
    _files,errors=mod.scan(root,expected_paths={'codex/v16/contracts/v16_dispatch_transcript.json'})
    self.assertTrue(any('forbidden content' in item for item in errors),errors)
- def test_v18_metadata_keeps_v16_compatibility_label(self):
+ def test_v19_metadata_keeps_v16_compatibility_label(self):
   import json
   root=pathlib.Path(__file__).parents[1]
   manifest=json.loads((root/'manifest.json').read_text())
-  self.assertEqual(manifest['version'],'18.0.0')
-  self.assertIn('V18', (root/'README.md').read_text())
+  self.assertEqual(manifest['version'],'19.0.0')
+  self.assertIn('V19', (root/'README.md').read_text())
   self.assertIn('codex/v16', (root/'README.md').read_text())
  def test_presubmit_child_path_prefers_active_interpreter(self):
   import sys

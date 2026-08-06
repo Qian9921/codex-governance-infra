@@ -9,13 +9,49 @@ receipts are advisory. The full four-contract chain below is mandatory only for
 an explicitly `STRICT` mission. In every profile, a tool blocks completion only
 when its missing fact is essential to the correctness claim.
 
+## Large-code machine contract
+
+The hook and `route_mission` expose `code-mission-tool-index-policy.v1`, which
+is validated by `validate_code_mission_tool_policy`. A `large_code` packet must
+carry opaque hashes for the exact repository root, `HEAD`, `HEAD^{tree}` and
+worktree, plus revision-matching Semble and CodeGraph index identities. Semble
+semantic/similar discovery is required before development; CodeGraph structural
+or blast-radius evidence is required before `CANDIDATE_READY`. Luna owns
+distinct-strategy repair of an unhealthy required capability, and only the
+dependent claim is blocked while that repair is in progress. The contract never
+imposes a per-turn or per-call quota.
+
+The two evidence fields are objects, not checklist booleans. Each uses
+`code-mission-evidence.v1` with an exact `kind`, a canonical privacy-safe
+`semble://evidence/<receipt_sha256>` or
+`codegraph://evidence/<receipt_sha256>` ref, a non-empty query hash, and the
+frozen repository/root, `HEAD`, tree, worktree, and corresponding index hashes.
+The validator rejects missing refs, arbitrary `true` flags, and any mismatch
+between an evidence object and the frozen packet identity. `candidate_ready`
+is monotonic: it requires both bound evidence objects, healthy Semble and
+CodeGraph, healthy repair state, and an unblocked dependent claim.
+
+Only `non_code` or pure `exact_mechanical` packets may mark these routes `N/A`,
+and they must provide a non-empty `n_a_reason` while carrying no repository or
+index identity. This is a lightweight adaptive evidence contract; it does not
+revive repository preflight or the V16 four-contract ceremony for every task.
+
 ## Self-healing capability recovery
 
 This policy covers required tools, libraries, datasets, environments, and their
 task-specific configuration/access—not just the V16 CodeGraph controller.
-Luna owns recovery; Sol audits the evidence; Terra may execute recovery only
-when Luna is genuinely unavailable, with the requested and actual model plus
-reason recorded.
+Luna owns recovery; Sol audits the evidence; Terra may execute an explicit,
+bounded bridge when its Luna parent is available. The separate continuity
+fallback is only for genuine Luna unavailability, with the requested and actual
+model plus reason recorded.
+
+The adaptive role contract also permits two explicit, short-lived Terra bridges:
+`TERRA_REPLAN` for bounded R0/R1 planning synthesis and `TERRA_TRIAGE` for
+read-only R0/R1 triage. Both require a Luna parent, a strict child scope, a
+900-second/32-call/8192-token maximum budget, and direct return to that parent.
+They cannot write, review, merge, spawn, listen, retry, or issue a final verdict.
+They are not continuity fallback and never replace the independent Sol review;
+`TERRA_CONTINUITY` remains reserved for genuine Luna unavailability.
 
 | State | Meaning and required handling |
 |---|---|

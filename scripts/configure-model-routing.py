@@ -64,7 +64,7 @@ except ModuleNotFoundError:  # Python 3.9-3.10 compatibility.
 
 
 STATE_DIR = "model-routing-state"
-STATE_SCHEMA = "codex-model-routing-state.v18"
+STATE_SCHEMA = "codex-model-routing-state.v19"
 CATALOG_RELATIVE = pathlib.PurePosixPath("model-catalogs/multi-agent-v2.json")
 REFRESHER_RELATIVE = pathlib.PurePosixPath("bin/refresh-model-catalog.py")
 DROPIN_NAME = "20-model-catalog-overlay.conf"

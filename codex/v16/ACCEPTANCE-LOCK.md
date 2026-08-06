@@ -1,7 +1,7 @@
-# V16 Productivity Acceptance Lock (V18 public compatibility fixture)
+# V16 Productivity Acceptance Lock (V19 public compatibility fixture)
 
 This file is a synthetic legacy-V16 compatibility fixture shipped in the
-public V18 package. Identities and hashes below are placeholders; they do not
+public V19 package. Identities and hashes below are placeholders; they do not
 describe a live run, private repository, or private deployment.
 
 This lock is the immutable starting contract for the V16 productivity milestone.

@@ -267,7 +267,7 @@ def main() -> int:
         "status": "DRY_RUN" if args.dry_run else "READY",
         "mode": "managed-overlay",
         "package": "Codex Governance Infra",
-        "version": "18.0.0",
+        "version": "19.0.0",
         "files": len(entries),
         "destination": "$CODEX_HOME" if args.dry_run else str(destination),
         "hashes": {relative: sha(path) for relative, path in entries},

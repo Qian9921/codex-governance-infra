@@ -29,7 +29,9 @@ validation cost. Do not use line quotas or repeatedly raise a frozen target.
 Planner / architect: Sol
 Execution lead: Luna
 Spark tasks: <0..N bounded independent tasks>
-Terra fallback authorized: <yes only if Luna unavailable | no>
+Terra bridge: <TERRA_REPLAN | TERRA_TRIAGE | none>
+Terra continuity fallback: <yes only if Luna unavailable | no>
+Bridge budgets: <duration/tool calls/output tokens; direct return to Luna>
 Independent reviewer: Sol
 Max writers / review calls / model calls / tokens:
 ```

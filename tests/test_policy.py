@@ -16,6 +16,8 @@ class Policy(unittest.TestCase):
   for text in (agent,readme,readme_zh,architecture):
    self.assertIn('Luna',text)
    self.assertIn('Terra',text)
+   self.assertIn('TERRA_REPLAN',text)
+   self.assertIn('TERRA_TRIAGE',text)
   self.assertIn('distinct',agent)
   self.assertIn('STRICT',readme)
   self.assertIn('STRICT',readme_zh)

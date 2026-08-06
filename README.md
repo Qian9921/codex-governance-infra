@@ -1,4 +1,4 @@
-# Codex Governance Infra V18
+# Codex Governance Infra V19
 
 [简体中文](README.zh-CN.md) · English
 
@@ -9,7 +9,7 @@ turning every task into a release ceremony.
 ## What it does
 
 ```text
-Outcome -> Reuse scan -> Luna executes -> Affected evidence
+Outcome -> Reuse scan -> Luna executes (optional bounded Terra bridge) -> Affected evidence
         -> One Sol review -> configured author/reviewer PR trace -> Knowledge
 ```
 
@@ -20,6 +20,13 @@ Outcome -> Reuse scan -> Luna executes -> Affected evidence
   and a `REUSE|EXTEND|NEW` decision before meaningful new abstractions.
 - **Relevant tool routing:** Semble for semantic discovery, CodeGraph for known
   structure/impact, `rg` for exact facts, and `rtk` for shell context.
+- **Large-code evidence contract:** `code-mission-tool-index-policy.v1` binds
+  exact repo/worktree/revision identity and healthy revision-matching Semble /
+  CodeGraph evidence. Semble precedes development, CodeGraph precedes
+  `CANDIDATE_READY`; only pure non-code or exact-mechanical work may use `N/A`
+  with a reason. Evidence is carried by canonical privacy-safe refs and hashes,
+  not booleans; candidate readiness also requires healthy, unblocked state and
+  no per-turn/count quota is imposed.
 - **Convergent review:** one independent reviewer; stable fixes are delta-only.
 - **Safe installation:** manifest-bound, dry-run capable, atomic, backed up,
   hash-verified, and rollback-capable.
@@ -43,7 +50,7 @@ export CODEX_GOVERNANCE_MODE=strict
 ```
 
 Strict mode is intentional, not an automatic penalty for every repository task.
-# V18 is the public adaptive policy. The `codex/v16` package remains only as the
+# V19 is the public adaptive policy. The `codex/v16` package remains only as the
 backward-compatible strict compatibility engine; ordinary reversible installer,
 hook, and model-routing repairs use `STANDARD`.
 
@@ -60,7 +67,10 @@ hook, and model-routing repairs use `STANDARD`.
   return to the same reviewer delta-only, for at most two rounds.
 - Spark remains catalog-supported for legacy or explicitly selected contracts;
   it is disabled by this role policy and is never part of the default flow.
-- Terra: execution/recovery fallback only when Luna is unavailable.
+- Terra: explicit short-lived `TERRA_REPLAN`/`TERRA_TRIAGE` bridges for bounded
+  R0/R1 advisory synthesis/triage, returning directly to Luna; continuity
+  fallback remains separate and only applies when Luna is unavailable. Bridges
+  cannot review, merge, spawn, listen, retry, or issue a final verdict.
 
 Spawn task names expose the actual model family and role (`luna-execution-*`,
 `spark-audit-*`). Fallback names expose the actual fallback family and never
@@ -162,8 +172,10 @@ compatibility with Claude Code or other agents. Private machine profiles
 are intentionally not part of this public repository.
 
 Luna is the default execution/recovery lead. Sol supplies the short contract
-gate for R2/R3 work and the independent review; Terra is only a genuine Luna
-fallback; Spark is disabled in the default flow. Route unknown semantics to
+gate for R2/R3 work and the independent review; Terra bridges are explicit
+bounded R0/R1 advisory handoffs that return to Luna, while continuity fallback
+is only for a genuinely unavailable Luna; Spark is disabled in the default flow.
+Route unknown semantics to
 Semble, known structure/impact to CodeGraph, exact text to `rg`, and shell
 context through `rtk`.
 
