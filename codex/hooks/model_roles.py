@@ -10,6 +10,7 @@ not turned into a ceremony by this policy.
 from __future__ import annotations
 
 import re
+import posixpath
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
@@ -28,6 +29,7 @@ RISK_LEVELS = ("R0", "R1", "R2", "R3", "R4")
 HIGH_RISK_LEVELS = frozenset(("R2", "R3", "R4"))
 MAX_NESTED_DEPTH = 2
 MAX_CROSS_MODEL_HOPS = 1
+NONE_LIKE_FALLBACKS = frozenset(("", "none", "null", "n/a", "na"))
 
 
 class ModelRoleError(ValueError):
@@ -56,12 +58,25 @@ def _bool(value: Any, field: str) -> bool:
 def _scope(value: Iterable[str], field: str) -> tuple[str, ...]:
     if isinstance(value, (str, bytes)):
         raise ModelRoleError(f"{field} must be a path sequence")
-    paths = tuple(_text(item, field) for item in value)
+    paths = []
+    for item in value:
+        path = _text(item, field)
+        if path.startswith("/") or ".." in path.split("/"):
+            raise ModelRoleError(f"{field} contains an unsafe path")
+        paths.append(posixpath.normpath(path))
+    paths = tuple(paths)
     if not paths:
         raise ModelRoleError(f"{field} must not be empty")
-    if any(path.startswith("/") or ".." in path.split("/") for path in paths):
-        raise ModelRoleError(f"{field} contains an unsafe path")
     return paths
+
+
+def _normalized_fallback_reason(value: Any) -> str:
+    """Normalize a fallback reason and reject placeholders on Terra routes."""
+
+    reason = _text(value, "fallback_reason").strip().lower()
+    if reason in NONE_LIKE_FALLBACKS:
+        raise ModelRoleError("Terra fallback requires a non-empty reason")
+    return reason
 
 
 def _path_within(child: str, parent: str) -> bool:
@@ -143,16 +158,14 @@ def validate_controller_request(
     if requested == "terra":
         if luna_available:
             raise ModelRoleError("Terra cannot be the universal controller")
-        if not fallback_reason:
-            raise ModelRoleError("Terra fallback requires an explicit reason")
+        _normalized_fallback_reason(fallback_reason)
         return "terra"
     if requested == "sol":
         raise ModelRoleError("Sol is a gate/reviewer, not the universal lifecycle controller")
     if requested == "spark":
         raise ModelRoleError("Spark is not enabled by the adaptive role policy")
     if requested == "luna" and not luna_available:
-        if not fallback_reason:
-            raise ModelRoleError("Luna unavailable requires an explicit fallback reason")
+        _normalized_fallback_reason(fallback_reason)
         return "terra"
     return requested
 

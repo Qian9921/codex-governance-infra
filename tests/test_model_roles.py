@@ -69,6 +69,11 @@ class ModelRolePolicyTests(unittest.TestCase):
             validate_controller_request(TERRA, luna_available=True)
         with self.assertRaises(ModelRoleError):
             validate_controller_request(TERRA, luna_available=False)
+        for reason in (" ", "none", " null ", "n/a", "NA"):
+            with self.assertRaises(ModelRoleError):
+                validate_controller_request(
+                    TERRA, luna_available=False, fallback_reason=reason
+                )
         self.assertEqual(
             validate_controller_request(
                 TERRA, luna_available=False, fallback_reason="luna_unavailable"
@@ -86,6 +91,11 @@ class ModelRolePolicyTests(unittest.TestCase):
         self.assertEqual(route["controller_role"], "continuity_fallback")
         self.assertFalse(route["universal_controller"])
         self.assertEqual(validate_controller_request(LUNA, luna_available=False, fallback_reason="capacity"), "terra")
+        for reason in (" ", "none", "null", "n/a", "na"):
+            with self.assertRaises(ModelRoleError):
+                validate_controller_request(
+                    LUNA, luna_available=False, fallback_reason=reason
+                )
 
     def test_sol_can_delegate_bounded_mechanical_work_to_luna(self):
         result = validate_nested_delegation(
@@ -142,6 +152,16 @@ class ModelRolePolicyTests(unittest.TestCase):
             validate_nested_delegation(
                 parent, child, depth=1, parent_scope=["src/", "tests/"],
                 child_scope=["tests/", "src/"], lineage=["luna"], uncertainty_id="u6",
+            )
+        with self.assertRaises(ModelRoleError):
+            validate_nested_delegation(
+                parent, child, depth=1, parent_scope=["codex/hooks/"],
+                child_scope=["codex/hooks"], lineage=["luna"], uncertainty_id="u7",
+            )
+        with self.assertRaises(ModelRoleError):
+            validate_nested_delegation(
+                parent, child, depth=1, parent_scope=["codex/./hooks/"],
+                child_scope=["codex/hooks"], lineage=["luna"], uncertainty_id="u8",
             )
 
     def test_author_lineage_sol_consultant_cannot_be_final_reviewer(self):
