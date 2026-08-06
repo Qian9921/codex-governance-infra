@@ -49,10 +49,17 @@ hook, and model-routing repairs use `STANDARD`.
 
 ## Model roles
 
-- Sol: planning, architecture, synthesis, independent review.
-- Luna: default execution lead and recovery owner for tools, libraries, data,
-  environments, implementation, tests, and Git/GitHub.
-- Spark: short bounded work delegated by Luna.
+- Luna is the lifecycle controller, execution lead, recovery owner, and Git/CI
+  operator by default. `R0`/`R1` work stays in the Luna loop without a
+  mandatory Sol inner loop.
+- `R2`/`R3` math, numerical, public-API, and new-algorithm work gets one short
+  Sol contract gate, then returns to Luna. `R4` research interpretation is
+  Sol-led when interpretation is material.
+- Sol performs the fresh, read-only final review. High-risk review reads source,
+  contract, and tests and adds a source-derived counterexample; stable fixes
+  return to the same reviewer delta-only, for at most two rounds.
+- Spark remains catalog-supported for legacy or explicitly selected contracts;
+  this role policy does not route work to it by default.
 - Terra: execution/recovery fallback only when Luna is unavailable.
 
 Spawn task names expose the actual model family and role (`luna-execution-*`,
@@ -62,6 +69,14 @@ retain a `luna-` prefix for Sol/Terra. Receipts and reports record
 is advisory unless model identity is deliberately misrepresented.
 
 Sol audits recovery evidence. Roles are routing defaults, not capability bans.
+
+Nested help is allowed only when useful: Sol may delegate bounded mechanical
+work to Luna, and Luna may ask Sol one narrow math/sign/shape/numerical
+consultation. Child scope only narrows, depth is at most two below the
+controller, and Luna/Sol ping-pong or duplicate uncertainty consultations are
+rejected. A Sol consultant in the author lineage cannot be the final reviewer.
+The executable policy is `codex/hooks/model_roles.py`; hooks remain advisory in
+`QUICK`/`STANDARD` except identity, lease, safety, and privacy violations.
 
 ## Self-healing execution
 

@@ -16,9 +16,11 @@ import sys
 try:  # Support both direct hook execution and package-based test discovery.
     from . import hook_receipt
     from .governance_mode import current_mode
+    from .model_roles import POLICY_SUMMARY
 except ImportError:  # pragma: no cover - exercised by direct script invocation.
     import hook_receipt
     from governance_mode import current_mode
+    from model_roles import POLICY_SUMMARY
 
 PACKAGE_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
@@ -74,7 +76,7 @@ def _bounded_context(text: str, limit: int = 1500) -> str:
 REVIEW_RUNTIME_GUIDANCE = {
     "planner": "Sol",
     "execution_lead": "Luna",
-    "spark_owner": "Luna",
+    "spark_owner": "legacy/explicit only; unused by current role policy",
     "terra_fallback": "only when Luna is unavailable",
     "initial": "one independent Sol review when required by profile",
     "initial_high": "fresh Sol xhigh",
@@ -86,6 +88,7 @@ REVIEW_RUNTIME_GUIDANCE = {
     "formal_review_calls": 1,
     "duplicate_full_scope_reviews": 0,
 }
+MODEL_ROLE_GUIDANCE = dict(POLICY_SUMMARY)
 
 
 def build_context(
@@ -109,9 +112,9 @@ def build_context(
     guidance = (
         "ADAPTIVE-GOVERNANCE: freeze one outcome and choose QUICK, STANDARD, or "
         "STRICT. No-flag maintenance is adaptive tool-recovery.v1. Sol plans and "
-        "independently reviews; Luna leads execution and "
-        "may delegate bounded work to Spark; Terra is fallback only when Luna is "
-        "unavailable; assigned models are unrestricted technically. Spawn names "
+        "independently reviews; Luna leads execution and may delegate bounded work "
+        "to Spark; Terra is fallback only when Luna is unavailable; assigned models "
+        "are unrestricted technically. Spawn names "
         "expose actual model family+role; fallback names expose the actual family "
         "and never luna-prefix Sol/Terra. Receipts record requested_model, "
         "actual_model, role, fallback_reason; advisory unless deliberately "
@@ -142,6 +145,7 @@ def build_context(
         "routing": dict(ROUTING_GUIDANCE),
         "tool_preflight": dict(TOOL_PREFLIGHT_GUIDANCE),
         "review_runtime": dict(REVIEW_RUNTIME_GUIDANCE),
+        "model_roles": dict(MODEL_ROLE_GUIDANCE),
         "agent_identity": {
             "task_name": task_name or "unknown_task_name",
             "requested_model": requested_model or model or "unknown_requested_model",

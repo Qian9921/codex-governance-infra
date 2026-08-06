@@ -30,9 +30,13 @@ Everything else is an adapter or an optional strict proof layer.
 ```mermaid
 flowchart LR
     U[User outcome] --> P[Sol plans mission and slice]
-    P --> A[Architecture and reuse scan]
-    A --> L[Luna execution lead]
+    P --> G{R2+ math/API/new algorithm?}
+    G -- yes --> SG[Short Sol contract gate]
+    G -- no --> A[Architecture and reuse scan]
+    SG --> A
+    A --> L[Luna controller and execution lead]
     L --> S[Spark bounded parallel tasks]
+    L -. narrow math uncertainty .-> C[Sol consultant]
     L --> H{Capability healthy?}
     H -- recovering --> L
     H -- healthy --> E[Affected evidence]
@@ -49,6 +53,13 @@ flowchart LR
 Terra appears only as a recorded execution/recovery fallback when Luna is
 unavailable. Sol audits recovery evidence; Terra never silently replaces the
 required independent reviewer.
+
+The machine-readable role contract is `codex/hooks/model_roles.py`. Nested help
+is optional: Sol may delegate bounded mechanical work to Luna, while Luna may
+ask Sol one narrow mathematical consultant question. Child scopes only narrow,
+the depth is capped at two below the controller, and a branch cannot ping-pong
+between Luna and Sol. A consultant in the author lineage is ineligible for the
+fresh independent reviewer role.
 
 ## Adaptive profiles
 

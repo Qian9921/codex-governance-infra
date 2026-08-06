@@ -49,8 +49,15 @@ blocker. Missing ceremony alone is not a correctness failure in `QUICK` or
   Git/GitHub work. Luna owns recovery: repair each required capability through
   distinct, evidence-producing strategies until it works and is exercised by
   the dependent task slice.
-- Luna may delegate short, isolated, parallel work to Spark with explicit path
-  ownership and a hard call/token budget.
+- For `R0`/`R1` stable work, Luna stays in the execution loop; do not add a
+  mandatory Sol inner loop. `R2`/`R3` math, numerical, public-API, or new
+  algorithm work gets one short Sol contract gate, then returns to Luna. `R4`
+  research interpretation remains Sol-led where interpretation is material.
+- A final Sol reviewer is fresh and read-only. `R2+` review inspects source,
+  contract, and tests and constructs at least one source-derived counterexample;
+  stable fixes use the same reviewer delta-only, with at most two rounds.
+- Spark remains catalog-supported for legacy or explicitly selected contracts,
+  but this role policy does not route work to it by default.
 - Terra is a continuity fallback for Luna's execution/recovery only when Luna
   is genuinely unavailable; log requested and actual model plus the reason.
 - Every spawned task name exposes the actual model family and role (for example,
@@ -62,6 +69,14 @@ blocker. Missing ceremony alone is not a correctness failure in `QUICK` or
   Sol audits recovery evidence and never silently loses the independent review.
 - The persistent parent remains accountable. Use at most two concurrent writers,
   exclusive path leases, one Git owner, and no parent/child same-file writes.
+
+Nested capability help is allowed, not mandatory: Sol may ask Luna for bounded
+mechanical extraction/build/test/log work; Luna may ask Sol one narrow math,
+sign, shape, or unexplained-numerical question. Child scope only narrows, nested
+depth is at most two below the controller, and a branch cannot ping-pong
+Luna↔Sol or repeat the same uncertainty consultation. A Sol consultant in the
+author lineage cannot become the independent final reviewer. The machine
+contract is `codex/hooks/model_roles.py`.
 
 Roles are routing defaults, not claims that a model lacks technical capability.
 Do not repeatedly spawn models to work around the same failure.
