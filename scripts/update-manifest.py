@@ -39,7 +39,9 @@ def refreshed(root: pathlib.Path) -> dict[str, object]:
     value = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(value, dict) or not isinstance(value.get("files"), dict):
         raise ValueError("manifest files map is unavailable")
-    value["files"] = {path: _sha256(root / path) for path in _tracked(root)}
+    tracked = _tracked(root)
+    value["files"] = {path: _sha256(root / path) for path in tracked}
+    value["allowlist"] = tracked
     return value
 
 

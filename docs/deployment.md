@@ -24,9 +24,9 @@ observation. CodeGraph index build/sync is a separate, project-local authorized
 mutation. Unknown or degraded health stays visible and fallback requires a real
 reason code plus evidence reference.
 
-## V17 native model routing overlay
+## V18 native model routing overlay
 
-V17 keeps the adaptive policy separate from the retained V16 strict evidence
+V18 keeps the adaptive policy separate from the retained V16 strict evidence
 engine. Reversible machine-local model routing is a `STANDARD` operation.
 
 `codex/bin/refresh-model-catalog.py` discovers the current catalog through the

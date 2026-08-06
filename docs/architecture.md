@@ -44,8 +44,8 @@ flowchart LR
     D -- no --> L
     D -- yes --> R[One independent Sol review]
     R -- blocking delta --> L
-    R -- approve --> Q[Qian9921 opens PR]
-    Q --> G[Liang9921 reviews and merges]
+    R -- approve --> Q[your-developer-account opens PR]
+    Q --> G[your-reviewer-account reviews and merges]
     G --> K[Reusable knowledge]
 ```
 
@@ -151,7 +151,7 @@ packet. Stable fixes return to the same reviewer with only the finding lineage,
 exact delta, new evidence, and direct boundaries. A fresh reviewer is reserved
 for explicit escalation triggers.
 
-Qian9921 owns author actions. Liang9921 owns review, approval, and merge. The PR
+your-developer-account owns author actions. your-reviewer-account owns review, approval, and merge. The PR
 is the durable record of objective, evidence, feedback, dispositions,
 limitations, and exact reviewed head.
 

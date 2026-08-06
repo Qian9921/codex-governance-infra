@@ -446,7 +446,7 @@ class GateRunner:
         site_dir = self.artifact_dir / "offline-site"; site_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         site = site_dir / "sitecustomize.py"
         if not site.exists():
-            site.write_text("import os, socket, subprocess\ndef _blocked(*a,**k): raise RuntimeError('offline socket denied')\nsocket.socket=_blocked\nsocket.create_connection=lambda *a,**k: (_ for _ in ()).throw(RuntimeError('offline network denied'))\ndef _escape(*a,**k): raise RuntimeError('process-group escape denied')\nos.setsid=_escape\nos.setpgid=_escape\n_orig_popen=subprocess.Popen\nclass _GuardedPopen(_orig_popen):\n    def __init__(self,*a,**k):\n        if k.get('start_new_session') or k.get('preexec_fn') is not None: raise RuntimeError('process-group escape denied')\n        super().__init__(*a,**k)\nsubprocess.Popen=_GuardedPopen\n", encoding="utf-8")
+            site.write_text("import os, socket, subprocess\ndef _blocked(*a,**k): raise RuntimeError('offline socket denied')\nsocket.socket.connect=_blocked\nsocket.socket.connect_ex=_blocked\nsocket.create_connection=lambda *a,**k: (_ for _ in ()).throw(RuntimeError('offline network denied'))\ndef _escape(*a,**k): raise RuntimeError('process-group escape denied')\nos.setsid=_escape\nos.setpgid=_escape\n_orig_popen=subprocess.Popen\nclass _GuardedPopen(_orig_popen):\n    def __init__(self,*a,**k):\n        if k.get('start_new_session') or k.get('preexec_fn') is not None: raise RuntimeError('process-group escape denied')\n        super().__init__(*a,**k)\nsubprocess.Popen=_GuardedPopen\n", encoding="utf-8")
             os.chmod(site, 0o600)
         return captured
 

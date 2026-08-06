@@ -2,6 +2,8 @@
 
 This is the portable global policy installed into `CODEX_HOME/AGENTS.md`. Keep
 the common path short. Load detailed contracts only when the task needs them.
+The public package is Codex Governance Infra V18; `codex/v16/` is retained as
+the legacy strict compatibility layer and is not the product version.
 
 ## 1. User contract and communication
 
@@ -187,8 +189,8 @@ improves code health; perfection is not the merge standard.
 
 ## 8. GitHub traceability
 
-Qian9921 authors, pushes, opens the PR, and responds finding by finding.
-Liang9921 independently comments, reviews the exact head, approves, and merges
+your-developer-account authors, pushes, opens the PR, and responds finding by finding.
+your-reviewer-account independently comments, reviews the exact head, approves, and merges
 with expected-head protection. Keep objective, evidence summary, findings,
 dispositions, limitations, and final verdict in the PR. Do not expose prompts,
 sessions, credentials, private paths, or raw private data.

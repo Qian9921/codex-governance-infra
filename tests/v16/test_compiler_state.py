@@ -174,9 +174,9 @@ class CompilerStateTests(unittest.TestCase):
         state = validate_state(state)
         lineage = {
             "dispatch_transcript_sha256": "d" * 64,
-            "task_id": "/root/final-review",
+            "task_id": "demo-task/final-review",
             "parent_task_id": "/root",
-            "sender": "/root/final-review",
+            "sender": "demo-task/final-review",
         }
         packet = render_pr_trace(
             mission_id="V16-PRODUCTIVITY", base_sha=BASE, head_sha=CANDIDATE,
@@ -193,7 +193,7 @@ class CompilerStateTests(unittest.TestCase):
             },
         )["packet"]
         artifact = {
-            "schema": "independent-review.v16", "reviewer_login": "Liang9921",
+            "schema": "independent-review.v16", "reviewer_login": "your-reviewer-account",
             "reviewer_model": "gpt-5.6-sol", "reasoning_effort": "xhigh",
             "reviewer_route": "high_risk", "review_risk": "high", "fork_turns": "none",
             "context_mode": "independent_clean_room", "report_only": True, "reviewer_is_writer": False,
@@ -215,7 +215,7 @@ class CompilerStateTests(unittest.TestCase):
             transition(
                 state, "REVIEW_READY", base_sha=BASE, head_sha=CANDIDATE,
                 tree_sha=TREE, review_packet=packet, independent_artifact=artifact,
-                independent_lineage={**lineage, "task_id": "/root/wrong"},
+                independent_lineage={**lineage, "task_id": "demo-task/wrong"},
                 independent_reviewed_scope=["codex/v16"],
                 updated_at="9999-12-31T00:00:07Z",
             )
