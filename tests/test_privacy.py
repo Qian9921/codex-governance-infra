@@ -9,6 +9,10 @@ class Privacy(unittest.TestCase):
   private_path = '/' + 'home/' + 'mar' + 'tin/private'
   task_key = 'task' + '_id'
   self.assertTrue(scan_text(f'cwd={private_path} {task_key}=' + '/' + 'root/real-task'))
+ def test_public_scan_catches_same_line_forbidden_markers(self):
+  marker = 'FOR' + 'BIDDEN'
+  private_path = '/' + 'home/' + 'portable-demo'
+  self.assertTrue(scan_text(f'{marker} {private_path}'))
  def test_public_scan_accepts_portable_demo_identity(self):
   self.assertFalse(scan_text('synthetic_demo=true task_id=demo-task-001 cwd=.'))
  def test_manifest_allowlist_matches_tracked_files(self):

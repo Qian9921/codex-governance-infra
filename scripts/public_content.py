@@ -26,16 +26,7 @@ def scan_text(text: str) -> list[str]:
     """Return stable reason codes for content that must not ship publicly."""
     errors: list[str] = []
     for pattern in FORBIDDEN_RE:
-        haystack = "\n".join(
-            line for line in text.splitlines()
-            if "re.compile" not in line
-            and "FORBIDDEN" not in line
-            and "r\"home/" not in line
-            and "r\"/Users/" not in line
-            and "r\"/tmp/" not in line
-            and "re.search(r\"/(?:root" not in line
-        )
-        if pattern.search(haystack):
+        if pattern.search(text):
             errors.append(pattern.pattern)
     return errors
 
