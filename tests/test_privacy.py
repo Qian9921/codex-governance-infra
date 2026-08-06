@@ -20,6 +20,14 @@ class Privacy(unittest.TestCase):
   root=pathlib.Path(__file__).parents[1]
   result=mod.verify_manifest_exact(root,json.loads((root/'manifest.json').read_text()))
   self.assertEqual(result['status'],'GREEN',result['errors'])
+ def test_manifest_unknown_metadata_fails_closed(self):
+  import copy, json
+  root=pathlib.Path(__file__).parents[1]
+  manifest=json.loads((root/'manifest.json').read_text())
+  bad=copy.deepcopy(manifest); bad['synthetic_forbidden'] = '/' + 'home/' + 'not-public'
+  result=mod.verify_manifest_exact(root,bad)
+  self.assertEqual(result['status'],'RED')
+  self.assertTrue(any('manifest metadata:' in item for item in result['errors']),result['errors'])
  def test_public_identity_defaults_and_env_override(self):
   import os
   from codex.v16.trace import public_account

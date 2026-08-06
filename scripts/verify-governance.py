@@ -13,6 +13,7 @@ from typing import Any, Mapping
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from public_content import FORBIDDEN_PARTS, FORBIDDEN_RE, scan_path
+from public_manifest import validate_manifest_metadata
 REQUIRED_PATHS = (
     "codex/AGENTS.md", "codex/BRIEF-TEMPLATES.md", "codex/hooks/hooks.json",
     "codex/bin/refresh-model-catalog.py", "scripts/configure-model-routing.py",
@@ -47,6 +48,7 @@ def scan(root: pathlib.Path, *, expected_paths: set[str] | None = None) -> tuple
 def verify_manifest_exact(root: pathlib.Path | str, manifest: Mapping[str, Any]) -> dict[str, Any]:
     root_path = pathlib.Path(root).resolve()
     errors: list[str] = []
+    errors.extend(f"manifest metadata:{item}" for item in validate_manifest_metadata(manifest))
     files = manifest.get("files") if isinstance(manifest, Mapping) else None
     if not isinstance(files, dict):
         errors.append("manifest.files must be an object")

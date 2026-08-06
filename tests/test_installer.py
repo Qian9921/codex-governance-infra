@@ -56,6 +56,16 @@ class Installer(unittest.TestCase):
    result=subprocess.run([sys.executable,str(source/'scripts/install-governance.py'),'--source',str(source),'--codex-home',str(pathlib.Path(d)/'home'),'--dry-run'],capture_output=True,text=True)
    self.assertNotEqual(result.returncode,0)
    self.assertIn('forbidden content:',result.stderr)
+ def test_manifest_unknown_metadata_is_rejected(self):
+  with tempfile.TemporaryDirectory() as d:
+   source=pathlib.Path(d)/'source'
+   shutil.copytree(ROOT,source,ignore=shutil.ignore_patterns('.git','__pycache__','*.pyc','*.pyo'))
+   manifest=json.loads((source/'manifest.json').read_text(encoding='utf-8'))
+   manifest['synthetic_forbidden'] = '/' + 'home/' + 'not-public'
+   (source/'manifest.json').write_text(json.dumps(manifest,separators=(',',':')),encoding='utf-8')
+   result=subprocess.run([sys.executable,str(source/'scripts/install-governance.py'),'--source',str(source),'--codex-home',str(pathlib.Path(d)/'home'),'--dry-run'],capture_output=True,text=True)
+   self.assertNotEqual(result.returncode,0)
+   self.assertIn('invalid manifest metadata:',result.stderr)
 
  def test_manifest_traversal_cannot_escape_destination(self):
   with tempfile.TemporaryDirectory() as d:

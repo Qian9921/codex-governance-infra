@@ -12,6 +12,8 @@ import stat
 import subprocess
 import tempfile
 
+from public_manifest import FORBIDDEN, PACKAGE, SCHEMA_VERSION, VERSION
+
 
 def _tracked(root: pathlib.Path) -> list[str]:
     output = subprocess.check_output(["git", "ls-files", "-z"], cwd=root)
@@ -42,6 +44,10 @@ def refreshed(root: pathlib.Path) -> dict[str, object]:
     tracked = _tracked(root)
     value["files"] = {path: _sha256(root / path) for path in tracked}
     value["allowlist"] = tracked
+    value["forbidden"] = list(FORBIDDEN)
+    value["package"] = PACKAGE
+    value["schema_version"] = SCHEMA_VERSION
+    value["version"] = VERSION
     return value
 
 

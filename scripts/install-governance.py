@@ -13,6 +13,7 @@ import tempfile
 from typing import Any
 
 from public_content import scan_path
+from public_manifest import validate_manifest_metadata
 
 
 FORBIDDEN = ("sessions", "hook-receipts", "plugins", "connections", "models_cache.json", ".env")
@@ -42,9 +43,13 @@ def collect(src: pathlib.Path) -> list[tuple[str, pathlib.Path]]:
         raise SystemExit("missing codex package")
     package_root = package.resolve(strict=True)
     try:
-        declared = json.loads((src / "manifest.json").read_text(encoding="utf-8"))["files"]
+        manifest = json.loads((src / "manifest.json").read_text(encoding="utf-8"))
     except (OSError, KeyError, TypeError, json.JSONDecodeError):
         raise SystemExit("invalid manifest")
+    metadata_errors = validate_manifest_metadata(manifest)
+    if metadata_errors:
+        raise SystemExit("invalid manifest metadata:" + ",".join(metadata_errors))
+    declared = manifest["files"]
     if not isinstance(declared, dict):
         raise SystemExit("invalid manifest files")
     output: list[tuple[str, pathlib.Path]] = []
