@@ -11,11 +11,14 @@ from model_roles import (  # noqa: E402
     SOL,
     TERRA,
     ModelRoleError,
+    validate_code_mission_tool_policy,
     route_mission,
     validate_controller_request,
     validate_final_review,
     validate_nested_delegation,
     validate_receipt_identity,
+    validate_terra_bridge_request,
+    validate_terra_bridge_result,
 )
 import session_context  # noqa: E402
 
@@ -30,12 +33,63 @@ def identity(model, role, task_name, *, requested=None, fallback="none"):
     }
 
 
+def terra_bridge(kind="TERRA_REPLAN", *, permissions=None, risk="R1", **overrides):
+    value = {
+        "bridge_kind": kind,
+        "parent_task_id": "luna-parent-1",
+        "parent_model": LUNA,
+        "bridge_task_id": "terra-bridge-1",
+        "requested_model": TERRA,
+        "actual_model": TERRA,
+        "fallback_reason": "none",
+        "role": kind.lower(),
+        "task_name": "terra-" + kind.lower().removeprefix("terra_") + "-bridge",
+        "risk": risk,
+        "parent_scope": ["codex/"],
+        "scope": ["codex/hooks/"],
+        "permissions": permissions or ["read", "plan"],
+        "max_duration_sec": 300,
+        "max_tool_calls": 12,
+        "max_output_tokens": 2048,
+        "handoff_reason": "Luna needs bounded medium-depth synthesis",
+        "return_to_model": LUNA,
+        "return_to_task_id": "luna-parent-1",
+        "final_verdict": False,
+        "can_write": False,
+        "can_git": False,
+        "can_review": False,
+        "can_merge": False,
+        "can_spawn": False,
+        "long_listener": False,
+        "continuation": False,
+        "retry_allowed": False,
+        "control_returned": False,
+    }
+    value.update(overrides)
+    return value
+
+
 class ModelRolePolicyTests(unittest.TestCase):
     def test_hook_context_exposes_same_machine_policy(self):
         context = session_context.build_context("SessionStart", LUNA)
         self.assertEqual(context["model_roles"]["controller"], LUNA)
         self.assertEqual(context["model_roles"]["sol_contract_gate"], "R2+")
         self.assertTrue(context["model_roles"]["no_ping_pong"])
+        self.assertEqual(
+            context["model_roles"]["terra_bridge_roles"],
+            ["TERRA_REPLAN", "TERRA_TRIAGE"],
+        )
+        self.assertEqual(context["model_roles"]["terra_bridge_parent"], LUNA)
+        self.assertIn("direct Luna parent", context["model_roles"]["terra_bridge_return"])
+        self.assertEqual(
+            context["tool_index_policy"]["schema"],
+            "code-mission-tool-index-policy.v1",
+        )
+        self.assertFalse(context["tool_index_policy"]["quota_enforced"])
+        self.assertEqual(
+            context["tool_index_policy"]["evidence_schema"],
+            "code-mission-evidence.v1",
+        )
 
     def test_routine_work_is_luna_without_sol_inner_loop(self):
         route = route_mission("R1")
@@ -96,6 +150,276 @@ class ModelRolePolicyTests(unittest.TestCase):
                 validate_controller_request(
                     LUNA, luna_available=False, fallback_reason=reason
                 )
+
+    def test_terra_bridge_routes_are_explicit_and_direct(self):
+        for kind in ("TERRA_REPLAN", "TERRA_TRIAGE"):
+            route = route_mission("R1", terra_bridge=kind)
+            self.assertEqual(route["controller_model"], LUNA)
+            self.assertTrue(route["terra_bridge"]["enabled"])
+            self.assertEqual(route["terra_bridge"]["selected"], kind)
+            self.assertEqual(route["terra_bridge"]["parent_model"], LUNA)
+            self.assertEqual(route["terra_bridge"]["return_to_model"], LUNA)
+            self.assertFalse(route["terra_bridge"]["final_verdict"])
+            self.assertEqual(
+                route["tool_index_policy"]["semantic_before_development"],
+                "Semble semantic/similar discovery",
+            )
+
+    def test_terra_bridge_request_and_result_return_to_luna(self):
+        for kind in ("TERRA_REPLAN", "TERRA_TRIAGE"):
+            request = terra_bridge(kind, permissions=["read"] if kind == "TERRA_TRIAGE" else None)
+            normalized = validate_terra_bridge_request(request)
+            self.assertEqual(normalized["bridge_kind"], kind)
+            result = validate_terra_bridge_result(
+                {
+                    "bridge_task_id": request["bridge_task_id"],
+                    "parent_task_id": request["parent_task_id"],
+                    "actual_model": TERRA,
+                    "status": "complete",
+                    "return_to_model": LUNA,
+                    "return_to_task_id": request["parent_task_id"],
+                    "control_returned": True,
+                    "final_verdict": False,
+                    "can_write": False,
+                    "can_git": False,
+                    "can_review": False,
+                    "can_merge": False,
+                    "can_spawn": False,
+                    "spawned_children": False,
+                    "retry_used": 0,
+                    "long_listener": False,
+                    "elapsed_sec": 12.5,
+                    "tool_calls": 4,
+                    "output_tokens": 256,
+                },
+                request,
+            )
+            self.assertTrue(result["control_returned"])
+
+    def test_terra_bridge_rejects_fallbacks_high_risk_and_unsafe_authority(self):
+        with self.assertRaises(ModelRoleError):
+            validate_terra_bridge_request(terra_bridge(requested_model=LUNA))
+        for field, value in (
+            ("parent_model", SOL),
+            ("risk", "R2"),
+            ("scope", ["tests/"]),
+            ("permissions", ["read", "write"]),
+            ("can_review", True),
+            ("can_spawn", True),
+            ("long_listener", True),
+            ("retry_allowed", True),
+        ):
+            with self.assertRaises(ModelRoleError):
+                validate_terra_bridge_request(terra_bridge(**{field: value}))
+        with self.assertRaises(ModelRoleError):
+            route_mission("R2", terra_bridge="TERRA_REPLAN")
+        with self.assertRaises(ModelRoleError):
+            route_mission("R1", luna_available=False, terra_bridge="TERRA_TRIAGE")
+
+    def test_terra_triage_is_read_only_and_bridge_cannot_chain(self):
+        with self.assertRaises(ModelRoleError):
+            validate_terra_bridge_request(
+                terra_bridge("TERRA_TRIAGE", permissions=["read", "plan"])
+            )
+        with self.assertRaises(ModelRoleError):
+            validate_terra_bridge_request(
+                terra_bridge(task_name="terra-fallback-bridge")
+            )
+        with self.assertRaises(ModelRoleError):
+            validate_terra_bridge_request(
+                terra_bridge(parent_scope=["codex/hooks/"], scope=["codex/hooks/"])
+            )
+        with self.assertRaises(ModelRoleError):
+            validate_terra_bridge_request(
+                terra_bridge(return_to_model=TERRA)
+            )
+        result = {
+            "bridge_task_id": "terra-bridge-1",
+            "parent_task_id": "luna-parent-1",
+            "actual_model": TERRA,
+            "status": "complete",
+            "return_to_model": LUNA,
+            "return_to_task_id": "luna-parent-1",
+            "control_returned": True,
+            "final_verdict": False,
+            "can_write": False,
+            "can_git": False,
+            "can_review": False,
+            "can_merge": False,
+            "can_spawn": False,
+            "spawned_children": True,
+            "retry_used": 0,
+            "long_listener": False,
+            "elapsed_sec": 1,
+            "tool_calls": 1,
+            "output_tokens": 1,
+        }
+        with self.assertRaises(ModelRoleError):
+            validate_terra_bridge_result(result, terra_bridge())
+
+    def test_terra_bridge_requires_exact_identity_schema_and_budgets(self):
+        for field, value in (
+            ("requested_model", "terra"),
+            ("requested_model", TERRA + " "),
+            ("actual_model", "Gpt-5.6-terra"),
+            ("fallback_reason", " none "),
+            ("fallback_reason", "NONE"),
+        ):
+            with self.assertRaises(ModelRoleError):
+                validate_terra_bridge_request(terra_bridge(**{field: value}))
+        with self.assertRaises(ModelRoleError):
+            validate_terra_bridge_request(terra_bridge(unexpected_field=False))
+
+        request = terra_bridge()
+        base_result = {
+            "bridge_task_id": request["bridge_task_id"],
+            "parent_task_id": request["parent_task_id"],
+            "actual_model": TERRA,
+            "status": "complete",
+            "return_to_model": LUNA,
+            "return_to_task_id": request["parent_task_id"],
+            "control_returned": True,
+            "final_verdict": False,
+            "can_write": False,
+            "can_git": False,
+            "can_review": False,
+            "can_merge": False,
+            "can_spawn": False,
+            "spawned_children": False,
+            "retry_used": 0,
+            "long_listener": False,
+            "elapsed_sec": 1,
+            "tool_calls": 1,
+            "output_tokens": 1,
+        }
+        for field, value in (
+            ("actual_model", TERRA + " "),
+            ("elapsed_sec", request["max_duration_sec"] + 1),
+            ("tool_calls", request["max_tool_calls"] + 1),
+            ("output_tokens", request["max_output_tokens"] + 1),
+            ("can_git", True),
+            ("can_spawn", True),
+        ):
+            result = dict(base_result)
+            result[field] = value
+            with self.assertRaises(ModelRoleError):
+                validate_terra_bridge_result(result, request)
+        result = dict(base_result)
+        result["unexpected_field"] = False
+        with self.assertRaises(ModelRoleError):
+            validate_terra_bridge_result(result, request)
+
+    def test_large_code_tool_index_policy_requires_identity_and_routes(self):
+        policy = {
+            "schema": "code-mission-tool-index-policy.v1",
+            "mission_kind": "large_code",
+            "repository_work": True,
+            "repo_root_sha256": "a" * 64,
+            "git_head_sha": "b" * 40,
+            "git_tree_sha": "c" * 40,
+            "worktree_sha256": "d" * 64,
+            "codegraph_index_sha256": "e" * 64,
+            "semble_index_sha256": "f" * 64,
+            "codegraph_health": "HEALTHY",
+            "semble_health": "HEALTHY",
+            "semble_semantic_discovery": True,
+            "codegraph_structural_evidence": True,
+            "semble_semantic_evidence_ref": {
+                "schema": "code-mission-evidence.v1",
+                "kind": "semantic_discovery",
+                "ref": "semble://evidence/" + "1" * 64,
+                "receipt_sha256": "1" * 64,
+                "query_sha256": "2" * 64,
+                "repo_root_sha256": "a" * 64,
+                "git_head_sha": "b" * 40,
+                "git_tree_sha": "c" * 40,
+                "worktree_sha256": "d" * 64,
+                "index_sha256": "f" * 64,
+            },
+            "codegraph_structural_evidence_ref": {
+                "schema": "code-mission-evidence.v1",
+                "kind": "structural_blast",
+                "ref": "codegraph://evidence/" + "3" * 64,
+                "receipt_sha256": "3" * 64,
+                "query_sha256": "4" * 64,
+                "repo_root_sha256": "a" * 64,
+                "git_head_sha": "b" * 40,
+                "git_tree_sha": "c" * 40,
+                "worktree_sha256": "d" * 64,
+                "index_sha256": "e" * 64,
+            },
+            "candidate_ready": True,
+            "n_a_reason": None,
+            "repair_owner": "Luna",
+            "repair_state": "HEALTHY",
+            "dependent_claim_blocked": False,
+            "quota_enforced": False,
+        }
+        self.assertEqual(
+            validate_code_mission_tool_policy(policy)["mission_kind"], "large_code"
+        )
+        for field, value in (
+            ("semble_semantic_discovery", False),
+            ("codegraph_structural_evidence", False),
+            ("repo_root_sha256", None),
+            ("codegraph_health", "DEGRADED"),
+            ("quota_enforced", True),
+        ):
+            invalid = dict(policy)
+            invalid[field] = value
+            with self.assertRaises(ModelRoleError):
+                validate_code_mission_tool_policy(invalid)
+        invalid = dict(policy)
+        invalid["semble_semantic_evidence_ref"] = None
+        with self.assertRaises(ModelRoleError):
+            validate_code_mission_tool_policy(invalid)
+        for evidence_field, identity_field, value in (
+            ("semble_semantic_evidence_ref", "git_head_sha", "9" * 40),
+            ("codegraph_structural_evidence_ref", "index_sha256", "9" * 64),
+        ):
+            invalid = dict(policy)
+            invalid[evidence_field] = dict(policy[evidence_field])
+            invalid[evidence_field][identity_field] = value
+            with self.assertRaises(ModelRoleError):
+                validate_code_mission_tool_policy(invalid)
+        invalid = dict(policy)
+        invalid["repair_state"] = "RECOVERING"
+        invalid["dependent_claim_blocked"] = True
+        with self.assertRaises(ModelRoleError):
+            validate_code_mission_tool_policy(invalid)
+
+    def test_non_code_tool_index_policy_requires_explicit_na_reason(self):
+        policy = {
+            "schema": "code-mission-tool-index-policy.v1",
+            "mission_kind": "non_code",
+            "repository_work": False,
+            "repo_root_sha256": None,
+            "git_head_sha": None,
+            "git_tree_sha": None,
+            "worktree_sha256": None,
+            "codegraph_index_sha256": None,
+            "semble_index_sha256": None,
+            "codegraph_health": "N/A",
+            "semble_health": "N/A",
+            "semble_semantic_discovery": False,
+            "codegraph_structural_evidence": False,
+            "semble_semantic_evidence_ref": None,
+            "codegraph_structural_evidence_ref": None,
+            "candidate_ready": False,
+            "n_a_reason": "pure non-code explanation",
+            "repair_owner": "none",
+            "repair_state": "N/A",
+            "dependent_claim_blocked": False,
+            "quota_enforced": False,
+        }
+        self.assertEqual(
+            validate_code_mission_tool_policy(policy)["n_a_reason"],
+            "pure non-code explanation",
+        )
+        invalid = dict(policy)
+        invalid["n_a_reason"] = " "
+        with self.assertRaises(ModelRoleError):
+            validate_code_mission_tool_policy(invalid)
 
     def test_sol_can_delegate_bounded_mechanical_work_to_luna(self):
         result = validate_nested_delegation(

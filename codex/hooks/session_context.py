@@ -16,11 +16,11 @@ import sys
 try:  # Support both direct hook execution and package-based test discovery.
     from . import hook_receipt
     from .governance_mode import current_mode
-    from .model_roles import POLICY_SUMMARY
+    from .model_roles import CODE_MISSION_TOOL_INDEX_POLICY, POLICY_SUMMARY
 except ImportError:  # pragma: no cover - exercised by direct script invocation.
     import hook_receipt
     from governance_mode import current_mode
-    from model_roles import POLICY_SUMMARY
+    from model_roles import CODE_MISSION_TOOL_INDEX_POLICY, POLICY_SUMMARY
 
 PACKAGE_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
@@ -77,7 +77,10 @@ REVIEW_RUNTIME_GUIDANCE = {
     "planner": "Sol",
     "execution_lead": "Luna",
     "spark_owner": "legacy/explicit only; disabled by current role policy",
-    "terra_fallback": "only when Luna is unavailable",
+    "terra_fallback": "continuity only when Luna is unavailable",
+    "terra_bridge": (
+        "TERRA_REPLAN/TERRA_TRIAGE; bounded R0/R1 advisory slice; direct Luna return"
+    ),
     "initial": "one independent Sol review when required by profile",
     "initial_high": "fresh Sol xhigh",
     "delta_continuation": (
@@ -89,6 +92,7 @@ REVIEW_RUNTIME_GUIDANCE = {
     "duplicate_full_scope_reviews": 0,
 }
 MODEL_ROLE_GUIDANCE = dict(POLICY_SUMMARY)
+TOOL_INDEX_POLICY = dict(CODE_MISSION_TOOL_INDEX_POLICY)
 
 
 def build_context(
@@ -110,28 +114,25 @@ def build_context(
 
     mode = current_mode()
     guidance = (
-        "ADAPTIVE-GOVERNANCE: freeze one outcome and choose QUICK, STANDARD, or "
-        "STRICT. No-flag maintenance is adaptive tool-recovery.v1. Sol plans and "
-        "independently reviews; Luna leads execution; Spark is legacy/explicit only "
-        "and disabled by this policy; Terra is fallback only when Luna is unavailable; "
-        "assigned models "
-        "are unrestricted technically. Spawn names "
-        "expose actual model family+role; fallback names expose the actual family "
-        "and never luna-prefix Sol/Terra. Receipts record requested_model, "
-        "actual_model, role, fallback_reason; advisory unless deliberately "
-        "misrepresented. Before new "
-        "abstractions, choose REUSE, EXTEND, or NEW after "
-        "checking existing ownership. ROUTING: unknown semantics/similar code -> "
-        "Semble; known structure/calls/impact -> revision-matching CodeGraph; exact "
-        "text/config/error -> rg; shell display -> rtk. Verify a semantic/structural "
-        "tool before relying on it. Luna owns recovery: never repeat a no-progress "
-        "strategy; continue autonomous, distinct evidence-producing recovery until a "
-        "required capability is usable and exercised by its dependent slice. Optional "
-        "failure creates repair debt and may degrade unrelated work; required failure "
-        "blocks only its slice. Escalate only scientific/product choices, credentials/"
-        "licensing, irreversible/shared-state action, material unapproved cost, privacy, "
-        "or genuine external impossibility. Evidence is affected-first; one "
-        "reviewer closes stable fixes delta-only. Default response: outcome, status, "
+        "ADAPTIVE-GOVERNANCE: choose QUICK/STANDARD/STRICT. No-flag maintenance is "
+        "adaptive tool-recovery.v1. Sol plans/reviews; Luna executes; Spark is "
+        "legacy/explicit and disabled; Terra uses bounded TERRA_REPLAN/TERRA_TRIAGE "
+        "R0/R1 bridges with direct Luna return, or continuity only when unavailable; "
+        "assigned models are unrestricted technically. Names expose actual family+role; "
+        "fallback names "
+        "never luna-prefix Sol/Terra. Receipt identity is advisory unless "
+        "misrepresented. New abstractions require REUSE/EXTEND/NEW after ownership "
+        "check. ROUTING: unknown/similar -> Semble; known structure/impact -> "
+        "revision-matching CodeGraph; exact -> rg; shell -> rtk. Verify semantic/"
+        "structural tools before relying on them. Luna recovery: never repeat a "
+        "no-progress strategy: continue distinct evidence-producing recovery until "
+        "the required capability is usable and exercised by its dependent slice. "
+        "Optional failure creates "
+        "repair debt; required failure blocks only its slice. Escalate only scientific/"
+        "product choices, credentials/licensing, irreversible/shared-state action, "
+        "material cost, privacy, or genuine external impossibility. Affected-first "
+        "evidence; one reviewer closes stable fixes delta-only. Default response: "
+        "outcome, status, "
         "decisive evidence, risk, next action; at most five short points. Current "
         f"hook mode={mode}. No-flag maintenance is adaptive tool-recovery.v1; explicit "
         "STRICT tool-maintenance.v16 uses --strict-maintenance and keeps its one-attempt "
@@ -147,6 +148,7 @@ def build_context(
         "tool_preflight": dict(TOOL_PREFLIGHT_GUIDANCE),
         "review_runtime": dict(REVIEW_RUNTIME_GUIDANCE),
         "model_roles": dict(MODEL_ROLE_GUIDANCE),
+        "tool_index_policy": dict(TOOL_INDEX_POLICY),
         "agent_identity": {
             "task_name": task_name or "unknown_task_name",
             "requested_model": requested_model or model or "unknown_requested_model",

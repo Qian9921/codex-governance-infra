@@ -24,10 +24,14 @@ observation. CodeGraph index build/sync is a separate, project-local authorized
 mutation. Unknown or degraded health stays visible and fallback requires a real
 reason code plus evidence reference.
 
-## V18 native model routing overlay
+## V19 native model routing overlay
 
-V18 keeps the adaptive policy separate from the retained V16 strict evidence
-engine. Reversible machine-local model routing is a `STANDARD` operation.
+V19 keeps the adaptive policy separate from the retained V16 strict evidence
+engine. Reversible machine-local model routing is a `STANDARD` operation. The
+adaptive role contract also exposes bounded `TERRA_REPLAN` and `TERRA_TRIAGE`
+bridges: R0/R1 advisory slices return directly to Luna and cannot review, merge,
+spawn, listen, retry, or issue a final verdict. `TERRA_CONTINUITY` remains a
+distinct Luna-unavailable fallback.
 
 `codex/bin/refresh-model-catalog.py` discovers the current catalog through the
 installed Codex binary in an isolated temporary home, normalizes only the

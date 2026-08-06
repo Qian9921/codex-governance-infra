@@ -2,7 +2,7 @@
 
 This is the portable global policy installed into `CODEX_HOME/AGENTS.md`. Keep
 the common path short. Load detailed contracts only when the task needs them.
-The public package is Codex Governance Infra V18; `codex/v16/` is retained as
+The public package is Codex Governance Infra V19; `codex/v16/` is retained as
 the legacy strict compatibility layer and is not the product version.
 
 ## 1. User contract and communication
@@ -60,8 +60,12 @@ blocker. Missing ceremony alone is not a correctness failure in `QUICK` or
   stable fixes use the same reviewer delta-only, with at most two rounds.
 - Spark remains catalog-supported for legacy or explicitly selected contracts,
   but this role policy disables it and never routes the default flow to it.
-- Terra is a continuity fallback for Luna's execution/recovery only when Luna
-  is genuinely unavailable; log requested and actual model plus the reason.
+- Terra is never the universal controller. Use an explicit, short-lived
+  `TERRA_REPLAN` or `TERRA_TRIAGE` bridge only for bounded R0/R1 advisory
+  synthesis/triage, return control directly to the Luna parent, and keep it
+  unable to review, merge, spawn, listen, retry, or issue a final verdict.
+  `TERRA_CONTINUITY` remains the separate fallback only when Luna is genuinely
+  unavailable; log requested and actual model plus the reason.
 - Every spawned task name exposes the actual model family and role (for example,
   `luna-execution-*` or `spark-audit-*`). A fallback name exposes the actual
   fallback family; a Sol/Terra fallback must never retain a `luna-` prefix.

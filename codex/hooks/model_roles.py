@@ -9,8 +9,9 @@ not turned into a ceremony by this policy.
 
 from __future__ import annotations
 
-import re
+import math
 import posixpath
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
@@ -27,6 +28,119 @@ SPARK = "gpt-5.3-codex-spark"
 
 RISK_LEVELS = ("R0", "R1", "R2", "R3", "R4")
 HIGH_RISK_LEVELS = frozenset(("R2", "R3", "R4"))
+TERRA_BRIDGE_KINDS = ("TERRA_REPLAN", "TERRA_TRIAGE")
+TERRA_BRIDGE_ALLOWED_RISKS = frozenset(("R0", "R1"))
+TERRA_BRIDGE_MAX_DURATION_SEC = 900
+TERRA_BRIDGE_MAX_TOOL_CALLS = 32
+TERRA_BRIDGE_MAX_OUTPUT_TOKENS = 8192
+TERRA_BRIDGE_REQUEST_FIELDS = frozenset(
+    (
+        "bridge_kind",
+        "parent_task_id",
+        "parent_model",
+        "bridge_task_id",
+        "requested_model",
+        "actual_model",
+        "fallback_reason",
+        "role",
+        "task_name",
+        "risk",
+        "parent_scope",
+        "scope",
+        "permissions",
+        "max_duration_sec",
+        "max_tool_calls",
+        "max_output_tokens",
+        "handoff_reason",
+        "return_to_model",
+        "return_to_task_id",
+        "final_verdict",
+        "can_write",
+        "can_git",
+        "can_review",
+        "can_merge",
+        "can_spawn",
+        "long_listener",
+        "continuation",
+        "retry_allowed",
+        "control_returned",
+    )
+)
+TERRA_BRIDGE_RESULT_FIELDS = frozenset(
+    (
+        "bridge_task_id",
+        "parent_task_id",
+        "actual_model",
+        "status",
+        "return_to_model",
+        "return_to_task_id",
+        "control_returned",
+        "final_verdict",
+        "can_write",
+        "can_git",
+        "can_review",
+        "can_merge",
+        "can_spawn",
+        "spawned_children",
+        "long_listener",
+        "retry_used",
+        "elapsed_sec",
+        "tool_calls",
+        "output_tokens",
+    )
+)
+CODE_MISSION_TOOL_INDEX_POLICY_SCHEMA = "code-mission-tool-index-policy.v1"
+CODE_MISSION_TOOL_INDEX_POLICY_FIELDS = frozenset(
+    (
+        "schema",
+        "mission_kind",
+        "repository_work",
+        "repo_root_sha256",
+        "git_head_sha",
+        "git_tree_sha",
+        "worktree_sha256",
+        "codegraph_index_sha256",
+        "semble_index_sha256",
+        "codegraph_health",
+        "semble_health",
+        "semble_semantic_discovery",
+        "codegraph_structural_evidence",
+        "semble_semantic_evidence_ref",
+        "codegraph_structural_evidence_ref",
+        "candidate_ready",
+        "n_a_reason",
+        "repair_owner",
+        "repair_state",
+        "dependent_claim_blocked",
+        "quota_enforced",
+    )
+)
+CODE_MISSION_EVIDENCE_SCHEMA = "code-mission-evidence.v1"
+CODE_MISSION_EVIDENCE_FIELDS = frozenset(
+    (
+        "schema",
+        "kind",
+        "ref",
+        "receipt_sha256",
+        "query_sha256",
+        "repo_root_sha256",
+        "git_head_sha",
+        "git_tree_sha",
+        "worktree_sha256",
+        "index_sha256",
+    )
+)
+CODE_MISSION_TOOL_HEALTH_STATES = frozenset(
+    (
+        "HEALTHY",
+        "RECOVERING",
+        "DEGRADED",
+        "EXTERNAL_WAIT",
+        "USER_ACTION_REQUIRED",
+        "UNRECOVERABLE",
+        "N/A",
+    )
+)
 MAX_NESTED_DEPTH = 2
 MAX_CROSS_MODEL_HOPS = 1
 NONE_LIKE_FALLBACKS = frozenset(("", "none", "null", "n/a", "na"))
@@ -82,6 +196,68 @@ def _normalized_fallback_reason(value: Any) -> str:
 def _path_within(child: str, parent: str) -> bool:
     parent = parent.rstrip("/")
     return child == parent or child.startswith(parent + "/")
+
+
+def _bounded_int(value: Any, field: str, maximum: int) -> int:
+    if type(value) is not int or value < 1 or value > maximum:
+        raise ModelRoleError(f"{field} must be an integer in the range 1..{maximum}")
+    return value
+
+
+def _nonnegative_int(value: Any, field: str) -> int:
+    if type(value) is not int or value < 0:
+        raise ModelRoleError(f"{field} must be a non-negative integer")
+    return value
+
+
+def _nonnegative_number(value: Any, field: str) -> int | float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ModelRoleError(f"{field} must be a non-negative finite number")
+    if not math.isfinite(float(value)) or value < 0:
+        raise ModelRoleError(f"{field} must be a non-negative finite number")
+    return value
+
+
+def _optional_hash(value: Any, field: str, length: int) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or re.fullmatch(rf"[0-9a-f]{{{length}}}", value) is None:
+        raise ModelRoleError(f"{field} must be lowercase hexadecimal ({length} chars)")
+    return value
+
+
+def _required_hash(value: Any, field: str, length: int) -> str:
+    normalized = _optional_hash(value, field, length)
+    if normalized is None:
+        raise ModelRoleError(f"{field} is required")
+    return normalized
+
+
+def _permissions(value: Any) -> tuple[str, ...]:
+    if isinstance(value, (str, bytes)):
+        raise ModelRoleError("permissions must be a sequence")
+    try:
+        values = tuple(_text(item, "permissions").lower() for item in value)
+    except TypeError as exc:
+        raise ModelRoleError("permissions must be a sequence") from exc
+    if not values or len(set(values)) != len(values):
+        raise ModelRoleError("permissions must contain unique values")
+    return values
+
+
+def _strict_child_scope(
+    parent: Iterable[str], child: Iterable[str]
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    parent_paths = _scope(parent, "parent_scope")
+    child_paths = _scope(child, "scope")
+    if set(parent_paths) == set(child_paths):
+        raise ModelRoleError("bridge scope must strictly narrow the parent scope")
+    for path in child_paths:
+        if any(path == allowed for allowed in parent_paths):
+            raise ModelRoleError("bridge scope must strictly narrow the parent scope")
+        if not any(_path_within(path, allowed) for allowed in parent_paths):
+            raise ModelRoleError("bridge scope must be contained by parent scope")
+    return parent_paths, child_paths
 
 
 def _role_tokens(role: str) -> set[str]:
@@ -146,6 +322,468 @@ def validate_receipt_identity(receipt: Mapping[str, Any]) -> dict[str, str]:
     }
 
 
+def validate_terra_bridge_request(bridge: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate one short-lived Terra synthesis/triage handoff.
+
+    A bridge is a deliberately separate contract from ordinary nested
+    delegation and Luna-unavailable continuity fallback.  Terra receives a
+    narrow, bounded read/plan slice from Luna and must return control directly
+    to that Luna parent; it is never a controller, reviewer, or Git operator.
+    """
+
+    if not isinstance(bridge, Mapping):
+        raise ModelRoleError("Terra bridge must be an object")
+    bridge_fields = set(bridge)
+    if bridge_fields != TERRA_BRIDGE_REQUEST_FIELDS:
+        missing = sorted(TERRA_BRIDGE_REQUEST_FIELDS - bridge_fields)
+        unexpected = sorted(bridge_fields - TERRA_BRIDGE_REQUEST_FIELDS)
+        details = []
+        if missing:
+            details.append("missing=" + ",".join(missing))
+        if unexpected:
+            details.append("unexpected=" + ",".join(unexpected))
+        raise ModelRoleError("Terra bridge fields must match exactly (" + ";".join(details) + ")")
+
+    kind = _text(bridge["bridge_kind"], "bridge_kind").upper()
+    if kind not in TERRA_BRIDGE_KINDS:
+        raise ModelRoleError("bridge_kind must be TERRA_REPLAN or TERRA_TRIAGE")
+    parent_task_id = _text(bridge["parent_task_id"], "parent_task_id")
+    bridge_task_id = _text(bridge["bridge_task_id"], "bridge_task_id")
+    if parent_task_id == bridge_task_id:
+        raise ModelRoleError("bridge_task_id must differ from parent_task_id")
+    if bridge["parent_model"] != LUNA:
+        raise ModelRoleError("Terra bridge parent must be Luna")
+    if bridge["requested_model"] != TERRA:
+        raise ModelRoleError("Terra bridge requested_model must equal gpt-5.6-terra")
+    if bridge["actual_model"] != bridge["requested_model"]:
+        raise ModelRoleError("Terra bridge actual_model must equal requested_model exactly")
+    if bridge["fallback_reason"] != "none":
+        raise ModelRoleError("explicit Terra bridge fallback_reason must be none")
+
+    role = _text(bridge["role"], "role").lower()
+    if role != kind.lower():
+        raise ModelRoleError("Terra bridge role must match bridge_kind")
+    task_tokens = _name_tokens(_text(bridge["task_name"], "task_name"))
+    required_task_tokens = _name_tokens(kind.lower())
+    if not required_task_tokens.issubset(task_tokens):
+        raise ModelRoleError("bridge task_name must expose Terra and its bridge role")
+    if task_tokens & {"fallback", "continuity"}:
+        raise ModelRoleError("bridge task_name cannot be labeled as continuity fallback")
+    validate_receipt_identity(
+        {
+            "requested_model": bridge["requested_model"],
+            "actual_model": bridge["actual_model"],
+            "role": bridge["role"],
+            "fallback_reason": bridge["fallback_reason"],
+            "task_name": bridge["task_name"],
+        }
+    )
+
+    risk = _text(bridge["risk"], "risk").upper()
+    if risk not in TERRA_BRIDGE_ALLOWED_RISKS:
+        raise ModelRoleError("Terra bridges are limited to R0/R1 work")
+    parent_scope, scope = _strict_child_scope(bridge["parent_scope"], bridge["scope"])
+    permissions = _permissions(bridge["permissions"])
+    allowed = {"read", "plan"}
+    if not set(permissions).issubset(allowed) or "read" not in permissions:
+        raise ModelRoleError("Terra bridge permissions are read/plan only")
+    if kind == "TERRA_TRIAGE" and set(permissions) != {"read"}:
+        raise ModelRoleError("TERRA_TRIAGE is read-only")
+
+    duration = _bounded_int(
+        bridge["max_duration_sec"], "max_duration_sec", TERRA_BRIDGE_MAX_DURATION_SEC
+    )
+    tool_calls = _bounded_int(
+        bridge["max_tool_calls"], "max_tool_calls", TERRA_BRIDGE_MAX_TOOL_CALLS
+    )
+    output_tokens = _bounded_int(
+        bridge["max_output_tokens"],
+        "max_output_tokens",
+        TERRA_BRIDGE_MAX_OUTPUT_TOKENS,
+    )
+    _text(bridge["handoff_reason"], "handoff_reason")
+    if bridge["return_to_model"] != LUNA:
+        raise ModelRoleError("Terra bridge must return to Luna")
+    if _text(bridge["return_to_task_id"], "return_to_task_id") != parent_task_id:
+        raise ModelRoleError("Terra bridge must return to its Luna parent")
+
+    for field in (
+        "final_verdict", "can_write", "can_git", "can_review", "can_merge",
+        "can_spawn", "long_listener", "continuation", "retry_allowed",
+        "control_returned",
+    ):
+        if _bool(bridge[field], field):
+            raise ModelRoleError(f"Terra bridge {field} must be false")
+    return {
+        "bridge_kind": kind,
+        "parent_task_id": parent_task_id,
+        "parent_model": bridge["parent_model"],
+        "bridge_task_id": bridge_task_id,
+        "requested_model": bridge["requested_model"],
+        "actual_model": bridge["actual_model"],
+        "fallback_reason": "none",
+        "role": role,
+        "task_name": bridge["task_name"],
+        "risk": risk,
+        "parent_scope": list(parent_scope),
+        "scope": list(scope),
+        "permissions": list(permissions),
+        "max_duration_sec": duration,
+        "max_tool_calls": tool_calls,
+        "max_output_tokens": output_tokens,
+        "handoff_reason": bridge["handoff_reason"],
+        "return_to_model": bridge["return_to_model"],
+        "return_to_task_id": parent_task_id,
+        "final_verdict": False,
+        "can_write": False,
+        "can_git": False,
+        "can_review": False,
+        "can_merge": False,
+        "can_spawn": False,
+        "long_listener": False,
+        "continuation": False,
+        "retry_allowed": False,
+        "control_returned": False,
+    }
+
+
+def validate_terra_bridge_result(
+    result: Mapping[str, Any], request: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Require a completed bridge to return control directly to its Luna parent."""
+
+    packet = validate_terra_bridge_request(request)
+    if not isinstance(result, Mapping):
+        raise ModelRoleError("Terra bridge result must be an object")
+    result_fields = set(result)
+    if result_fields != TERRA_BRIDGE_RESULT_FIELDS:
+        missing = sorted(TERRA_BRIDGE_RESULT_FIELDS - result_fields)
+        unexpected = sorted(result_fields - TERRA_BRIDGE_RESULT_FIELDS)
+        details = []
+        if missing:
+            details.append("missing=" + ",".join(missing))
+        if unexpected:
+            details.append("unexpected=" + ",".join(unexpected))
+        raise ModelRoleError(
+            "Terra bridge result fields must match exactly (" + ";".join(details) + ")"
+        )
+    if _text(result["bridge_task_id"], "bridge_task_id") != packet["bridge_task_id"]:
+        raise ModelRoleError("Terra bridge result task mismatch")
+    if _text(result["parent_task_id"], "parent_task_id") != packet["parent_task_id"]:
+        raise ModelRoleError("Terra bridge result parent mismatch")
+    if result["actual_model"] != packet["actual_model"]:
+        raise ModelRoleError("Terra bridge result actual_model must match the request exactly")
+    if _text(result["status"], "status").lower() != "complete":
+        raise ModelRoleError("Terra bridge result must be complete before handoff")
+    if result["return_to_model"] != packet["return_to_model"]:
+        raise ModelRoleError("Terra bridge result must return to Luna")
+    if _text(result["return_to_task_id"], "return_to_task_id") != packet["parent_task_id"]:
+        raise ModelRoleError("Terra bridge result return target mismatch")
+    if not _bool(result["control_returned"], "control_returned"):
+        raise ModelRoleError("Terra bridge must return control")
+    for field in (
+        "final_verdict", "can_write", "can_git", "can_review", "can_merge",
+        "can_spawn", "spawned_children", "long_listener",
+    ):
+        if _bool(result[field], field):
+            raise ModelRoleError(f"Terra bridge result {field} must be false")
+    if type(result["retry_used"]) is not int or result["retry_used"] != 0:
+        raise ModelRoleError("Terra bridge retry_used must be zero")
+    elapsed_sec = _nonnegative_number(result["elapsed_sec"], "elapsed_sec")
+    tool_calls = _nonnegative_int(result["tool_calls"], "tool_calls")
+    output_tokens = _nonnegative_int(result["output_tokens"], "output_tokens")
+    if elapsed_sec > packet["max_duration_sec"]:
+        raise ModelRoleError("Terra bridge elapsed_sec exceeds max_duration_sec")
+    if tool_calls > packet["max_tool_calls"]:
+        raise ModelRoleError("Terra bridge tool_calls exceeds max_tool_calls")
+    if output_tokens > packet["max_output_tokens"]:
+        raise ModelRoleError("Terra bridge output_tokens exceeds max_output_tokens")
+    return {
+        "bridge_task_id": packet["bridge_task_id"],
+        "parent_task_id": packet["parent_task_id"],
+        "actual_model": result["actual_model"],
+        "status": "complete",
+        "return_to_model": result["return_to_model"],
+        "return_to_task_id": packet["parent_task_id"],
+        "control_returned": True,
+        "final_verdict": False,
+        "can_write": False,
+        "can_git": False,
+        "can_review": False,
+        "can_merge": False,
+        "can_spawn": False,
+        "spawned_children": False,
+        "retry_used": 0,
+        "long_listener": False,
+        "elapsed_sec": elapsed_sec,
+        "tool_calls": tool_calls,
+        "output_tokens": output_tokens,
+    }
+
+
+CODE_MISSION_TOOL_INDEX_POLICY = {
+    "schema": CODE_MISSION_TOOL_INDEX_POLICY_SCHEMA,
+    "evidence_schema": CODE_MISSION_EVIDENCE_SCHEMA,
+    "evidence_binding": "repo_root/head/tree/worktree/index hashes",
+    "large_code_requires": (
+        "exact repo/worktree/revision identity plus healthy revision-matching "
+        "Semble and CodeGraph"
+    ),
+    "semantic_before_development": "Semble semantic/similar discovery",
+    "structural_before_candidate": "CodeGraph structural/blast evidence",
+    "n_a_kinds": ["non_code", "exact_mechanical"],
+    "n_a_requires_reason": True,
+    "repair_owner": "Luna",
+    "dependent_claim_only_blocked": True,
+    "quota_enforced": False,
+}
+
+
+def _validate_code_mission_evidence(
+    evidence: Any,
+    *,
+    field: str,
+    kind: str,
+    ref_prefix: str,
+    policy: Mapping[str, Any],
+    index_field: str,
+) -> dict[str, Any]:
+    if not isinstance(evidence, Mapping):
+        raise ModelRoleError(f"{field} must be an evidence object")
+    fields = set(evidence)
+    if fields != CODE_MISSION_EVIDENCE_FIELDS:
+        missing = sorted(CODE_MISSION_EVIDENCE_FIELDS - fields)
+        unexpected = sorted(fields - CODE_MISSION_EVIDENCE_FIELDS)
+        details = []
+        if missing:
+            details.append("missing=" + ",".join(missing))
+        if unexpected:
+            details.append("unexpected=" + ",".join(unexpected))
+        raise ModelRoleError(
+            f"{field} fields must match exactly (" + ";".join(details) + ")"
+        )
+    if evidence["schema"] != CODE_MISSION_EVIDENCE_SCHEMA:
+        raise ModelRoleError(f"{field} schema is unsupported")
+    if evidence["kind"] != kind:
+        raise ModelRoleError(f"{field} kind must be {kind}")
+    ref = evidence["ref"]
+    if not isinstance(ref, str) or re.fullmatch(
+        rf"{re.escape(ref_prefix)}/[0-9a-f]{{64}}", ref
+    ) is None:
+        raise ModelRoleError(f"{field} ref must use its canonical privacy-safe form")
+    receipt_sha256 = _required_hash(evidence["receipt_sha256"], f"{field}.receipt_sha256", 64)
+    query_sha256 = _required_hash(evidence["query_sha256"], f"{field}.query_sha256", 64)
+    if ref.rsplit("/", 1)[-1] != receipt_sha256:
+        raise ModelRoleError(f"{field} ref must bind receipt_sha256")
+    identity_lengths = {
+        "repo_root_sha256": 64,
+        "git_head_sha": 40,
+        "git_tree_sha": 40,
+        "worktree_sha256": 64,
+        "index_sha256": 64,
+    }
+    normalized = dict(evidence)
+    for identity_field, length in identity_lengths.items():
+        value = _required_hash(evidence[identity_field], f"{field}.{identity_field}", length)
+        expected = policy[index_field] if identity_field == "index_sha256" else policy[identity_field]
+        if value != expected:
+            raise ModelRoleError(f"{field}.{identity_field} does not match frozen policy identity")
+        normalized[identity_field] = value
+    normalized["receipt_sha256"] = receipt_sha256
+    normalized["query_sha256"] = query_sha256
+    normalized["ref"] = ref
+    return normalized
+
+
+def validate_code_mission_tool_policy(
+    policy: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Validate the bounded Semble/CodeGraph contract for code missions.
+
+    Large-code packets carry opaque identity hashes rather than paths.  A
+    pure non-code or exact-mechanical packet may explicitly mark the routes
+    not applicable, but only with a reason.  This is evidence policy, not a
+    per-turn or per-call quota.
+    """
+
+    if not isinstance(policy, Mapping):
+        raise ModelRoleError("code mission tool policy must be an object")
+    fields = set(policy)
+    if fields != CODE_MISSION_TOOL_INDEX_POLICY_FIELDS:
+        missing = sorted(CODE_MISSION_TOOL_INDEX_POLICY_FIELDS - fields)
+        unexpected = sorted(fields - CODE_MISSION_TOOL_INDEX_POLICY_FIELDS)
+        details = []
+        if missing:
+            details.append("missing=" + ",".join(missing))
+        if unexpected:
+            details.append("unexpected=" + ",".join(unexpected))
+        raise ModelRoleError(
+            "code mission tool policy fields must match exactly ("
+            + ";".join(details)
+            + ")"
+        )
+
+    if policy["schema"] != CODE_MISSION_TOOL_INDEX_POLICY_SCHEMA:
+        raise ModelRoleError("code mission tool policy schema is unsupported")
+    mission_kind = _text(policy["mission_kind"], "mission_kind").lower()
+    if mission_kind not in {"large_code", "non_code", "exact_mechanical"}:
+        raise ModelRoleError("mission_kind must be large_code, non_code, or exact_mechanical")
+    repository_work = _bool(policy["repository_work"], "repository_work")
+    for field, length in (
+        ("repo_root_sha256", 64),
+        ("worktree_sha256", 64),
+        ("codegraph_index_sha256", 64),
+        ("semble_index_sha256", 64),
+        ("git_head_sha", 40),
+        ("git_tree_sha", 40),
+    ):
+        _optional_hash(policy[field], field, length)
+    codegraph_health = _text(policy["codegraph_health"], "codegraph_health").upper()
+    semble_health = _text(policy["semble_health"], "semble_health").upper()
+    if codegraph_health not in CODE_MISSION_TOOL_HEALTH_STATES:
+        raise ModelRoleError("codegraph_health is not a recognized health state")
+    if semble_health not in CODE_MISSION_TOOL_HEALTH_STATES:
+        raise ModelRoleError("semble_health is not a recognized health state")
+    repair_state = _text(policy["repair_state"], "repair_state").upper()
+    if repair_state not in CODE_MISSION_TOOL_HEALTH_STATES:
+        raise ModelRoleError("repair_state is not a recognized health state")
+    semantic_discovery = _bool(
+        policy["semble_semantic_discovery"], "semble_semantic_discovery"
+    )
+    structural_evidence = _bool(
+        policy["codegraph_structural_evidence"], "codegraph_structural_evidence"
+    )
+    candidate_ready = _bool(policy["candidate_ready"], "candidate_ready")
+    dependent_claim_blocked = _bool(
+        policy["dependent_claim_blocked"], "dependent_claim_blocked"
+    )
+    semantic_evidence = policy["semble_semantic_evidence_ref"]
+    structural_evidence_ref = policy["codegraph_structural_evidence_ref"]
+    if semantic_discovery:
+        semantic_evidence = _validate_code_mission_evidence(
+            semantic_evidence,
+            field="semble_semantic_evidence_ref",
+            kind="semantic_discovery",
+            ref_prefix="semble://evidence",
+            policy=policy,
+            index_field="semble_index_sha256",
+        )
+    elif semantic_evidence is not None:
+        raise ModelRoleError(
+            "Semble semantic discovery evidence cannot be supplied when discovery is false"
+        )
+    if structural_evidence:
+        structural_evidence_ref = _validate_code_mission_evidence(
+            structural_evidence_ref,
+            field="codegraph_structural_evidence_ref",
+            kind="structural_blast",
+            ref_prefix="codegraph://evidence",
+            policy=policy,
+            index_field="codegraph_index_sha256",
+        )
+    elif structural_evidence_ref is not None:
+        raise ModelRoleError(
+            "CodeGraph structural/blast evidence cannot be supplied when evidence is false"
+        )
+    if _bool(policy["quota_enforced"], "quota_enforced"):
+        raise ModelRoleError("code mission tool policy cannot impose a per-turn/count quota")
+
+    if mission_kind == "large_code":
+        if not repository_work:
+            raise ModelRoleError("large_code missions require repository_work")
+        for field in (
+            "repo_root_sha256",
+            "git_head_sha",
+            "git_tree_sha",
+            "worktree_sha256",
+            "codegraph_index_sha256",
+            "semble_index_sha256",
+        ):
+            if policy[field] is None:
+                raise ModelRoleError(f"large_code requires exact {field}")
+        if codegraph_health == "N/A" or semble_health == "N/A":
+            raise ModelRoleError("large_code tool health cannot be N/A")
+        if "DEGRADED" in {codegraph_health, semble_health}:
+            raise ModelRoleError("required large_code tools cannot be marked DEGRADED")
+        if not semantic_discovery:
+            raise ModelRoleError("Semble semantic/similar discovery is required before development")
+        if candidate_ready and (
+            not structural_evidence
+            or codegraph_health != "HEALTHY"
+            or semble_health != "HEALTHY"
+            or repair_state != "HEALTHY"
+            or dependent_claim_blocked
+        ):
+            raise ModelRoleError(
+                "candidate_ready requires healthy tools/repair, unblocked state, and CodeGraph evidence"
+            )
+        if _text(policy["repair_owner"], "repair_owner") != "Luna":
+            raise ModelRoleError("Luna owns autonomous tool/index repair")
+        if repair_state == "N/A":
+            raise ModelRoleError("large_code repair_state cannot be N/A")
+        if repair_state != "HEALTHY" or codegraph_health != "HEALTHY" or semble_health != "HEALTHY":
+            if not dependent_claim_blocked:
+                raise ModelRoleError(
+                    "only the dependent claim may be blocked while required tool/index health is not healthy"
+                )
+        if candidate_ready and (semantic_evidence is None or structural_evidence_ref is None):
+            raise ModelRoleError("candidate_ready requires bound Semble and CodeGraph evidence")
+        n_a_reason = policy["n_a_reason"]
+        if n_a_reason is not None:
+            raise ModelRoleError("large_code cannot carry an N/A reason")
+    else:
+        if mission_kind == "non_code" and repository_work:
+            raise ModelRoleError("non_code missions cannot claim repository_work")
+        n_a_reason = _text(policy["n_a_reason"], "n_a_reason")
+        if any(
+            policy[field] is not None
+            for field in (
+                "repo_root_sha256",
+                "git_head_sha",
+                "git_tree_sha",
+                "worktree_sha256",
+                "codegraph_index_sha256",
+                "semble_index_sha256",
+            )
+        ):
+            raise ModelRoleError("N/A tool routes must not carry repository or index identity")
+        if codegraph_health != "N/A" or semble_health != "N/A":
+            raise ModelRoleError("N/A tool routes must use N/A health")
+        if semantic_discovery or structural_evidence or candidate_ready:
+            raise ModelRoleError("N/A tool routes cannot claim discovery or candidate evidence")
+        if semantic_evidence is not None or structural_evidence_ref is not None:
+            raise ModelRoleError("N/A tool routes cannot carry evidence refs")
+        if _text(policy["repair_owner"], "repair_owner").lower() != "none":
+            raise ModelRoleError("N/A tool routes have no repair owner")
+        if repair_state != "N/A":
+            raise ModelRoleError("N/A tool routes must use N/A repair_state")
+        if dependent_claim_blocked:
+            raise ModelRoleError("N/A tool routes do not block a dependent claim")
+
+    return {
+        "mission_kind": mission_kind,
+        "repository_work": repository_work,
+        "repo_root_sha256": policy["repo_root_sha256"],
+        "git_head_sha": policy["git_head_sha"],
+        "git_tree_sha": policy["git_tree_sha"],
+        "worktree_sha256": policy["worktree_sha256"],
+        "codegraph_index_sha256": policy["codegraph_index_sha256"],
+        "semble_index_sha256": policy["semble_index_sha256"],
+        "codegraph_health": codegraph_health,
+        "semble_health": semble_health,
+        "semble_semantic_discovery": semantic_discovery,
+        "codegraph_structural_evidence": structural_evidence,
+        "semble_semantic_evidence_ref": semantic_evidence,
+        "codegraph_structural_evidence_ref": structural_evidence_ref,
+        "candidate_ready": candidate_ready,
+        "n_a_reason": n_a_reason,
+        "repair_owner": policy["repair_owner"],
+        "repair_state": repair_state,
+        "dependent_claim_blocked": dependent_claim_blocked,
+        "quota_enforced": False,
+    }
+
+
 def validate_controller_request(
     requested_model: str,
     *,
@@ -176,13 +814,14 @@ def route_mission(
     profile: str = "STANDARD",
     luna_available: bool = True,
     review_required: bool | None = None,
+    terra_bridge: str | None = None,
 ) -> dict[str, Any]:
     """Return the compact lifecycle route for one mission.
 
     The result is declarative: a caller still owns spawning, leases, evidence,
     and review.  Luna is the normal controller/executor; Sol enters only for a
-    short high-risk contract gate or independent review; Terra is explicit
-    continuity fallback only.
+    short high-risk contract gate or independent review; Terra is an explicit
+    bounded R0/R1 bridge or a separate continuity fallback only.
     """
 
     risk = _text(risk, "risk").upper()
@@ -205,6 +844,17 @@ def route_mission(
     high_risk = risk in HIGH_RISK_LEVELS
     if high_risk and not review_required:
         raise ModelRoleError("R2+ missions require an independent Sol final review")
+    bridge_kind: str | None = None
+    if terra_bridge is not None:
+        bridge_kind = _text(terra_bridge, "terra_bridge").upper()
+        if bridge_kind not in TERRA_BRIDGE_KINDS:
+            raise ModelRoleError("terra_bridge must be TERRA_REPLAN or TERRA_TRIAGE")
+        if not luna_available:
+            raise ModelRoleError(
+                "Terra continuity fallback is required when Luna is unavailable"
+            )
+        if high_risk:
+            raise ModelRoleError("R2+ missions require Sol authority, not a Terra bridge")
     return {
         "risk": risk,
         "profile": profile,
@@ -237,6 +887,27 @@ def route_mission(
             "allowed_edges": ["sol->luna:mechanical", "luna->sol:consultant"],
             "ping_pong": False,
         },
+        "terra_bridge": {
+            "enabled": bridge_kind is not None,
+            "selected": bridge_kind,
+            "roles": list(TERRA_BRIDGE_KINDS),
+            "requested_model": TERRA,
+            "actual_model": TERRA,
+            "parent_model": LUNA,
+            "return_to_model": LUNA,
+            "risk": "R0/R1 only",
+            "max_duration_sec": TERRA_BRIDGE_MAX_DURATION_SEC,
+            "max_tool_calls": TERRA_BRIDGE_MAX_TOOL_CALLS,
+            "max_output_tokens": TERRA_BRIDGE_MAX_OUTPUT_TOKENS,
+            "final_verdict": False,
+            "can_review": False,
+            "can_merge": False,
+            "can_spawn": False,
+            "long_listener": False,
+            "continuation": False,
+            "direct_return": True,
+        },
+        "tool_index_policy": dict(CODE_MISSION_TOOL_INDEX_POLICY),
         "spark_policy": "legacy/explicit only; disabled by policy",
     }
 
@@ -381,7 +1052,19 @@ POLICY_SUMMARY = {
     "recovery": LUNA,
     "sol_contract_gate": "R2+",
     "sol_final_review": True,
-    "terra": "continuity fallback only when Luna is unavailable",
+    "terra": "bounded bridge or continuity fallback; never a universal controller",
+    "terra_bridge_roles": list(TERRA_BRIDGE_KINDS),
+    "terra_bridge_parent": LUNA,
+    "terra_bridge_return": "direct Luna parent",
+    "terra_bridge_risk": "R0/R1 only",
+    "terra_bridge_max_duration_sec": TERRA_BRIDGE_MAX_DURATION_SEC,
+    "terra_bridge_max_tool_calls": TERRA_BRIDGE_MAX_TOOL_CALLS,
+    "terra_bridge_max_output_tokens": TERRA_BRIDGE_MAX_OUTPUT_TOKENS,
+    "terra_bridge_authority": (
+        "advisory synthesis/triage only; no final review, Git, merge, listener, "
+        "or child delegation"
+    ),
+    "tool_index_policy": dict(CODE_MISSION_TOOL_INDEX_POLICY),
     "spark": "legacy/explicit only; disabled by this policy",
     "nested_max_depth": MAX_NESTED_DEPTH,
     "nested_edges": ["sol->luna:mechanical", "luna->sol:consultant"],

@@ -49,9 +49,12 @@ flowchart LR
     G --> K[Reusable knowledge]
 ```
 
-Terra appears only as a recorded execution/recovery fallback when Luna is
-unavailable. Sol audits recovery evidence; Terra never silently replaces the
-required independent reviewer.
+Terra appears only through an explicit, short-lived `TERRA_REPLAN` or
+`TERRA_TRIAGE` bridge for bounded R0/R1 advisory synthesis/triage, or as the
+separate recorded continuity fallback when Luna is unavailable. A bridge returns
+control directly to its Luna parent and cannot review, merge, spawn, listen,
+retry, or issue a final verdict. Sol audits recovery evidence; Terra never
+silently replaces the required independent reviewer.
 
 The machine-readable role contract is `codex/hooks/model_roles.py`. Nested help
 is optional: Sol may delegate bounded mechanical work to Luna, while Luna may
@@ -105,6 +108,14 @@ Tool readiness is lazy in `QUICK` and `STANDARD`: verify a tool before relying
 on its answer. `STRICT` additionally supports the V16 task-contract, preflight,
 usage, receipt, and enforcement chain. A degraded fallback reports lost
 coverage and blocks only when the missing fact is essential.
+
+For a large-code mission, the machine contract
+`code-mission-tool-index-policy.v1` binds exact repository/worktree/revision
+hashes and healthy revision-matching Semble and CodeGraph indexes. Semble
+semantic/similar discovery precedes development; CodeGraph structural or
+blast-radius evidence precedes `CANDIDATE_READY`. Only pure non-code or exact
+mechanical work may use `N/A` with a reason, and the adaptive policy has no
+per-turn or call-count quota.
 
 ### 4a. Self-healing capability recovery
 

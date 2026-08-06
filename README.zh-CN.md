@@ -1,4 +1,4 @@
-# Codex Governance Infra V18
+# Codex Governance Infra V19
 
 简体中文 · [English](README.md)
 
@@ -7,7 +7,7 @@
 ## 它做什么
 
 ```text
-目标 → 复用扫描 → Luna 执行 → affected 证据
+目标 → 复用扫描 → Luna 执行（可选有界 Terra bridge）→ affected 证据
      → Sol 一次审查 → 已配置 author/reviewer PR 留痕 → 知识沉淀
 ```
 
@@ -15,6 +15,10 @@
 - **自适应档位：** `QUICK`、`STANDARD`、显式启用的 `STRICT`。
 - **代码健康：** 项目规范优先，Google 官方规范作为默认基线；新增重要抽象前做 `REUSE|EXTEND|NEW` 决策。
 - **按意图用工具：** Semble 找未知语义和相似实现，CodeGraph 查已知结构和影响，`rg` 查精确事实，`rtk` 展示 shell context。
+- **大代码证据契约：** `code-mission-tool-index-policy.v1` 绑定精确的仓库、
+  worktree、revision 身份和匹配的 Semble / CodeGraph 健康证据；开发前先做
+  Semble，`CANDIDATE_READY` 前必须有 CodeGraph，只有纯非代码或精确机械任务
+  能以说明标记 `N/A`，且不设置每轮或调用次数配额。
 - **单调收敛审查：** 一个独立 reviewer；普通修复只做 delta closure。
 - **安全安装：** manifest 白名单、dry-run、原子安装、备份、哈希验证和 rollback。
 
@@ -35,7 +39,7 @@ export CODEX_GOVERNANCE_MODE=strict
 ```
 
 严格模式是显式选择，不再自动惩罚所有仓库任务。
-V18 是公共 adaptive 产品规范；`codex/v16` 只作为向后兼容的严格兼容引擎保留。
+V19 是公共 adaptive 产品规范；`codex/v16` 只作为向后兼容的严格兼容引擎保留。
 普通、可逆的 installer、hook 和模型路由修复都走 `STANDARD`。
 
 ## 模型分工
@@ -48,7 +52,9 @@ V18 是公共 adaptive 产品规范；`codex/v16` 只作为向后兼容的严格
   一个源代码推导的反例；稳定修复回到同一 reviewer 做 delta-only，最多两轮。
 - Spark 仍保留在模型目录中，供旧合同或显式选择使用；当前角色策略将其禁用，默认
   流程绝不路由到 Spark。
-- Terra：只有 Luna 确实不可用时才作为执行/恢复 fallback。
+- Terra：仅通过显式、短生命周期的 `TERRA_REPLAN`/`TERRA_TRIAGE` bridge 做有界
+  R0/R1 advisory 综合/分流，并直接把控制权交回 Luna；Luna 不可用时才走独立的
+  continuity fallback。Bridge 不能 review、merge、spawn、长监听、retry 或给出最终 verdict。
 
 每个 spawned task 的名称都应暴露实际模型族和 role（如
 `luna-execution-*`、`spark-audit-*`）。Fallback 名称必须暴露实际 fallback
@@ -141,8 +147,9 @@ Codex CLI/Desktop 使用本仓库的 hook 文件。若使用其他 Agent runtime
 策略概念并运行 verifier，但不要直接复制 Codex hook overlay；本包不宣称原生兼容
 Claude Code 或其他 Agent。私有机器 profile 不属于这个公共仓库。
 
-Luna 默认负责执行和恢复；Sol 为 R2/R3 提供简短 contract gate 并做独立 review；只有
-Luna 确实不可用时才用 Terra fallback；Spark 默认禁用。未知语义走 Semble，已知结构/影响
+Luna 默认负责执行和恢复；Sol 为 R2/R3 提供简短 contract gate 并做独立 review；Terra
+bridge 是显式、有界、R0/R1 的 advisory handoff 并返回 Luna，只有 Luna 确实不可用时
+才用 continuity fallback；Spark 默认禁用。未知语义走 Semble，已知结构/影响
 走 CodeGraph，精确文本走 `rg`，shell context 走 `rtk`。
 
 ### 5. 验证 hook 并运行第一个任务
