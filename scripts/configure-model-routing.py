@@ -18,11 +18,53 @@ from typing import Any
 try:
     import tomllib
 except ModuleNotFoundError:  # Python 3.9-3.10 compatibility.
-    import tomli as tomllib
+    try:
+        import tomli as tomllib
+    except ModuleNotFoundError:  # Keep the stdlib-only presubmit usable offline.
+        class _TomlCompat:
+            class TOMLDecodeError(ValueError):
+                pass
+
+            @staticmethod
+            def loads(document: str) -> dict[str, object]:
+                result: dict[str, object] = {}
+                section: dict[str, object] = result
+                for raw_line in document.splitlines():
+                    line = raw_line.split("#", 1)[0].strip()
+                    if not line:
+                        continue
+                    if line.startswith("[") and line.endswith("]"):
+                        name = line[1:-1].strip()
+                        if not name or any(char in name for char in "[]"):
+                            raise _TomlCompat.TOMLDecodeError("invalid table")
+                        section = result.setdefault(name, {})
+                        if not isinstance(section, dict):
+                            raise _TomlCompat.TOMLDecodeError("table collision")
+                        continue
+                    if "=" not in line:
+                        raise _TomlCompat.TOMLDecodeError("invalid assignment")
+                    key, raw_value = (part.strip() for part in line.split("=", 1))
+                    if not key or not raw_value:
+                        raise _TomlCompat.TOMLDecodeError("invalid assignment")
+                    if raw_value.startswith('"') and raw_value.endswith('"'):
+                        value: object = json.loads(raw_value)
+                    elif raw_value in {"true", "false"}:
+                        value = raw_value == "true"
+                    else:
+                        try:
+                            value = int(raw_value)
+                        except ValueError as exc:
+                            raise _TomlCompat.TOMLDecodeError("unsupported value") from exc
+                    if key.startswith('"') and key.endswith('"'):
+                        key = json.loads(key)
+                    section[key] = value
+                return result
+
+        tomllib = _TomlCompat
 
 
 STATE_DIR = "model-routing-state"
-STATE_SCHEMA = "codex-model-routing-state.v17"
+STATE_SCHEMA = "codex-model-routing-state.v18"
 CATALOG_RELATIVE = pathlib.PurePosixPath("model-catalogs/multi-agent-v2.json")
 REFRESHER_RELATIVE = pathlib.PurePosixPath("bin/refresh-model-catalog.py")
 DROPIN_NAME = "20-model-catalog-overlay.conf"

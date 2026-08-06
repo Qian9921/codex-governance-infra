@@ -39,9 +39,9 @@ HEAD = "0123456789abcdef0123456789abcdef01234567"
 TREE = "1de79a7c48e6c66f167be54ca9cf387310149f80"
 LINEAGE = {
     "dispatch_transcript_sha256": "d" * 64,
-    "task_id": "/root/final-review",
+    "task_id": "demo-task/final-review",
     "parent_task_id": "/root",
-    "sender": "/root/final-review",
+    "sender": "demo-task/final-review",
 }
 
 
@@ -323,7 +323,7 @@ def formal_artifact(
             }
     artifact = {
         "schema": "independent-review.v16",
-        "reviewer_login": "Liang9921",
+        "reviewer_login": "your-reviewer-account",
         "reviewer_model": basis["reviewer_model"],
         "reasoning_effort": basis["reasoning_effort"],
         "reviewer_route": basis["reviewer_route"],
@@ -586,7 +586,7 @@ class SparkTraceMetricsTests(unittest.TestCase):
         # The author-side renderer can never synthesize the Independent gate;
         # a separately ingested Sol artifact is required before APPROVE.
         self.assertIsNone(packet["verdict"])
-        collision = copy.deepcopy(packet); collision["reviewer_login"] = "Qian9921"
+        collision = copy.deepcopy(packet); collision["reviewer_login"] = "your-developer-account"
         with self.assertRaises(TraceError):
             validate_review_packet(collision)
         incomplete = render_pr_trace(mission_id="V16-PRODUCTIVITY", base_sha=BASE, head_sha=HEAD, tree_sha=TREE, checks=checks, findings=[], closures={}, reviewed_scope=["codex/v16"], unreviewed_scope=["docs"])
@@ -770,8 +770,8 @@ class SparkTraceMetricsTests(unittest.TestCase):
             ingest(next_packet, same_run, prior_artifact=initial)
 
         different_task = copy.deepcopy(continuation)
-        different_task["dispatch_lineage"]["task_id"] = "/root/different-reviewer-task"
-        different_task["dispatch_lineage"]["sender"] = "/root/different-reviewer-task"
+        different_task["dispatch_lineage"]["task_id"] = "demo-task/different-reviewer-task"
+        different_task["dispatch_lineage"]["sender"] = "demo-task/different-reviewer-task"
         seal_artifact(different_task)
         with self.assertRaisesRegex(TraceError, "reviewer task mismatch"):
             ingest(next_packet, different_task, prior_artifact=initial)
@@ -1345,8 +1345,8 @@ class SparkTraceMetricsTests(unittest.TestCase):
         escalated_packet = trace_packet(head="3" * 40, tree="4" * 40, basis=high_basis)
         escalated_lineage = {
             **LINEAGE,
-            "task_id": "/root/escalated-fresh-review",
-            "sender": "/root/escalated-fresh-review",
+            "task_id": "demo-task/escalated-fresh-review",
+            "sender": "demo-task/escalated-fresh-review",
         }
         escalated = formal_artifact(
             escalated_packet,
@@ -1388,7 +1388,7 @@ class SparkTraceMetricsTests(unittest.TestCase):
             "high_risk_triggers": basis["high_risk_triggers"],
         })
         packet = trace_packet(head="d" * 40, tree="e" * 40, basis=basis, reviewed_scope=["codex/v16", "tests"])
-        lineage = {**LINEAGE, "task_id": "/root/path-review", "sender": "/root/path-review"}
+        lineage = {**LINEAGE, "task_id": "demo-task/path-review", "sender": "demo-task/path-review"}
         artifact = formal_artifact(packet, mode="escalated_fresh", findings=[], prior=prior, continuity="path-reviewer", run_id="path-run", lineage=lineage, trigger="PATH_SET_SCOPE_DRIFT")
         approved = ingest(packet, artifact, prior_artifact=prior, expected_escalation_trigger="PATH_SET_SCOPE_DRIFT", expected_distinct_reviewer_task_id=lineage["task_id"], expected_prior_reviewer_task_id=LINEAGE["task_id"])
         self.assertEqual(approved["verdict"], "APPROVE")
@@ -1405,7 +1405,7 @@ class SparkTraceMetricsTests(unittest.TestCase):
         basis.update({"diff_sha256": sha(970), "evidence_bundle_sha256": sha(971), "review_risk": "high", "reviewer_route": "high_risk", "reviewer_model": "gpt-5.6-sol", "reasoning_effort": "xhigh", "high_risk_triggers": ["security"]})
         basis["review_policy_sha256"] = canonical_sha256({"required_stages": basis["required_stages"], "review_risk": "high", "reviewer_route": "high_risk", "reviewer_model": "gpt-5.6-sol", "reasoning_effort": "xhigh", "classifier_identity": basis["classifier_identity"], "high_risk_triggers": ["security"]})
         packet = trace_packet(head="f" * 40, tree="0" * 40, basis=basis)
-        lineage = {**LINEAGE, "task_id": "/root/non-derivable-review", "sender": "/root/non-derivable-review"}
+        lineage = {**LINEAGE, "task_id": "demo-task/non-derivable-review", "sender": "demo-task/non-derivable-review"}
         for trigger in ("REVIEWER_PARTICIPATED", "LINEAGE_LOSS"):
             artifact = formal_artifact(packet, mode="escalated_fresh", findings=[], prior=prior, continuity=f"continuity-{trigger}", run_id=f"run-{trigger}", lineage=lineage, trigger=trigger)
             artifact["escalation_evidence_ref"] = sha(980 if trigger == "REVIEWER_PARTICIPATED" else 981)

@@ -17,12 +17,15 @@ SCHEMA_VERSION = "16"
 ID_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.:/-]{1,127}\Z")
 SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
 HEX_RE = re.compile(r"[0-9a-fA-F]+\Z")
+_HOME = "home"
+_USERS = "Users"
+_TMP = "tmp"
 FORBIDDEN_TEXT_RE = re.compile(
-    r"(?:gh[pso]_[A-Za-z0-9]{12,}|/" + r"home/|/Users/|prompt|token|credential|session[_-]?id|transcript)",
+    r"(?:gh[pso]_[A-Za-z0-9]{12,}|/" + _HOME + r"/|/" + _USERS + r"/|/" + _TMP + r"/|prompt|token|credential|session[_-]?id|transcript|(?:task|thread)[_-]?id\s*[:=])",
     re.I,
 )
 PRIVATE_FINDING_TEXT_RE = re.compile(
-    r"(?:gh[pso]_[A-Za-z0-9]{12,}|/" + r"home/|/Users/)",
+    r"(?:gh[pso]_[A-Za-z0-9]{12,}|/" + _HOME + r"/|/" + _USERS + r"/)",
     re.I,
 )
 

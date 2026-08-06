@@ -7,6 +7,8 @@ class Installer(unittest.TestCase):
    result=json.loads(out)
    self.assertEqual(result['status'],'DRY_RUN')
    self.assertEqual(result['mode'],'managed-overlay')
+   self.assertEqual(result['package'],'Codex Governance Infra')
+   self.assertEqual(result['version'],'18.0.0')
    self.assertIn('AGENTS.md',result['hashes'])
    self.assertIn('hooks.json',result['hashes'])
    self.assertIn('hooks/hooks.json',result['hashes'])
@@ -41,6 +43,29 @@ class Installer(unittest.TestCase):
    result=subprocess.run([sys.executable,str(source/'scripts/install-governance.py'),'--source',str(source),'--codex-home',str(pathlib.Path(d)/'home'),'--dry-run'],capture_output=True,text=True)
    self.assertNotEqual(result.returncode,0)
    self.assertIn('manifest mismatch:codex/AGENTS.md',result.stderr)
+
+ def test_manifest_hash_matching_forbidden_content_is_rejected(self):
+  with tempfile.TemporaryDirectory() as d:
+   source=pathlib.Path(d)/'source'
+   shutil.copytree(ROOT,source,ignore=shutil.ignore_patterns('.git','__pycache__','*.pyc','*.pyo'))
+   payload='synthetic_demo=true task_id=' + '/' + 'root/real-task\n'
+   target=source/'codex'/'AGENTS.md'; target.write_text(payload,encoding='utf-8')
+   manifest=json.loads((source/'manifest.json').read_text(encoding='utf-8'))
+   manifest['files']['codex/AGENTS.md']=hashlib.sha256(payload.encode()).hexdigest()
+   (source/'manifest.json').write_text(json.dumps(manifest,separators=(',',':')),encoding='utf-8')
+   result=subprocess.run([sys.executable,str(source/'scripts/install-governance.py'),'--source',str(source),'--codex-home',str(pathlib.Path(d)/'home'),'--dry-run'],capture_output=True,text=True)
+   self.assertNotEqual(result.returncode,0)
+   self.assertIn('forbidden content:',result.stderr)
+ def test_manifest_unknown_metadata_is_rejected(self):
+  with tempfile.TemporaryDirectory() as d:
+   source=pathlib.Path(d)/'source'
+   shutil.copytree(ROOT,source,ignore=shutil.ignore_patterns('.git','__pycache__','*.pyc','*.pyo'))
+   manifest=json.loads((source/'manifest.json').read_text(encoding='utf-8'))
+   manifest['synthetic_forbidden'] = '/' + 'home/' + 'not-public'
+   (source/'manifest.json').write_text(json.dumps(manifest,separators=(',',':')),encoding='utf-8')
+   result=subprocess.run([sys.executable,str(source/'scripts/install-governance.py'),'--source',str(source),'--codex-home',str(pathlib.Path(d)/'home'),'--dry-run'],capture_output=True,text=True)
+   self.assertNotEqual(result.returncode,0)
+   self.assertIn('invalid manifest metadata:',result.stderr)
 
  def test_manifest_traversal_cannot_escape_destination(self):
   with tempfile.TemporaryDirectory() as d:

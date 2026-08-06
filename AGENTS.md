@@ -3,7 +3,7 @@
 - Keep governance portable and privacy-safe. Never commit credentials, live
   sessions, prompts, receipts, private paths, or machine-specific state.
 - Python implementation uses the standard library only.
-- Preserve the existing V16 strict contracts as an opt-in release/high-risk
+- Public release is Codex Governance Infra V18. Preserve the existing V16 strict contracts as an opt-in release/high-risk
   proof engine. The default adaptive path must remain non-blocking for missing
   ceremony while preserving real safety, correctness, and privacy blockers.
 - Before new implementation, search for an existing owner and record
@@ -15,5 +15,5 @@
   `python3 scripts/verify-governance.py --repo .` before final review.
 - One independent review owns the formal verdict. Contract-stable fixes receive
   delta-only follow-up; do not duplicate full evidence or full-scope review.
-- Qian9921 authors repository changes. Liang9921 independently reviews,
+- your-developer-account authors repository changes. your-reviewer-account independently reviews,
   approves, and merges the exact reviewed head.

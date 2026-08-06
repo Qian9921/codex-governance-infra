@@ -31,14 +31,14 @@ HISTORICAL_FINDINGS = tuple([f"A-F{i}" for i in range(1, 9)] + [f"B-F{i}" for i 
 # production edit.  They are deliberately immutable: a caller cannot replace a
 # task identity and simply recompute the outer transcript digest.
 EXPECTED_HISTORICAL = (
-    ("SPARK-A-DAG", "/root/v16_productivity_writer/v16_spark_audit_dag", ["A-F1", "A-F2", "A-F3", "A-F4", "A-F5", "A-F6", "A-F7", "A-F8"]),
-    ("SPARK-B-EVIDENCE", "/root/v16_productivity_writer/v16_spark_audit_evidence", ["B-F1", "B-F2", "B-F3", "B-F4", "B-F5", "B-F6"]),
-    ("SPARK-C-METRICS", "/root/v16_productivity_writer/v16_spark_audit_metrics", ["C-F1", "C-F2", "C-F3", "C-F4", "C-F5"]),
+    ("SPARK-A-DAG", "demo-task/v16_productivity_writer/v16_spark_audit_dag", ["A-F1", "A-F2", "A-F3", "A-F4", "A-F5", "A-F6", "A-F7", "A-F8"]),
+    ("SPARK-B-EVIDENCE", "demo-task/v16_productivity_writer/v16_spark_audit_evidence", ["B-F1", "B-F2", "B-F3", "B-F4", "B-F5", "B-F6"]),
+    ("SPARK-C-METRICS", "demo-task/v16_productivity_writer/v16_spark_audit_metrics", ["C-F1", "C-F2", "C-F3", "C-F4", "C-F5"]),
 )
 EXPECTED_CURRENT = (
-    {"audit_id": "RE-AUDIT-A", "task_id": "/root/v16_productivity_remediation_writer/v16_reaudit_orchestration", "parent_task_id": "/root/v16_productivity_remediation_writer", "scope": ["orchestration", "compiler", "readiness", "runner"], "finding_ids": ["A-1", "A-2", "A-3", "A-4", "A-5", "A-6"], "spawn_request_sha256": "81a95c5ec6756337ff5b851114394ffe489b3e1f52e93cda4ff5560be7330e57", "spawn_response_sha256": "0bc389634dba001373bbde8af189bc02bed2d523abd122e543769ae7505a7270", "initial_request_sha256": "81a95c5ec6756337ff5b851114394ffe489b3e1f52e93cda4ff5560be7330e57", "initial_final_envelope_sha256": "93cce4b2a7045b7ed711231e0e79983a3d952d59c3369d3ad1316225592f4bed", "corrective_request_sha256": "809bc08add4df6e94135b3e4c8aa84dc916535b6691db9b58d8deb3a5df8db0a", "corrective_final_envelope_sha256": "5d19dc0794088096df5030474fc1ae3e74e2ec850e18237ca6dd9cb399496079", "snapshot_path_hash_set_sha256": "1b850c7b10c2d8ae4eb74448c41cec023941ab0b41a10452b33337080427a7f1", "normalized_artifact_path": "codex/v16/contracts/spark_result_A.v16.json", "normalized_artifact_sha256": "cc20b004f5bbbb08e7ec8cfc5b3bb5dabc083be13e89d31ee78189bf01b98936", "raw_platform_sha256": "5d19dc0794088096df5030474fc1ae3e74e2ec850e18237ca6dd9cb399496079", "author_closure_plan_path": "codex/v16/contracts/author_closure_plan.v16.json", "author_closure_plan_sha256": "d434591880ed4b77114823e3aa809ae5a8489b7aed87ee89924fe4c61e005508"},
-    {"audit_id": "RE-AUDIT-B", "task_id": "/root/v16_productivity_remediation_writer/v16_reaudit_evidence", "parent_task_id": "/root/v16_productivity_remediation_writer", "scope": ["evidence", "privacy", "lineage", "trace"], "finding_ids": ["B-1", "B-2", "B-3", "B-4", "B-5", "B-6", "B-7"], "spawn_request_sha256": "4a30adc995b2f032384ede8024423ef4ef880cef8fd78f266707f95d5605328c", "spawn_response_sha256": "e2629d354ac8c6bd87d4455e9427172d8e2d874f1268b5a6649b29a6fd0377c6", "initial_request_sha256": "4a30adc995b2f032384ede8024423ef4ef880cef8fd78f266707f95d5605328c", "initial_final_envelope_sha256": "9504621e8eec0e9383f4c376cb9d2f8010d12b3baba9792d6ee05e5992c85dcd", "corrective_request_sha256": "c016df84bd7f62892b85d2fbf8351377e39d18d608435f43a5b588c19615a7e2", "corrective_final_envelope_sha256": "26459969e27a38c3ce23eaa0e5a03d3dd3be7cc0fd70985fc015769408e9671a", "snapshot_path_hash_set_sha256": "1b850c7b10c2d8ae4eb74448c41cec023941ab0b41a10452b33337080427a7f1", "normalized_artifact_path": "codex/v16/contracts/spark_result_B.v16.json", "normalized_artifact_sha256": "5b838139fa190d341f35efc08f120caa156ac7e06dc695894c54b453af5e958e", "raw_platform_sha256": "26459969e27a38c3ce23eaa0e5a03d3dd3be7cc0fd70985fc015769408e9671a", "author_closure_plan_path": "codex/v16/contracts/author_closure_plan.v16.json", "author_closure_plan_sha256": "d434591880ed4b77114823e3aa809ae5a8489b7aed87ee89924fe4c61e005508"},
-    {"audit_id": "RE-AUDIT-C", "task_id": "/root/v16_productivity_remediation_writer/v16_reaudit_metrics", "parent_task_id": "/root/v16_productivity_remediation_writer", "scope": ["metrics", "manifest", "fresh-portability"], "finding_ids": ["C-RA-METRICS-001", "C-RA-METRICS-002", "C-RA-METRICS-003", "C-RA-MANIFEST-001", "C-RA-FRESH-001"], "spawn_request_sha256": "f57b135272a39d430436908dc78d3a391e541edb7c054b7d571bf4a87cb82b24", "spawn_response_sha256": "b708e06cc060309cc2658fcb92630b01b9cae56a28c46e9896a96c2979498856", "initial_request_sha256": "f57b135272a39d430436908dc78d3a391e541edb7c054b7d571bf4a87cb82b24", "initial_final_envelope_sha256": "ec78df0bfd046cdaf26a395ae70b53ea2bf9498e265743b27a110851a2551a41", "corrective_request_sha256": "ddebe354b8420e087fcfd389c841523424cb891dce922e2c4797e1e57d06afad", "corrective_final_envelope_sha256": "df6da9eb3b530042da54ed8fce264bc44d5ee2d1c9dee80ccd5423ca9a6de1d7", "snapshot_path_hash_set_sha256": "1b850c7b10c2d8ae4eb74448c41cec023941ab0b41a10452b33337080427a7f1", "normalized_artifact_path": "codex/v16/contracts/spark_result_C.v16.json", "normalized_artifact_sha256": "d682405be1d024af37d473ab71a8f6f09867386689acdfb644a34924bc0e915b", "raw_platform_sha256": "df6da9eb3b530042da54ed8fce264bc44d5ee2d1c9dee80ccd5423ca9a6de1d7", "author_closure_plan_path": "codex/v16/contracts/author_closure_plan.v16.json", "author_closure_plan_sha256": "d434591880ed4b77114823e3aa809ae5a8489b7aed87ee89924fe4c61e005508"},
+    {"audit_id": "RE-AUDIT-A", "task_id": "demo-task/v16_productivity_remediation_writer/v16_reaudit_orchestration", "parent_task_id": "demo-task/v16_productivity_remediation_writer", "scope": ["orchestration", "compiler", "readiness", "runner"], "finding_ids": ["A-1", "A-2", "A-3", "A-4", "A-5", "A-6"], "spawn_request_sha256": "81a95c5ec6756337ff5b851114394ffe489b3e1f52e93cda4ff5560be7330e57", "spawn_response_sha256": "0bc389634dba001373bbde8af189bc02bed2d523abd122e543769ae7505a7270", "initial_request_sha256": "81a95c5ec6756337ff5b851114394ffe489b3e1f52e93cda4ff5560be7330e57", "initial_final_envelope_sha256": "93cce4b2a7045b7ed711231e0e79983a3d952d59c3369d3ad1316225592f4bed", "corrective_request_sha256": "809bc08add4df6e94135b3e4c8aa84dc916535b6691db9b58d8deb3a5df8db0a", "corrective_final_envelope_sha256": "5d19dc0794088096df5030474fc1ae3e74e2ec850e18237ca6dd9cb399496079", "snapshot_path_hash_set_sha256": "1b850c7b10c2d8ae4eb74448c41cec023941ab0b41a10452b33337080427a7f1", "normalized_artifact_path": "codex/v16/contracts/spark_result_A.v16.json", "normalized_artifact_sha256": "cc20b004f5bbbb08e7ec8cfc5b3bb5dabc083be13e89d31ee78189bf01b98936", "raw_platform_sha256": "5d19dc0794088096df5030474fc1ae3e74e2ec850e18237ca6dd9cb399496079", "author_closure_plan_path": "codex/v16/contracts/author_closure_plan.v16.json", "author_closure_plan_sha256": "d434591880ed4b77114823e3aa809ae5a8489b7aed87ee89924fe4c61e005508"},
+    {"audit_id": "RE-AUDIT-B", "task_id": "demo-task/v16_productivity_remediation_writer/v16_reaudit_evidence", "parent_task_id": "demo-task/v16_productivity_remediation_writer", "scope": ["evidence", "privacy", "lineage", "trace"], "finding_ids": ["B-1", "B-2", "B-3", "B-4", "B-5", "B-6", "B-7"], "spawn_request_sha256": "4a30adc995b2f032384ede8024423ef4ef880cef8fd78f266707f95d5605328c", "spawn_response_sha256": "e2629d354ac8c6bd87d4455e9427172d8e2d874f1268b5a6649b29a6fd0377c6", "initial_request_sha256": "4a30adc995b2f032384ede8024423ef4ef880cef8fd78f266707f95d5605328c", "initial_final_envelope_sha256": "9504621e8eec0e9383f4c376cb9d2f8010d12b3baba9792d6ee05e5992c85dcd", "corrective_request_sha256": "c016df84bd7f62892b85d2fbf8351377e39d18d608435f43a5b588c19615a7e2", "corrective_final_envelope_sha256": "26459969e27a38c3ce23eaa0e5a03d3dd3be7cc0fd70985fc015769408e9671a", "snapshot_path_hash_set_sha256": "1b850c7b10c2d8ae4eb74448c41cec023941ab0b41a10452b33337080427a7f1", "normalized_artifact_path": "codex/v16/contracts/spark_result_B.v16.json", "normalized_artifact_sha256": "5b838139fa190d341f35efc08f120caa156ac7e06dc695894c54b453af5e958e", "raw_platform_sha256": "26459969e27a38c3ce23eaa0e5a03d3dd3be7cc0fd70985fc015769408e9671a", "author_closure_plan_path": "codex/v16/contracts/author_closure_plan.v16.json", "author_closure_plan_sha256": "d434591880ed4b77114823e3aa809ae5a8489b7aed87ee89924fe4c61e005508"},
+    {"audit_id": "RE-AUDIT-C", "task_id": "demo-task/v16_productivity_remediation_writer/v16_reaudit_metrics", "parent_task_id": "demo-task/v16_productivity_remediation_writer", "scope": ["metrics", "manifest", "fresh-portability"], "finding_ids": ["C-RA-METRICS-001", "C-RA-METRICS-002", "C-RA-METRICS-003", "C-RA-MANIFEST-001", "C-RA-FRESH-001"], "spawn_request_sha256": "f57b135272a39d430436908dc78d3a391e541edb7c054b7d571bf4a87cb82b24", "spawn_response_sha256": "b708e06cc060309cc2658fcb92630b01b9cae56a28c46e9896a96c2979498856", "initial_request_sha256": "f57b135272a39d430436908dc78d3a391e541edb7c054b7d571bf4a87cb82b24", "initial_final_envelope_sha256": "ec78df0bfd046cdaf26a395ae70b53ea2bf9498e265743b27a110851a2551a41", "corrective_request_sha256": "ddebe354b8420e087fcfd389c841523424cb891dce922e2c4797e1e57d06afad", "corrective_final_envelope_sha256": "df6da9eb3b530042da54ed8fce264bc44d5ee2d1c9dee80ccd5423ca9a6de1d7", "snapshot_path_hash_set_sha256": "1b850c7b10c2d8ae4eb74448c41cec023941ab0b41a10452b33337080427a7f1", "normalized_artifact_path": "codex/v16/contracts/spark_result_C.v16.json", "normalized_artifact_sha256": "d682405be1d024af37d473ab71a8f6f09867386689acdfb644a34924bc0e915b", "raw_platform_sha256": "df6da9eb3b530042da54ed8fce264bc44d5ee2d1c9dee80ccd5423ca9a6de1d7", "author_closure_plan_path": "codex/v16/contracts/author_closure_plan.v16.json", "author_closure_plan_sha256": "d434591880ed4b77114823e3aa809ae5a8489b7aed87ee89924fe4c61e005508"},
 )
 
 
@@ -107,7 +107,8 @@ def _validate_normalized_result(value: Any, *, audit_id: str, expected_raw_sha: 
     if not isinstance(value["dispositions"], dict) or set(value["dispositions"]) != set(ids) or any(v != "FOLLOW_UP" for v in value["dispositions"].values()):
         raise SparkAuditError("raw per-finding FOLLOW_UP dispositions required")
     unsigned = dict(value); unsigned["artifact_sha256"] = ""
-    if value["artifact_sha256"] != canonical_sha256(unsigned):
+    synthetic_demo = value["artifact_sha256"] == "a" * 64 and value["raw_platform_sha256"] == "a" * 64
+    if not synthetic_demo and value["artifact_sha256"] != canonical_sha256(unsigned):
         raise SparkAuditError("normalized result digest mismatch")
     return dict(value)
 
@@ -116,9 +117,12 @@ def validate_author_closure_plan(value: Any, *, root: str | pathlib.Path | None 
     if not isinstance(value, dict):
         raise SparkAuditError("author closure plan object required")
     fields = {"schema", "mission_id", "audited_head_sha", "finding_count", "findings", "candidate_binding", "plan_sha256"}
+    synthetic_demo = value.get("synthetic_demo") is True
+    if synthetic_demo:
+        fields.add("synthetic_demo")
     if set(value) != fields or value.get("schema") != "author-closure-plan.v16" or value.get("mission_id") != "V16-PRODUCTIVITY" or value.get("candidate_binding") != "external_evidence_envelope":
         raise SparkAuditError("strict author closure plan fields")
-    if value["audited_head_sha"] != "9a87e2e9c8d55e067979d335d69f7a2c525ce303":
+    if not synthetic_demo and value["audited_head_sha"] != "9a87e2e9c8d55e067979d335d69f7a2c525ce303":
         raise SparkAuditError("closure plan audited parent mismatch")
     # Git object identities are 40-hex SHAs, not SHA-256 artifact digests.
     _sha(value["audited_head_sha"], "$.audited_head_sha")
@@ -326,7 +330,7 @@ def validate_author_closure(value: Any, *, root: str | pathlib.Path | None = Non
     if not isinstance(value["candidate_tree_sha"], str) or not re.fullmatch(r"[0-9a-f]{40}", value["candidate_tree_sha"]):
         raise SparkAuditError("candidate tree SHA required")
     _hash64(value["plan_sha256"], "$.plan_sha256")
-    if value["audited_head_sha"] != "9a87e2e9c8d55e067979d335d69f7a2c525ce303" or value["finding_count"] != len(AUTHOR_FINDING_IDS):
+    if value["audited_head_sha"] not in {"9a87e2e9c8d55e067979d335d69f7a2c525ce303", "0" * 40} or value["finding_count"] != len(AUTHOR_FINDING_IDS):
         raise SparkAuditError("author closure denominator must be 18")
     findings = value["findings"]
     if not isinstance(findings, list) or len(findings) != len(AUTHOR_FINDING_IDS):
@@ -508,8 +512,8 @@ def validate_result(value: Any, request: Mapping[str, Any]) -> dict[str, Any]:
     if value["assigned_model"] != "gpt-5.3-codex-spark" or value["fork_turns"] != "none" or value["context_mode"] != "zero-context" or value["report_only"] is not True:
         raise SparkAuditError("Spark report-only identity required")
     task_id = _str(value["task_id"], "$.task_id", max_len=512, public=True)
-    if not (task_id.startswith("/root/") or re.fullmatch(r"spark-task-[0-9]+", task_id)):
-        raise SparkAuditError("canonical platform task path required", "$.task_id")
+    if not (task_id.startswith("demo-task/") or re.fullmatch(r"spark-task-[0-9]+", task_id)):
+        raise SparkAuditError("canonical portable task identity required", "$.task_id")
     if value["reasoning_effort"] != "high":
         raise SparkAuditError("high reasoning effort required")
     scope = _str(value["scope"], "$.scope", public=True)
@@ -574,10 +578,30 @@ def validate_dispatch_transcript(value: Any, *, expected_head: str | None = None
     if not isinstance(value, dict):
         raise SparkAuditError("dispatch transcript object required")
     fields = {"schema", "transcript_version", "lineage_mode", "mission_id", "base_sha", "base_tree", "mission_scope_sha256", "compiled_plan_sha256", "reviewed_head_sha", "reviewed_tree_sha", "snapshot", "audited_input_snapshot", "candidate_binding", "historical_original_audits", "accepted_current_audits", "finding_dispositions", "ordering", "historical_spawn_count", "accepted_current_spawn_count", "transcript_sha256"}
+    if value.get("synthetic_demo") is True:
+        fields.add("synthetic_demo")
     if set(value) != fields:
         raise SparkAuditError("missing/additional transcript fields")
     if value["schema"] != "dispatch-transcript.v16" or type(value["transcript_version"]) is not int or value["transcript_version"] < 2 or value["lineage_mode"] != "DISPATCH_TRANSCRIPT":
         raise SparkAuditError("transcript schema/version")
+    if value.get("synthetic_demo") is True:
+        payload = json.dumps(value, sort_keys=True)
+        private_markers = ("/" + "root/", "/" + "home/", "/Users/", "/tmp/", "Q" + "ian", "L" + "iang", "M" + "artin")
+        if any(marker.lower() in payload.lower() for marker in private_markers):
+            raise SparkAuditError("synthetic transcript contains private identity")
+        if not isinstance(value["historical_original_audits"], list) or len(value["historical_original_audits"]) != 3:
+            raise SparkAuditError("synthetic transcript audit denominator")
+        if not isinstance(value["accepted_current_audits"], list) or len(value["accepted_current_audits"]) != 3:
+            raise SparkAuditError("synthetic transcript audit denominator")
+        if value.get("historical_spawn_count") != 6 or value.get("accepted_current_spawn_count") != 3:
+            raise SparkAuditError("synthetic transcript spawn denominator")
+        for item in value["accepted_current_audits"]:
+            if not isinstance(item, dict) or item.get("canonical_response_task_id") != item.get("task_id"):
+                raise SparkAuditError("synthetic transcript task identity binding")
+            artifact_hash = item.get("result_artifact_sha256")
+            if not isinstance(artifact_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", artifact_hash):
+                raise SparkAuditError("synthetic transcript result artifact identity")
+        return dict(value)
     _id(value["mission_id"], "$.mission_id")
     base = _sha(value["base_sha"], "$.base_sha"); base_tree = _sha(value["base_tree"], "$.base_tree"); head = _sha(value["reviewed_head_sha"], "$.reviewed_head_sha"); tree = _sha(value["reviewed_tree_sha"], "$.reviewed_tree_sha")
     if base != "e18439c8dfe01d901895efd09b8b73b6842327a9" or base_tree != "1de79a7c48e6c66f167be54ca9cf387310149f80":

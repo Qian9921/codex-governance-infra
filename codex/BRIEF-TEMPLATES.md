@@ -108,8 +108,8 @@ Review feedback uses `BLOCKING`, `SHOULD_FIX`, `NIT`, `QUESTION`, or
 ## GitHub trace
 
 ```text
-Author: Qian9921
-Reviewer / approver / merger: Liang9921
+Author: your-developer-account
+Reviewer / approver / merger: your-reviewer-account
 PR objective:
 Evidence summary:
 Findings and dispositions:

@@ -12,6 +12,9 @@ import shutil
 import tempfile
 from typing import Any
 
+from public_content import scan_path
+from public_manifest import validate_manifest_metadata
+
 
 FORBIDDEN = ("sessions", "hook-receipts", "plugins", "connections", "models_cache.json", ".env")
 BACKUP_NAME = ".governance-v16-backup"
@@ -40,9 +43,13 @@ def collect(src: pathlib.Path) -> list[tuple[str, pathlib.Path]]:
         raise SystemExit("missing codex package")
     package_root = package.resolve(strict=True)
     try:
-        declared = json.loads((src / "manifest.json").read_text(encoding="utf-8"))["files"]
+        manifest = json.loads((src / "manifest.json").read_text(encoding="utf-8"))
     except (OSError, KeyError, TypeError, json.JSONDecodeError):
         raise SystemExit("invalid manifest")
+    metadata_errors = validate_manifest_metadata(manifest)
+    if metadata_errors:
+        raise SystemExit("invalid manifest metadata:" + ",".join(metadata_errors))
+    declared = manifest["files"]
     if not isinstance(declared, dict):
         raise SystemExit("invalid manifest files")
     output: list[tuple[str, pathlib.Path]] = []
@@ -60,6 +67,9 @@ def collect(src: pathlib.Path) -> list[tuple[str, pathlib.Path]]:
             raise SystemExit("source escape:" + source_rel)
         if not path.is_file() or path.is_symlink() or sha(path) != expected_hash:
             raise SystemExit("manifest mismatch:" + source_rel)
+        content_errors = scan_path(src, source_rel)
+        if content_errors:
+            raise SystemExit("forbidden content:" + ",".join(content_errors))
         output.append((relative.as_posix(), path))
     if not output:
         raise SystemExit("empty codex package")
@@ -256,6 +266,8 @@ def main() -> int:
     result = {
         "status": "DRY_RUN" if args.dry_run else "READY",
         "mode": "managed-overlay",
+        "package": "Codex Governance Infra",
+        "version": "18.0.0",
         "files": len(entries),
         "destination": "$CODEX_HOME" if args.dry_run else str(destination),
         "hashes": {relative: sha(path) for relative, path in entries},

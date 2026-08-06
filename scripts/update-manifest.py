@@ -12,6 +12,8 @@ import stat
 import subprocess
 import tempfile
 
+from public_manifest import FORBIDDEN, PACKAGE, SCHEMA_VERSION, VERSION
+
 
 def _tracked(root: pathlib.Path) -> list[str]:
     output = subprocess.check_output(["git", "ls-files", "-z"], cwd=root)
@@ -39,7 +41,13 @@ def refreshed(root: pathlib.Path) -> dict[str, object]:
     value = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(value, dict) or not isinstance(value.get("files"), dict):
         raise ValueError("manifest files map is unavailable")
-    value["files"] = {path: _sha256(root / path) for path in _tracked(root)}
+    tracked = _tracked(root)
+    value["files"] = {path: _sha256(root / path) for path in tracked}
+    value["allowlist"] = tracked
+    value["forbidden"] = list(FORBIDDEN)
+    value["package"] = PACKAGE
+    value["schema_version"] = SCHEMA_VERSION
+    value["version"] = VERSION
     return value
 
 

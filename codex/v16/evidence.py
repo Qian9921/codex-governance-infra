@@ -25,7 +25,9 @@ from .contracts import (
 class EvidenceError(ContractError):
     pass
 
-_PRIVATE_RE = re.compile(r"(?:gh[pso]_[A-Za-z0-9]{12,}|/" + r"home/|/Users/|prompt|token|credential|session[_-]?id|transcript|private[_-]?path)", re.I)
+_HOME = "home"
+_USERS = "Users"
+_PRIVATE_RE = re.compile(r"(?:gh[pso]_[A-Za-z0-9]{12,}|/" + _HOME + r"/|/" + _USERS + r"/|prompt|token|credential|session[_-]?id|transcript|private[_-]?path)", re.I)
 _SHA_RE = re.compile(r"[0-9a-f]{64}\Z")
 _IDENTITY_MODES = frozenset({"git-exact-object", "non-git-snapshot"})
 

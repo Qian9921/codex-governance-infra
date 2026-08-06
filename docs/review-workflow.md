@@ -3,8 +3,8 @@
 Correctness and valid evidence are hard gates. Within that boundary, optimize
 time to a correct decision and merge; optimize token/call cost second. Freeze
 the Acceptance Envelope, exact Git head or non-Git snapshot, review risk,
-required evidence stages, and one formal reviewer before dispatch. Qian9921 is
-the author identity and Liang9921 the governance identity. The writer cannot
+required evidence stages, and one formal reviewer before dispatch. your-developer-account is
+the author identity and your-reviewer-account the governance identity. The writer cannot
 review, approve, or merge.
 
 ## Risk route

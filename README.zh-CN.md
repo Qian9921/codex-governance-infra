@@ -1,4 +1,4 @@
-# Codex 自适应治理 Infra V17
+# Codex Governance Infra V18
 
 简体中文 · [English](README.md)
 
@@ -8,7 +8,7 @@
 
 ```text
 目标 → 复用扫描 → Luna 执行 → affected 证据
-     → Sol 一次审查 → Qian/Liang PR 留痕 → 知识沉淀
+     → Sol 一次审查 → 已配置 author/reviewer PR 留痕 → 知识沉淀
 ```
 
 - **轻量全局规范：** 目标、角色、相关工具、代码健康、证据、审查、隐私和结束。
@@ -35,7 +35,7 @@ export CODEX_GOVERNANCE_MODE=strict
 ```
 
 严格模式是显式选择，不再自动惩罚所有仓库任务。
-V17 是默认的 adaptive 产品规范；`codex/v16` 只作为向后兼容的严格证据引擎保留。
+V18 是公共 adaptive 产品规范；`codex/v16` 只作为向后兼容的严格兼容引擎保留。
 普通、可逆的 installer、hook 和模型路由修复都走 `STANDARD`。
 
 ## 模型分工
@@ -88,7 +88,7 @@ fail-closed gate 仍仅在显式 `STRICT` 时启用。
 ### 1. Clone 并验证
 
 ```bash
-git clone https://github.com/Qian9921/codex-governance-infra.git
+git clone https://github.com/your-org/codex-governance-infra.git
 cd codex-governance-infra
 
 python3 -m pip install --user -r requirements.txt
@@ -127,7 +127,37 @@ python3 scripts/install-governance.py \
 
 Overlay 只拥有 manifest 中列出的路径。现有 config、credential、plugin、memory、session、connection、cache、receipt 和其他无关文件全部保留。
 
-### 4. 安装
+### 4. 配置角色、账号和 Agent surface
+
+公共默认值是占位符。生成 review packet 前配置两个不同的账号标签；它们只写入
+metadata，绝不能包含 token：
+
+```bash
+export CODEX_GOV_AUTHOR_ACCOUNT="your-developer-account"
+export CODEX_GOV_REVIEWER_ACCOUNT="your-reviewer-account"
+```
+
+Codex CLI/Desktop 使用本仓库的 hook 文件。若使用其他 Agent runtime，请复用文档中的
+策略概念并运行 verifier，但不要直接复制 Codex hook overlay；本包不宣称原生兼容
+Claude Code 或其他 Agent。私有机器 profile 不属于这个公共仓库。
+
+Luna 默认负责执行和恢复；Sol 为 R2/R3 提供简短 contract gate 并做独立 review；只有
+Luna 确实不可用时才用 Terra fallback；Spark 默认禁用。未知语义走 Semble，已知结构/影响
+走 CodeGraph，精确文本走 `rg`，shell context 走 `rtk`。
+
+### 5. 验证 hook 并运行第一个任务
+
+```bash
+python3 scripts/toolchain-doctor.py --repo .
+python3 scripts/verify-governance.py --repo .
+export CODEX_GOVERNANCE_MODE=adaptive   # 仅在明确需要时使用 strict
+```
+
+先用 QUICK 做解释或 STANDARD 做实现；安全/隐私、公共合同、不可逆、生产发布或精确
+parity 才使用 STRICT。安装失败时保留 dry-run 输出，修复报告的前置条件后重新验证；
+下面的 rollback 只作用于 managed overlay。
+
+### 6. 安装
 
 ```bash
 python3 scripts/install-governance.py \
@@ -135,7 +165,7 @@ python3 scripts/install-governance.py \
   --codex-home "$ACTIVE_CODEX_HOME"
 ```
 
-### 5. 让 Luna 和 Spark 持续进入原生 multi-agent V2
+### 7. 让 Luna 和 Spark 持续进入原生 multi-agent V2
 
 Codex 的普通模型列表可能显示 Luna/Spark，但上游 `multi_agent_version` 元数据会把
 它们排除在原生 V2 `spawn_agent` 之外。安装 managed files 后启用官方支持的启动级
@@ -145,18 +175,23 @@ Codex 的普通模型列表可能显示 Luna/Spark，但上游 `multi_agent_vers
 ACTIVE_CODEX_BIN="$(command -v codex)"
 USER_SYSTEMD_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 
-python3 scripts/configure-model-routing.py \
-  --codex-home "$ACTIVE_CODEX_HOME" \
-  --codex-bin "$ACTIVE_CODEX_BIN" \
-  --systemd-user-dir "$USER_SYSTEMD_DIR"
-
-systemctl --user daemon-reload
-systemctl --user restart codex-app-server.service
+if command -v systemctl >/dev/null 2>&1 \
+  && systemctl --user status codex-app-server.service >/dev/null 2>&1; then
+  python3 scripts/configure-model-routing.py \
+    --codex-home "$ACTIVE_CODEX_HOME" \
+    --codex-bin "$ACTIVE_CODEX_BIN" \
+    --systemd-user-dir "$USER_SYSTEMD_DIR"
+  systemctl --user daemon-reload
+  systemctl --user restart codex-app-server.service
+else
+  echo "未检测到 user-systemd app-server；保持按需模型路由。"
+fi
 ```
 
 刷新器使用隔离临时 Codex home，不复制或输出 credential；只修改 allowlist 中的
 multi-agent backend 字段，原子发布并保留 last-known-good。若 app-server 必须经由
-网络 wrapper，增加 `--exec-wrapper /absolute/path/to/wrapper`。
+网络 wrapper，将 `EXEC_WRAPPER` 设为仓库内 executable，并增加
+`--exec-wrapper "$EXEC_WRAPPER"`。
 
 模型路由 rollback：
 
@@ -203,8 +238,8 @@ controller 可以只对 exact owning repo 修复一次；该 circuit 只是一�
 
 ## GitHub 职责
 
-- Qian9921 负责开发、push、开 PR，并逐条回应 finding。
-- Liang9921 独立评论、审查 exact head、approve，并用 expected-head 保护 merge。
+- your-developer-account 负责开发、push、开 PR，并逐条回应 finding。
+- your-reviewer-account 独立评论、审查 exact head、approve，并用 expected-head 保护 merge。
 
 PR 保留目标、证据摘要、finding、disposition、限制和最终 verdict；不保存 prompt、session、credential、私有路径或私有数据。
 

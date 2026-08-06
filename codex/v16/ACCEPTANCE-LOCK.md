@@ -1,13 +1,17 @@
-# V16 Productivity Acceptance Lock
+# V16 Productivity Acceptance Lock (V18 public compatibility fixture)
+
+This file is a synthetic legacy-V16 compatibility fixture shipped in the
+public V18 package. Identities and hashes below are placeholders; they do not
+describe a live run, private repository, or private deployment.
 
 This lock is the immutable starting contract for the V16 productivity milestone.
-It is intentionally separate from the paused `codex/v15-milestone-spark-infra`
-line. A changed base/head/tree, scope, denominator, operating domain, or review
+It is intentionally separate from older compatibility lines. A changed
+base/head/tree, scope, denominator, operating domain, or review
 policy requires a new lock and an `escalated_fresh` Independent review.
 
 - **Objective:** preserve correctness/evidence validity as hard gates, minimize
   time to a correct decision/merge, then minimize token/call cost.
-- **Owner/writer:** Qian9921 author lane; one persistent GPT-5.6 Luna writer with
+- **Owner/writer:** your-developer-account author lane; one persistent GPT-5.6 Luna writer with
   the permissions in the mission packet.
 - **Review risk:** `high`, trigger `hook_reviewer_model_routing`; required
   evidence stages `targeted`, `full`, `fresh`.
@@ -19,10 +23,10 @@ policy requires a new lock and an `escalated_fresh` Independent review.
   Their sanitized identities, findings, and dispositions are recorded in
   `contracts/v16_spark_audit_closure.json`; local tooling validates packets but
   does not fake backend spawning.
-- **Base identity:** `e18439c8dfe01d901895efd09b8b73b6842327a9` /
-  tree `1de79a7c48e6c66f167be54ca9cf387310149f80`.
+- **Base identity:** `0000000000000000000000000000000000000000` /
+  tree `0000000000000000000000000000000000000000`.
 - **Operating domain:** Linux user-level Python >=3.9, stdlib-only, portable
-  fresh clone, private repository, foreground execution only.
+  public fresh clone, foreground execution only.
 - **Non-goals:** PR#1 residuals; global `~/.codex` deployment; merge/push to
   `main`; GitHub calls from local renderers; Astverd/Fusion work; credentials,
   raw prompts, sessions, tokens, private logs, or model-name capability bans.

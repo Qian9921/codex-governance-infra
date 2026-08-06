@@ -3,7 +3,7 @@
   "mission_id": "V16-PRODUCTIVITY",
   "milestone": "HARDENING",
   "objective": "Make bounded evidence-backed engineering throughput reproducible",
-  "owner": "Qian9921/v16",
+  "owner": "your-developer-account/v16",
   "assigned_model": "gpt-5.6-luna",
   "role": "writer",
   "permissions": [
@@ -20,8 +20,8 @@
       "codex/AGENTS.md",
       "codex/BRIEF-TEMPLATES.md"
     ],
-    "exact_head": "e18439c8dfe01d901895efd09b8b73b6842327a9",
-    "tree_sha": "1de79a7c48e6c66f167be54ca9cf387310149f80"
+    "exact_head":"0000000000000000000000000000000000000000",
+    "tree_sha": "0000000000000000000000000000000000000000"
   },
   "reviewer_separation": {
     "independent_model": "gpt-5.6-sol",

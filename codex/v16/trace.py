@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import re
 from typing import Any, Mapping, Sequence
 
 from .contracts import (
@@ -21,6 +23,28 @@ from .review_policy import HIGH_RISK_TRIGGERS
 
 class TraceError(ContractError):
     pass
+
+
+PUBLIC_AUTHOR_ENV = "CODEX_GOV_AUTHOR_ACCOUNT"
+PUBLIC_REVIEWER_ENV = "CODEX_GOV_REVIEWER_ACCOUNT"
+DEFAULT_AUTHOR_ACCOUNT = "your-developer-account"
+DEFAULT_REVIEWER_ACCOUNT = "your-reviewer-account"
+_PUBLIC_ACCOUNT_RE = re.compile(r"[a-z0-9][a-z0-9._-]{1,63}\Z", re.IGNORECASE)
+
+
+def public_account(kind: str) -> str:
+    """Return a configured, portable public author/reviewer account label."""
+    if kind not in {"author", "reviewer"}:
+        raise TraceError("unknown public account kind")
+    env_name, fallback = (
+        (PUBLIC_AUTHOR_ENV, DEFAULT_AUTHOR_ACCOUNT)
+        if kind == "author"
+        else (PUBLIC_REVIEWER_ENV, DEFAULT_REVIEWER_ACCOUNT)
+    )
+    value = os.environ.get(env_name, fallback).strip() or fallback
+    if not _PUBLIC_ACCOUNT_RE.fullmatch(value):
+        raise TraceError(f"invalid {kind} account configuration")
+    return value
 
 
 _FORMAL_CONTEXT_MODES = frozenset(
@@ -1029,7 +1053,7 @@ def _validate_legacy_artifact(
     # This is compatibility only.  It intentionally admits no policy-selected
     # route and cannot be ingested into a new approval packet.
     if (
-        artifact["reviewer_login"] != "Liang9921"
+        artifact["reviewer_login"] != public_account("reviewer")
         or artifact["reviewer_model"] != "gpt-5.6-sol"
         or artifact["reasoning_effort"] != "xhigh"
         or artifact["fork_turns"] != "none"
@@ -1073,7 +1097,7 @@ def _formal_artifact_shape(artifact: Mapping[str, Any]) -> dict[str, Any]:
         raise TraceError("strict formal Independent artifact fields")
     if artifact["schema"] != "independent-review.v16" or artifact["verdict"] not in {"APPROVE", "REQUEST_CHANGES"}:
         raise TraceError("verified Independent artifact required")
-    if artifact["reviewer_login"] != "Liang9921" or artifact["report_only"] is not True or artifact["reviewer_is_writer"] is not False:
+    if artifact["reviewer_login"] != public_account("reviewer") or artifact["report_only"] is not True or artifact["reviewer_is_writer"] is not False:
         raise TraceError("Independent reviewer separation mismatch")
     context_mode = artifact["context_mode"]
     if context_mode == "author_contextual" or context_mode not in _FORMAL_CONTEXT_MODES:
@@ -1784,7 +1808,7 @@ def validate_review_packet(value: Any) -> dict[str, Any]:
         raise TraceError("missing/additional review packet fields")
     if value["schema"] != "review-packet.v16":
         raise TraceError("schema")
-    if value["author_login"] != "Qian9921" or value["reviewer_login"] != "Liang9921" or value["author_login"] == value["reviewer_login"]:
+    if value["author_login"] != public_account("author") or value["reviewer_login"] != public_account("reviewer") or value["author_login"] == value["reviewer_login"]:
         raise TraceError("fixed author/reviewer identity required")
     mission_id = _id(value["mission_id"], "$.mission_id")
     base = _sha(value["base_sha"], "$.base_sha")
@@ -1846,8 +1870,8 @@ def validate_review_packet(value: Any) -> dict[str, Any]:
     result = {
         "schema": "review-packet.v16",
         "mission_id": mission_id,
-        "author_login": "Qian9921",
-        "reviewer_login": "Liang9921",
+        "author_login": public_account("author"),
+        "reviewer_login": public_account("reviewer"),
         "base_sha": base,
         "head_sha": head,
         "tree_sha": tree,
@@ -1912,8 +1936,8 @@ def render_pr_trace(
     unsigned: dict[str, Any] = {
         "schema": "review-packet.v16",
         "mission_id": mission_id,
-        "author_login": "Qian9921",
-        "reviewer_login": "Liang9921",
+        "author_login": public_account("author"),
+        "reviewer_login": public_account("reviewer"),
         "base_sha": base_sha,
         "head_sha": head_sha,
         "tree_sha": tree_sha,
@@ -1962,7 +1986,7 @@ def render_pr_trace(
         [
             "### V16 productivity PR trace",
             f"- mission: `{mission_id}`",
-            "- author: `Qian9921`; independent reviewer: `Liang9921`",
+            f"- author: `{public_account('author')}`; independent reviewer: `{public_account('reviewer')}`",
             f"- base: `{base_sha}`; head: `{head_sha}`; tree: `{tree_sha}`",
             f"- lineage: `{public_lineage}`; coverage: `{unsigned['coverage_status']}`; round: `{round}`",
             f"- checks: {len(normalized_checks)}; findings: {len(findings)}; verdict: `null` (author renderer)",

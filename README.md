@@ -1,4 +1,4 @@
-# Codex Adaptive Governance Infra V17
+# Codex Governance Infra V18
 
 [简体中文](README.zh-CN.md) · English
 
@@ -10,7 +10,7 @@ turning every task into a release ceremony.
 
 ```text
 Outcome -> Reuse scan -> Luna executes -> Affected evidence
-        -> One Sol review -> Qian/Liang PR trace -> Knowledge
+        -> One Sol review -> configured author/reviewer PR trace -> Knowledge
 ```
 
 - **Thin global policy:** outcome, roles, relevant tools, code health, evidence,
@@ -43,8 +43,8 @@ export CODEX_GOVERNANCE_MODE=strict
 ```
 
 Strict mode is intentional, not an automatic penalty for every repository task.
-V17 is the adaptive product policy. The `codex/v16` package remains only as the
-backward-compatible strict evidence engine; ordinary reversible installer,
+# V18 is the public adaptive policy. The `codex/v16` package remains only as the
+backward-compatible strict compatibility engine; ordinary reversible installer,
 hook, and model-routing repairs use `STANDARD`.
 
 ## Model roles
@@ -105,7 +105,7 @@ opt-in.
 ### 1. Clone and verify
 
 ```bash
-git clone https://github.com/Qian9921/codex-governance-infra.git
+git clone https://github.com/your-org/codex-governance-infra.git
 cd codex-governance-infra
 
 python3 -m pip install --user -r requirements.txt
@@ -144,11 +144,48 @@ python3 scripts/install-governance.py \
   --dry-run
 ```
 
+### 4. Configure roles, accounts, and the agent surface
+
+The public defaults are placeholders. Configure two distinct account labels
+before generating review packets; these labels are metadata only and never
+contain tokens:
+
+```bash
+export CODEX_GOV_AUTHOR_ACCOUNT="your-developer-account"
+export CODEX_GOV_REVIEWER_ACCOUNT="your-reviewer-account"
+```
+
+Use the Codex hook files for Codex CLI/Desktop. For another agent runtime,
+reuse the documented policy concepts and invoke the repository verifier, but do
+not copy the Codex hook overlay blindly; this package does not claim native
+compatibility with Claude Code or other agents. Private machine profiles
+are intentionally not part of this public repository.
+
+Luna is the default execution/recovery lead. Sol supplies the short contract
+gate for R2/R3 work and the independent review; Terra is only a genuine Luna
+fallback; Spark is disabled in the default flow. Route unknown semantics to
+Semble, known structure/impact to CodeGraph, exact text to `rg`, and shell
+context through `rtk`.
+
+### 5. Verify hooks and run the first task
+
+```bash
+python3 scripts/toolchain-doctor.py --repo .
+python3 scripts/verify-governance.py --repo .
+export CODEX_GOVERNANCE_MODE=adaptive   # use strict only when explicitly required
+```
+
+Start with a QUICK explanation or STANDARD implementation task. Use STRICT for
+security/privacy, public-contract, irreversible, production-release, or exact
+parity work. If installation fails, preserve the dry-run output, fix the
+reported prerequisite, and rerun the verifier; the rollback command below is
+safe and scoped to the managed overlay.
+
 The overlay owns only manifest-listed paths. It preserves configuration,
 credentials, plugins, memories, sessions, connections, caches, receipts, and
 all unrelated files.
 
-### 4. Install
+### 6. Install
 
 ```bash
 python3 scripts/install-governance.py \
@@ -156,7 +193,7 @@ python3 scripts/install-governance.py \
   --codex-home "$ACTIVE_CODEX_HOME"
 ```
 
-### 5. Keep Luna and Spark available to native multi-agent V2
+### 7. Keep Luna and Spark available to native multi-agent V2
 
 Codex currently advertises Luna and Spark in the general model catalog while
 their upstream `multi_agent_version` metadata can exclude them from native V2
@@ -167,19 +204,24 @@ files are present:
 ACTIVE_CODEX_BIN="$(command -v codex)"
 USER_SYSTEMD_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 
-python3 scripts/configure-model-routing.py \
-  --codex-home "$ACTIVE_CODEX_HOME" \
-  --codex-bin "$ACTIVE_CODEX_BIN" \
-  --systemd-user-dir "$USER_SYSTEMD_DIR"
-
-systemctl --user daemon-reload
-systemctl --user restart codex-app-server.service
+if command -v systemctl >/dev/null 2>&1 \
+  && systemctl --user status codex-app-server.service >/dev/null 2>&1; then
+  python3 scripts/configure-model-routing.py \
+    --codex-home "$ACTIVE_CODEX_HOME" \
+    --codex-bin "$ACTIVE_CODEX_BIN" \
+    --systemd-user-dir "$USER_SYSTEMD_DIR"
+  systemctl --user daemon-reload
+  systemctl --user restart codex-app-server.service
+else
+  echo "No user-systemd app-server detected; keep model routing on-demand."
+fi
 ```
 
 The refresher uses an isolated temporary Codex home, never copies or prints
 credentials, changes only the allowlisted multi-agent backend fields, publishes
 atomically, and retains a last-known-good catalog. If the app-server service
-requires a network wrapper, add `--exec-wrapper /absolute/path/to/wrapper`.
+requires a network wrapper, set `EXEC_WRAPPER` to a repo-local executable and add
+`--exec-wrapper "$EXEC_WRAPPER"`.
 
 Model-routing rollback:
 
@@ -233,8 +275,8 @@ See [Code health](docs/code-health.md).
 
 ## GitHub responsibilities
 
-- Qian9921 authors, pushes, opens the PR, and answers findings.
-- Liang9921 independently comments, reviews the exact head, approves, and
+- your-developer-account authors, pushes, opens the PR, and answers findings.
+- your-reviewer-account independently comments, reviews the exact head, approves, and
   merges with expected-head protection.
 
 The PR retains objective, evidence summary, findings, dispositions, limitations,
