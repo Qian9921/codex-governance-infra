@@ -141,7 +141,11 @@ def validate_controller_request(
 
     requested = _family(requested_model)
     if requested == "terra":
-        raise ModelRoleError("Terra cannot be the universal controller")
+        if luna_available:
+            raise ModelRoleError("Terra cannot be the universal controller")
+        if not fallback_reason:
+            raise ModelRoleError("Terra fallback requires an explicit reason")
+        return "terra"
     if requested == "sol":
         raise ModelRoleError("Sol is a gate/reviewer, not the universal lifecycle controller")
     if requested == "spark":
@@ -150,8 +154,6 @@ def validate_controller_request(
         if not fallback_reason:
             raise ModelRoleError("Luna unavailable requires an explicit fallback reason")
         return "terra"
-    if requested == "terra" and not fallback_reason:
-        raise ModelRoleError("Terra fallback requires an explicit reason")
     return requested
 
 

@@ -68,6 +68,14 @@ class ModelRolePolicyTests(unittest.TestCase):
         with self.assertRaises(ModelRoleError):
             validate_controller_request(TERRA, luna_available=True)
         with self.assertRaises(ModelRoleError):
+            validate_controller_request(TERRA, luna_available=False)
+        self.assertEqual(
+            validate_controller_request(
+                TERRA, luna_available=False, fallback_reason="luna_unavailable"
+            ),
+            "terra",
+        )
+        with self.assertRaises(ModelRoleError):
             validate_controller_request(SOL, luna_available=True)
 
     def test_luna_unavailable_has_explicit_terra_fallback(self):
