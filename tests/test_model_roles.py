@@ -12,6 +12,8 @@ from model_roles import (  # noqa: E402
     TERRA,
     ModelRoleError,
     validate_code_mission_tool_policy,
+    normalize_receipt_identity,
+    route_execution_task,
     route_mission,
     validate_controller_request,
     validate_final_review,
@@ -579,6 +581,48 @@ class ModelRolePolicyTests(unittest.TestCase):
             validate_receipt_identity({**value, "task_name": "luna-terra-execution-a"})
         with self.assertRaises(ModelRoleError):
             validate_receipt_identity({**fallback, "fallback_reason": " none "})
+
+    def test_adaptive_identity_normalizes_followup_model_drift(self):
+        normalized = normalize_receipt_identity(
+            identity(
+                SOL,
+                "execution",
+                "followup-2",
+                requested=LUNA,
+                fallback="none",
+            )
+        )
+        self.assertEqual(normalized["status"], "advisory")
+        self.assertIn("sol-execution-followup-2", normalized["normalized_task_name"])
+        self.assertIn("requested_actual_family_drift", normalized["advisory"])
+
+    def test_luna_named_task_with_sol_actual_is_identity_misrepresentation(self):
+        with self.assertRaises(ModelRoleError):
+            normalize_receipt_identity(
+                identity(
+                    SOL,
+                    "execution",
+                    "luna-execution-followup",
+                    requested=LUNA,
+                    fallback="luna_unavailable",
+                )
+            )
+
+    def test_execution_route_is_bounded_luna_and_review_stays_sol(self):
+        execution = route_execution_task(task_name="luna-execution-build")
+        self.assertEqual(execution["model"], LUNA)
+        self.assertTrue(execution["execution"])
+        self.assertFalse(execution["context"]["full_history"])
+        self.assertEqual(execution["identity"]["status"], "ok")
+
+        review = route_execution_task(
+            requested_model=SOL,
+            actual_model=SOL,
+            role="independent_final_reviewer",
+            task_name="sol-independent-final-review",
+        )
+        self.assertEqual(review["model"], SOL)
+        self.assertFalse(review["execution"])
 
 
 if __name__ == "__main__":

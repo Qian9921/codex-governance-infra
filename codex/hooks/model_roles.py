@@ -144,6 +144,12 @@ CODE_MISSION_TOOL_HEALTH_STATES = frozenset(
 MAX_NESTED_DEPTH = 2
 MAX_CROSS_MODEL_HOPS = 1
 NONE_LIKE_FALLBACKS = frozenset(("", "none", "null", "n/a", "na"))
+EXECUTION_CONTEXT = {
+    "mode": "bounded",
+    "full_history": False,
+    "max_history_messages": 0,
+    "max_context_tokens": 1200,
+}
 
 
 class ModelRoleError(ValueError):
@@ -278,12 +284,30 @@ def _name_tokens(task_name: str) -> set[str]:
     return {token.lower() for token in re.findall(r"[a-z0-9]+", task_name)}
 
 
-def validate_receipt_identity(receipt: Mapping[str, Any]) -> dict[str, str]:
-    """Require transparent model/role identity at a new policy boundary.
+def _normalized_task_name(actual: str, role: str, task_name: str) -> str:
+    """Add missing machine identity markers without changing the source name."""
 
-    Existing v15 packets remain backward compatible and advisory.  New
-    role-routed calls can opt into this stricter helper so a Terra fallback can
-    never be recorded as an unnamed Luna task.
+    role_slug = re.sub(r"[^a-z0-9]+", "-", role.lower()).strip("-") or "task"
+    tokens = _name_tokens(task_name)
+    prefix = []
+    if actual not in tokens:
+        prefix.append(actual)
+    if not (_role_tokens(role) & tokens):
+        prefix.append(role_slug)
+    return "-".join((*prefix, task_name)) if prefix else task_name
+
+
+def normalize_receipt_identity(
+    receipt: Mapping[str, Any], *, strict: bool = False
+) -> dict[str, Any]:
+    """Normalize model/task identity for adaptive routing.
+
+    Runtime ``actual_model`` is authoritative.  A task name that explicitly
+    claims a different known family is deliberate identity misrepresentation
+    and always blocks.  Missing markers, role drift, and a follow-up requested
+    versus actual-family change are advisory in adaptive mode and receive a
+    deterministic normalized name.  ``strict=True`` retains the fail-closed
+    V16 behavior for explicit strict routes.
     """
 
     if not isinstance(receipt, Mapping):
@@ -295,30 +319,66 @@ def validate_receipt_identity(receipt: Mapping[str, Any]) -> dict[str, str]:
         _text(receipt.get(field), field)
     requested = _family(receipt["requested_model"])
     actual = _family(receipt["actual_model"])
+    role = receipt["role"]
     task_name = receipt["task_name"]
     tokens = _name_tokens(task_name)
     named_families = tokens & {"sol", "luna", "terra", "spark"}
     if len(named_families) > 1:
         raise ModelRoleError("task_name model family is ambiguous")
-    if actual not in tokens:
-        raise ModelRoleError("task_name must expose actual model family")
-    if not (_role_tokens(receipt["role"]) & tokens):
-        raise ModelRoleError("task_name must expose role")
+    if named_families and actual not in named_families:
+        raise ModelRoleError("task_name misrepresents actual model family")
+
     fallback = _text(receipt["fallback_reason"], "fallback_reason").strip()
     fallback_kind = fallback.lower()
+    advisory: list[str] = []
     if requested != actual:
-        if fallback_kind in {"none", "null", "n/a"}:
-            raise ModelRoleError("fallback_reason required when model changes")
-        if requested in tokens:
+        if fallback_kind in NONE_LIKE_FALLBACKS:
+            if strict:
+                raise ModelRoleError("fallback_reason required when model changes")
+            advisory.append("requested_actual_family_drift")
+        elif requested in tokens:
+            # A fallback name retaining the requested family is never safe to
+            # normalize because it would make telemetry lie about execution.
             raise ModelRoleError("fallback task_name retains requested model family")
-    elif fallback_kind not in {"none", "null", "n/a"}:
-        raise ModelRoleError("fallback_reason must be none when model is unchanged")
+    elif fallback_kind not in NONE_LIKE_FALLBACKS:
+        if strict:
+            raise ModelRoleError("fallback_reason must be none when model is unchanged")
+        advisory.append("unexpected_fallback_reason")
+
+    normalized_name = _normalized_task_name(actual, role, task_name)
+    if actual not in tokens:
+        advisory.append("task_name_missing_actual_family")
+    if not (_role_tokens(role) & tokens):
+        advisory.append("task_name_missing_role")
+    if strict and advisory:
+        raise ModelRoleError("strict identity requires task/model fields to agree")
     return {
         "requested_model": receipt["requested_model"],
         "actual_model": receipt["actual_model"],
-        "role": receipt["role"],
+        "role": role,
         "fallback_reason": fallback,
         "task_name": task_name,
+        "normalized_task_name": normalized_name,
+        "requested_model_family": requested,
+        "actual_model_family": actual,
+        "status": "advisory" if advisory else "ok",
+        "advisory": tuple(advisory),
+        "strict": strict,
+    }
+
+
+def validate_receipt_identity(receipt: Mapping[str, Any]) -> dict[str, str]:
+    """Require transparent model/role identity at a new policy boundary.
+
+    Existing v15 packets remain backward compatible and advisory.  New
+    role-routed calls can opt into this stricter helper so a Terra fallback can
+    never be recorded as an unnamed Luna task.
+    """
+
+    normalized = normalize_receipt_identity(receipt, strict=True)
+    return {
+        field: normalized[field]
+        for field in ("requested_model", "actual_model", "role", "fallback_reason", "task_name")
     }
 
 
@@ -808,6 +868,54 @@ def validate_controller_request(
     return requested
 
 
+def route_execution_task(
+    *,
+    requested_model: str = LUNA,
+    actual_model: str | None = None,
+    role: str = "execution",
+    task_name: str = "execution-task",
+    fallback_reason: str = "none",
+    strict: bool = False,
+) -> dict[str, Any]:
+    """Route one execution/review task with bounded context.
+
+    Luna is the execution owner.  A Sol task is a non-execution review or
+    consultation path and is never silently promoted to lifecycle execution.
+    Runtime identity drift is returned as advisory metadata in adaptive mode;
+    deliberate task-name family claims and explicit strict drift still block.
+    """
+
+    actual = actual_model if actual_model is not None else requested_model
+    _family(actual)
+    role_text = _text(role, "role").lower()
+    identity = normalize_receipt_identity(
+        {
+            "requested_model": requested_model,
+            "actual_model": actual,
+            "role": role_text,
+            "fallback_reason": fallback_reason,
+            "task_name": task_name,
+        },
+        strict=strict,
+    )
+    review_path = bool({"review", "reviewer", "consultant"} & _role_tokens(role_text))
+    if review_path:
+        selected_model = SOL
+        selected_role = "independent_final_reviewer" if "review" in role_text else role_text
+    else:
+        selected_model = LUNA
+        selected_role = "execution_lead"
+    return {
+        "model": selected_model,
+        "role": selected_role,
+        "execution": not review_path,
+        "requested_model": requested_model,
+        "actual_model": actual,
+        "identity": identity,
+        "context": dict(EXECUTION_CONTEXT),
+    }
+
+
 def route_mission(
     risk: str,
     *,
@@ -815,6 +923,10 @@ def route_mission(
     luna_available: bool = True,
     review_required: bool | None = None,
     terra_bridge: str | None = None,
+    requested_model: str = LUNA,
+    actual_model: str | None = None,
+    task_name: str | None = None,
+    role: str = "execution",
 ) -> dict[str, Any]:
     """Return the compact lifecycle route for one mission.
 
@@ -855,12 +967,27 @@ def route_mission(
             )
         if high_risk:
             raise ModelRoleError("R2+ missions require Sol authority, not a Terra bridge")
+    default_task_name = task_name
+    if default_task_name is None:
+        actual_family = "luna" if actual_controller == LUNA else "terra"
+        role_slug = re.sub(r"[^a-z0-9]+", "-", role.lower()).strip("-") or "execution"
+        default_task_name = f"{actual_family}-{role_slug}-task"
+    execution_identity = route_execution_task(
+        requested_model=requested_model,
+        actual_model=actual_model if actual_model is not None else actual_controller,
+        role=role,
+        task_name=default_task_name,
+        fallback_reason=fallback_reason,
+        strict=profile == "STRICT",
+    )
     return {
         "risk": risk,
         "profile": profile,
         "requested_controller_model": LUNA,
         "controller_model": actual_controller,
         "execution_model": actual_controller,
+        "execution_context": dict(EXECUTION_CONTEXT),
+        "execution_identity": execution_identity["identity"],
         "controller_role": controller_role,
         "fallback_reason": fallback_reason,
         "universal_controller": actual_controller == LUNA,
