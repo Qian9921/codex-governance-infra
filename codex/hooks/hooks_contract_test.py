@@ -75,7 +75,7 @@ class HooksContractTests(unittest.TestCase):
                 ),
             },
         )
-        self.assertIn("ADAPTIVE-GOVERNANCE", guidance)
+        self.assertIn("V19 PERSONAL KERNEL", guidance)
         self.assertEqual(context["review_runtime"]["formal_review_calls"], 1)
         self.assertEqual(
             context["review_runtime"]["duplicate_full_scope_reviews"], 0
@@ -83,14 +83,12 @@ class HooksContractTests(unittest.TestCase):
         self.assertIn("delta-only", context["review_runtime"]["delta_continuation"])
         self.assertIn("Sol high", context["review_runtime"]["delta_continuation"])
         self.assertIn("Luna", guidance)
-        self.assertIn("never repeat a no-progress strategy", guidance)
-        self.assertIn("distinct evidence-producing recovery", guidance)
-        self.assertIn("exercised by its dependent slice", guidance)
-        self.assertIn("genuine external impossibility", guidance)
-        self.assertIn("No-flag maintenance is adaptive tool-recovery.v1", guidance)
+        self.assertIn("never repeats a no-progress strategy", guidance)
+        self.assertIn("AGENTS.md owns durable behavior", guidance)
+        self.assertIn("skills and agent TOMLs own conditional detail", guidance)
         self.assertIn("--strict-maintenance", guidance)
-        self.assertLessEqual(len(guidance), 1500)
-        self.assertIn("at most five short points", guidance)
+        self.assertLessEqual(len(guidance), 700)
+        self.assertIn("$v19-strict-proof", guidance)
 
     def test_intake_context_keeps_recovery_autonomous_and_bounded(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -107,13 +105,12 @@ class HooksContractTests(unittest.TestCase):
             )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         guidance = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("Never repeat a no-progress strategy", guidance)
-        self.assertIn("distinct evidence-producing recovery", guidance)
-        self.assertIn("genuine external impossibility", guidance)
-        self.assertIn("adaptive tool-recovery.v1", guidance)
-        self.assertIn("--strict-maintenance", guidance)
-        self.assertLess(len(guidance), 1500)
-        self.assertTrue(guidance.endswith("Current hook mode=adaptive."))
+        self.assertIn("V19 INTAKE", guidance)
+        self.assertIn("Adaptive default", guidance)
+        self.assertIn("$v19-strict-proof", guidance)
+        self.assertIn("--record-task-contract", guidance)
+        self.assertLess(len(guidance), 900)
+        self.assertTrue(guidance.endswith("mode=adaptive."))
 
     def test_receipt_allowlists_private_fields(self):
         raw = "PRIVATE_PROMPT_VALUE /cwd /secret"
@@ -776,7 +773,7 @@ class HooksContractTests(unittest.TestCase):
             self.assertEqual(intake.returncode, 0, intake.stderr)
             context = json.loads(intake.stdout)["hookSpecificOutput"]["additionalContext"]
             self.assertIn("--repository-work|--non-repository-task", context)
-            self.assertIn("do not run repository preflight", context)
+            self.assertIn("skips repository preflight", context)
             task_id = hashlib.sha256(b"machine-session\0machine-turn").hexdigest()
             shape_id = hashlib.sha256(prompt.encode()).hexdigest()
             intake_id = re.search(

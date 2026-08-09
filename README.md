@@ -13,8 +13,9 @@ Outcome -> Reuse scan -> Luna executes (optional bounded Terra bridge) -> Affect
         -> One Sol review -> configured author/reviewer PR trace -> Knowledge
 ```
 
-- **Thin global policy:** outcome, roles, relevant tools, code health, evidence,
-  review, privacy, and completion.
+- **Personal progressive infrastructure:** a bounded always-loaded kernel,
+  on-demand skills, single-role subagents, compact hooks, command rules, and an
+  opt-in strict profile.
 - **Adaptive profiles:** `QUICK`, `STANDARD`, and opt-in `STRICT`.
 - **Code health:** project rules first, official Google guidance as the default,
   and a `REUSE|EXTEND|NEW` decision before meaningful new abstractions.
@@ -29,7 +30,11 @@ Outcome -> Reuse scan -> Luna executes (optional bounded Terra bridge) -> Affect
   no per-turn/count quota is imposed.
 - **Convergent review:** one independent reviewer; stable fixes are delta-only.
 - **Safe installation:** manifest-bound, dry-run capable, atomic, backed up,
-  hash-verified, and rollback-capable.
+  hash-verified, and rollback-capable across the personal `.codex` and `.agents`
+  roots.
+
+The package installs personal configuration only. See the
+[personal infrastructure and context budget](docs/personal-infra.md).
 
 This repository supports Codex only. It does not claim compatibility with
 Claude Code, Kimi Code, Zcode, or other agent runtimes.
@@ -168,8 +173,8 @@ export CODEX_GOV_REVIEWER_ACCOUNT="your-reviewer-account"
 Use the Codex hook files for Codex CLI/Desktop. For another agent runtime,
 reuse the documented policy concepts and invoke the repository verifier, but do
 not copy the Codex hook overlay blindly; this package does not claim native
-compatibility with Claude Code or other agents. Private machine profiles
-are intentionally not part of this public repository.
+compatibility with Claude Code or other agents. The shipped strict profile is
+portable and contains no provider, credential, or machine-specific setting.
 
 Luna is the default execution/recovery lead. Sol supplies the short contract
 gate for R2/R3 work and the independent review; Terra bridges are explicit
@@ -193,7 +198,8 @@ parity work. If installation fails, preserve the dry-run output, fix the
 reported prerequisite, and rerun the verifier; the rollback command below is
 safe and scoped to the managed overlay.
 
-The overlay owns only manifest-listed paths. It preserves configuration,
+The overlay owns only manifest-listed paths in the selected personal `.codex`
+root and the V19 skills under the sibling `.agents/skills` root. It preserves configuration,
 credentials, plugins, memories, sessions, connections, caches, receipts, and
 all unrelated files.
 

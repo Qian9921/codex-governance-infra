@@ -16,6 +16,12 @@ from public_content import FORBIDDEN_PARTS, FORBIDDEN_RE, scan_path
 from public_manifest import validate_manifest_metadata
 REQUIRED_PATHS = (
     "codex/AGENTS.md", "codex/BRIEF-TEMPLATES.md", "codex/hooks/hooks.json",
+    "codex/agents/luna-execution.toml", "codex/agents/sol-reviewer.toml",
+    "codex/rules/v19-safety.rules",
+    "codex/skills/v19-engineering/SKILL.md",
+    "codex/skills/v19-strict-proof/SKILL.md",
+    "codex/skills/v19-github-delivery/SKILL.md",
+    "codex/governance-strict.config.toml", "docs/personal-infra.md",
     "codex/bin/refresh-model-catalog.py", "scripts/configure-model-routing.py",
     "codex/v16/contracts/README.md", "codex/v16/contracts/schema_registry.v16.json",
     "codex/v16/contracts/v16_dispatch_transcript.json", "scripts/install-governance.py",

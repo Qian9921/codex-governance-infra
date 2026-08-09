@@ -1,0 +1,43 @@
+# Personal V19 safety net for commands requested outside the sandbox.
+# The user can still authorize recoverable operations; catastrophic root deletion
+# remains forbidden. More specific repository behavior belongs to Hooks/AGENTS.
+
+prefix_rule(
+    pattern = ["rm", "-rf", "/"],
+    decision = "forbidden",
+    justification = "Never recursively delete the filesystem root; resolve an exact bounded target instead.",
+    match = ["rm -rf /"],
+    not_match = ["rm -rf ./bounded-task"],
+)
+
+prefix_rule(
+    pattern = ["git", "reset", "--hard"],
+    decision = "prompt",
+    justification = "A hard reset can destroy unrelated work; confirm the exact repository and recovery plan.",
+    match = ["git reset --hard", "git reset --hard HEAD~1"],
+    not_match = ["git reset --soft HEAD~1"],
+)
+
+prefix_rule(
+    pattern = ["git", "clean", ["-fd", "-fdx", "-df", "-dfx"]],
+    decision = "prompt",
+    justification = "Git clean can remove untracked user files; inspect the exact targets first.",
+    match = ["git clean -fd", "git clean -fdx"],
+    not_match = ["git clean -n"],
+)
+
+prefix_rule(
+    pattern = ["git", "push", ["--force", "-f"]],
+    decision = "prompt",
+    justification = "Force push rewrites shared history; use force-with-lease and expected-head protection when authorized.",
+    match = ["git push --force origin topic", "git push -f origin topic"],
+    not_match = ["git push --force-with-lease origin topic", "git push origin topic"],
+)
+
+prefix_rule(
+    pattern = ["gh", "repo", "delete"],
+    decision = "prompt",
+    justification = "Repository deletion is externally destructive and requires explicit confirmation of the exact repository.",
+    match = ["gh repo delete owner/repo", "gh repo delete owner/repo --yes"],
+    not_match = ["gh repo view owner/repo"],
+)
