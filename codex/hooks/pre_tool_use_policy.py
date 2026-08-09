@@ -448,12 +448,16 @@ if __name__ == "__main__":
             "reason": "V16 runtime-proof receipt persistence failed",
             "reason_code": "hook_receipt_write_failed",
         }
-    specific = {
-        "hookEventName": "PreToolUse",
-        "permissionDecision": result["decision"],
-        "permissionDecisionReason": result["reason"],
-    }
-    if result["decision"] == "allow" and updated_command is not None:
+    specific = {"hookEventName": "PreToolUse"}
+    if result["decision"] == "deny":
+        specific["permissionDecision"] = "deny"
+        specific["permissionDecisionReason"] = result["reason"]
+    elif updated_command is not None:
+        # Codex rejects a bare permissionDecision:"allow" because a hook must
+        # not override the host permission policy.  "allow" is meaningful only
+        # when paired with updatedInput to approve the hook's replacement.
+        specific["permissionDecision"] = "allow"
+        specific["permissionDecisionReason"] = result["reason"]
         specific["updatedInput"] = {"command": updated_command}
     output = {"hookSpecificOutput": specific}
     if not written:
