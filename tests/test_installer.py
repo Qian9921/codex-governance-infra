@@ -69,6 +69,49 @@ class Installer(unittest.TestCase):
    subprocess.check_call(command+['--rollback'])
    self.assertEqual(skill.read_text(encoding='utf-8'),'previous-personal-skill')
 
+ def test_custom_agents_home_root_drift_preserves_both_roots_and_backup(self):
+  with tempfile.TemporaryDirectory() as d:
+   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); custom=parent/'custom-agents'; default=parent/'.agents'
+   custom_skill=custom/'skills'/'v19-engineering'/'SKILL.md'; custom_skill.parent.mkdir(parents=True); custom_skill.write_text('custom-before',encoding='utf-8')
+   default_skill=default/'skills'/'v19-engineering'/'SKILL.md'; default_skill.parent.mkdir(parents=True); default_skill.write_text('default-unrelated',encoding='utf-8')
+   command=[sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home),'--agents-home',str(custom)]
+   subprocess.check_call(command)
+   installed=custom_skill.read_text(encoding='utf-8')
+   self.assertNotEqual(installed,'custom-before')
+   result=subprocess.run(command[:-2]+['--rollback'],capture_output=True,text=True)
+   self.assertNotEqual(result.returncode,0)
+   self.assertIn('backup root mismatch',result.stderr)
+   self.assertEqual(custom_skill.read_text(encoding='utf-8'),installed)
+   self.assertEqual(default_skill.read_text(encoding='utf-8'),'default-unrelated')
+   self.assertTrue((home/'.governance-v16-backup').is_dir())
+   subprocess.check_call(command+['--rollback'])
+   self.assertEqual(custom_skill.read_text(encoding='utf-8'),'custom-before')
+   self.assertEqual(default_skill.read_text(encoding='utf-8'),'default-unrelated')
+
+ def test_personal_skill_parent_symlink_escape_is_rejected(self):
+  with tempfile.TemporaryDirectory() as d:
+   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); agents_home=parent/'.agents'
+   unrelated=agents_home/'unrelated-personal-state'; unrelated.mkdir(parents=True)
+   sentinel=unrelated/'SKILL.md'; sentinel.write_text('keep',encoding='utf-8')
+   skills=agents_home/'skills'; skills.mkdir(); (skills/'v19-engineering').symlink_to(unrelated,target_is_directory=True)
+   result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home)],capture_output=True,text=True)
+   self.assertNotEqual(result.returncode,0)
+   self.assertIn('destination escape:@agents/skills/v19-engineering/SKILL.md',result.stderr)
+   self.assertEqual(sentinel.read_text(encoding='utf-8'),'keep')
+   self.assertFalse((home/'.governance-v16-backup').exists())
+
+ def test_interrupted_recovery_rejects_agents_root_drift(self):
+  with tempfile.TemporaryDirectory() as d:
+   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); custom=parent/'custom-agents'; default=parent/'.agents'
+   custom.mkdir(); default.mkdir()
+   backup=home/'.governance-v16-backup'; backup.mkdir()
+   key='@agents/skills/v19-engineering/SKILL.md'
+   (backup/'metadata.json').write_text(json.dumps({'schema':'governance-overlay-backup.v19','roots':{'codex_home':str(home.resolve()),'agents_home':str(custom.resolve())},'managed':[key],'previous':[],'installed':{key:'0'*64},'committed':False}),encoding='utf-8')
+   result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home)],capture_output=True,text=True)
+   self.assertNotEqual(result.returncode,0)
+   self.assertIn('backup root mismatch',result.stderr)
+   self.assertTrue(backup.is_dir())
+
  def test_agents_home_symlink_into_codex_home_is_rejected(self):
   with tempfile.TemporaryDirectory() as d:
    parent=pathlib.Path(d); home=parent/'home'; home.mkdir()
@@ -81,7 +124,7 @@ class Installer(unittest.TestCase):
   with tempfile.TemporaryDirectory() as d:
    parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); agents_home=parent/'.agents'; agents_home.mkdir()
    backup=home/'.governance-v16-backup'; backup.mkdir()
-   (backup/'metadata.json').write_text(json.dumps({'schema':'governance-overlay-backup.v16','managed':['@agents/sentinel'],'previous':[],'installed':{'@agents/sentinel':'0'*64},'committed':True}),encoding='utf-8')
+   (backup/'metadata.json').write_text(json.dumps({'schema':'governance-overlay-backup.v19','roots':{'codex_home':str(home.resolve()),'agents_home':str(agents_home.resolve())},'managed':['@agents/sentinel'],'previous':[],'installed':{'@agents/sentinel':'0'*64},'committed':True}),encoding='utf-8')
    sentinel=agents_home/'sentinel'; sentinel.write_text('keep',encoding='utf-8')
    result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home),'--rollback'],capture_output=True,text=True)
    self.assertNotEqual(result.returncode,0)
@@ -95,11 +138,41 @@ class Installer(unittest.TestCase):
    backup=home/'.governance-v16-backup'; files=backup/'files'/'@agents'; files.mkdir(parents=True)
    (files/'skills').symlink_to(outside,target_is_directory=True)
    key='@agents/skills/SKILL.md'
-   (backup/'metadata.json').write_text(json.dumps({'schema':'governance-overlay-backup.v16','managed':[key],'previous':[key],'installed':{key:'0'*64},'committed':True}),encoding='utf-8')
+   (backup/'metadata.json').write_text(json.dumps({'schema':'governance-overlay-backup.v19','roots':{'codex_home':str(home.resolve()),'agents_home':str(agents_home.resolve())},'managed':[key],'previous':[key],'installed':{key:'0'*64},'committed':True}),encoding='utf-8')
    result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home),'--rollback'],capture_output=True,text=True)
    self.assertNotEqual(result.returncode,0)
    self.assertIn('backup source escape',result.stderr)
    self.assertEqual((outside/'SKILL.md').read_text(encoding='utf-8'),'outside')
+
+ def test_rollback_rejects_personal_skill_parent_symlink_escape(self):
+  with tempfile.TemporaryDirectory() as d:
+   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); agents_home=parent/'.agents'
+   unrelated=agents_home/'unrelated-personal-state'; unrelated.mkdir(parents=True)
+   sentinel=unrelated/'SKILL.md'; sentinel.write_text('keep',encoding='utf-8')
+   skills=agents_home/'skills'; skills.mkdir(); (skills/'demo').symlink_to(unrelated,target_is_directory=True)
+   backup=home/'.governance-v16-backup'; backup.mkdir()
+   key='@agents/skills/demo/SKILL.md'
+   (backup/'metadata.json').write_text(json.dumps({'schema':'governance-overlay-backup.v19','roots':{'codex_home':str(home.resolve()),'agents_home':str(agents_home.resolve())},'managed':[key],'previous':[],'installed':{key:'0'*64},'committed':True}),encoding='utf-8')
+   result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home),'--rollback'],capture_output=True,text=True)
+   self.assertNotEqual(result.returncode,0)
+   self.assertIn('destination escape:'+key,result.stderr)
+   self.assertEqual(sentinel.read_text(encoding='utf-8'),'keep')
+   self.assertTrue(backup.is_dir())
+
+ def test_interrupted_recovery_rejects_personal_skill_parent_symlink_escape(self):
+  with tempfile.TemporaryDirectory() as d:
+   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); agents_home=parent/'.agents'
+   unrelated=agents_home/'unrelated-personal-state'; unrelated.mkdir(parents=True)
+   sentinel=unrelated/'SKILL.md'; sentinel.write_text('keep',encoding='utf-8')
+   skills=agents_home/'skills'; skills.mkdir(); (skills/'demo').symlink_to(unrelated,target_is_directory=True)
+   backup=home/'.governance-v16-backup'; backup.mkdir()
+   key='@agents/skills/demo/SKILL.md'
+   (backup/'metadata.json').write_text(json.dumps({'schema':'governance-overlay-backup.v19','roots':{'codex_home':str(home.resolve()),'agents_home':str(agents_home.resolve())},'managed':[key],'previous':[],'installed':{key:'0'*64},'committed':False}),encoding='utf-8')
+   result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home)],capture_output=True,text=True)
+   self.assertNotEqual(result.returncode,0)
+   self.assertIn('destination escape:'+key,result.stderr)
+   self.assertEqual(sentinel.read_text(encoding='utf-8'),'keep')
+   self.assertTrue(backup.is_dir())
 
  def test_manifest_hash_matching_forbidden_content_is_rejected(self):
   with tempfile.TemporaryDirectory() as d:

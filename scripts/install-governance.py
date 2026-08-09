@@ -92,8 +92,8 @@ def _target(
     if canonical.parts[0] == AGENTS_ROOT_PREFIX:
         if len(canonical.parts) < 3 or canonical.parts[1] != "skills":
             raise SystemExit("invalid agents-home target:" + relative)
-        root = agents_home
-        target = root.joinpath(*canonical.parts[1:])
+        root = agents_home / "skills"
+        target = root.joinpath(*canonical.parts[2:])
     else:
         root = destination
         target = root.joinpath(*canonical.parts)
@@ -153,8 +153,10 @@ def _backup_metadata(backup: pathlib.Path) -> dict[str, Any]:
         previous = set(metadata["previous"])
     except (OSError, KeyError, TypeError, json.JSONDecodeError):
         raise SystemExit("invalid backup metadata")
+    schema = metadata.get("schema")
+    roots = metadata.get("roots")
     if (
-        metadata.get("schema") != "governance-overlay-backup.v16"
+        schema not in {"governance-overlay-backup.v16", "governance-overlay-backup.v19"}
         or not isinstance(managed, list)
         or not all(isinstance(item, str) for item in managed)
         or not all(isinstance(item, str) for item in previous)
@@ -168,9 +170,36 @@ def _backup_metadata(backup: pathlib.Path) -> dict[str, Any]:
             )
         )
         or ("committed" in metadata and type(metadata["committed"]) is not bool)
+        or (
+            schema == "governance-overlay-backup.v19"
+            and (
+                not isinstance(roots, dict)
+                or set(roots) != {"codex_home", "agents_home"}
+                or not all(isinstance(value, str) for value in roots.values())
+            )
+        )
+        or (
+            schema == "governance-overlay-backup.v16"
+            and any(item.startswith(AGENTS_ROOT_PREFIX + "/") for item in managed)
+        )
     ):
         raise SystemExit("invalid backup metadata")
     return metadata
+
+
+def _assert_backup_roots(
+    metadata: dict[str, Any], destination: pathlib.Path, agents_home: pathlib.Path
+) -> None:
+    """Fail closed when a V19 transaction is opened with different roots."""
+
+    if metadata["schema"] == "governance-overlay-backup.v16":
+        return
+    expected = {
+        "codex_home": str(destination.resolve(strict=False)),
+        "agents_home": str(agents_home.resolve(strict=False)),
+    }
+    if metadata["roots"] != expected:
+        raise SystemExit("backup root mismatch")
 
 
 def _backup_committed(backup: pathlib.Path) -> bool:
@@ -182,6 +211,7 @@ def _apply_backup(
     destination: pathlib.Path, agents_home: pathlib.Path, backup: pathlib.Path
 ) -> None:
     metadata = _backup_metadata(backup)
+    _assert_backup_roots(metadata, destination, agents_home)
     managed = metadata["managed"]
     previous = set(metadata["previous"])
     for relative in managed:
@@ -213,6 +243,8 @@ def _recover_interrupted_rotation(
     for path in (backup, previous):
         if path.exists() and (path.is_symlink() or not path.is_dir()):
             raise SystemExit("unsafe backup target")
+        if path.exists():
+            _assert_backup_roots(_backup_metadata(path), destination, agents_home)
     if previous.exists() and not backup.exists():
         previous.rename(backup)
     elif previous.exists() and backup.exists():
@@ -253,7 +285,11 @@ def install(
                 saved.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(target, saved)
         _write_json(temporary / "metadata.json", {
-            "schema": "governance-overlay-backup.v16",
+            "schema": "governance-overlay-backup.v19",
+            "roots": {
+                "codex_home": str(destination.resolve(strict=False)),
+                "agents_home": str(agents_home.resolve(strict=False)),
+            },
             "managed": [relative for relative, _source, _target_path in targets],
             "previous": previous,
             "installed": {relative: sha(source) for relative, source, _target in targets},
