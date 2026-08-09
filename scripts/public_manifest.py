@@ -8,7 +8,7 @@ from typing import Any, Mapping
 MANIFEST_KEYS = frozenset({"allowlist", "files", "forbidden", "package", "schema_version", "version"})
 PACKAGE = "Codex Governance Infra"
 SCHEMA_VERSION = "1"
-VERSION = "19.0.0"
+VERSION = "19.1.0"
 FORBIDDEN = (
     "sessions",
     "hook-receipts",

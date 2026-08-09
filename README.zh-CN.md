@@ -11,7 +11,8 @@
      → Sol 一次审查 → 已配置 author/reviewer PR 留痕 → 知识沉淀
 ```
 
-- **轻量全局规范：** 目标、角色、相关工具、代码健康、证据、审查、隐私和结束。
+- **个人级渐进式 Infra：** 有预算的常驻 kernel、按需 Skill、单一职责 Subagent、
+  精简 Hook、命令 Rules 和显式 strict profile。
 - **自适应档位：** `QUICK`、`STANDARD`、显式启用的 `STRICT`。
 - **代码健康：** 项目规范优先，Google 官方规范作为默认基线；新增重要抽象前做 `REUSE|EXTEND|NEW` 决策。
 - **按意图用工具：** Semble 找未知语义和相似实现，CodeGraph 查已知结构和影响，`rg` 查精确事实，`rtk` 展示 shell context。
@@ -20,7 +21,10 @@
   Semble，`CANDIDATE_READY` 前必须有 CodeGraph，只有纯非代码或精确机械任务
   能以说明标记 `N/A`，且不设置每轮或调用次数配额。
 - **单调收敛审查：** 一个独立 reviewer；普通修复只做 delta closure。
-- **安全安装：** manifest 白名单、dry-run、原子安装、备份、哈希验证和 rollback。
+- **安全安装：** 对个人 `.codex` 与 `.agents` 两个根执行 manifest 白名单、dry-run、
+  原子安装、备份、哈希验证和 rollback。
+
+本包只安装个人级配置。详见[个人 Infra 与上下文预算](docs/personal-infra.md)。
 
 本仓库不宣称兼容 Claude Code、Kimi Code、Zcode 或其他 Agent runtime。
 
@@ -131,7 +135,9 @@ python3 scripts/install-governance.py \
   --dry-run
 ```
 
-Overlay 只拥有 manifest 中列出的路径。现有 config、credential、plugin、memory、session、connection、cache、receipt 和其他无关文件全部保留。
+Overlay 只拥有选定个人 `.codex` 根中 manifest 列出的路径，以及相邻
+`.agents/skills` 下的三个 V19 Skill。现有 config、credential、plugin、memory、
+session、connection、cache、receipt 和其他无关文件全部保留。
 
 ### 4. 配置角色、账号和 Agent surface
 
@@ -145,7 +151,8 @@ export CODEX_GOV_REVIEWER_ACCOUNT="your-reviewer-account"
 
 Codex CLI/Desktop 使用本仓库的 hook 文件。若使用其他 Agent runtime，请复用文档中的
 策略概念并运行 verifier，但不要直接复制 Codex hook overlay；本包不宣称原生兼容
-Claude Code 或其他 Agent。私有机器 profile 不属于这个公共仓库。
+Claude Code 或其他 Agent。本仓提供的 strict profile 是可移植配置，不包含 provider、
+credential 或机器专属设置。
 
 Luna 默认负责执行和恢复；Sol 为 R2/R3 提供简短 contract gate 并做独立 review；Terra
 bridge 是显式、有界、R0/R1 的 advisory handoff 并返回 Luna，只有 Luna 确实不可用时

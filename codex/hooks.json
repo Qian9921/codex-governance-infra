@@ -9,7 +9,7 @@
             "type": "command",
             "command": "python3 \"${CODEX_HOME:-$HOME/.codex}/hooks/session_context.py\"",
             "statusMessage": "Loading V16 governance",
-            "additionalContextLimit": 1600,
+            "additionalContextLimit": 800,
             "timeout": 10
           }
         ]
@@ -22,7 +22,7 @@
             "type": "command",
             "command": "python3 \"${CODEX_HOME:-$HOME/.codex}/hooks/session_context.py\"",
             "statusMessage": "Loading V16 subagent contract",
-            "additionalContextLimit": 1600,
+            "additionalContextLimit": 800,
             "timeout": 10
           }
         ]
@@ -35,7 +35,7 @@
             "type": "command",
             "command": "python3 \"${CODEX_HOME:-$HOME/.codex}/hooks/session_context.py\"",
             "statusMessage": "Binding V16 task intake",
-            "additionalContextLimit": 1600,
+            "additionalContextLimit": 900,
             "timeout": 10
           }
         ]

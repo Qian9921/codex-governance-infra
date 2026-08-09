@@ -2,7 +2,7 @@ import json, os, pathlib, subprocess, sys, tempfile, unittest
 ROOT=pathlib.Path(__file__).parents[1]
 class Policy(unittest.TestCase):
  def test_limits(self):
-  self.assertLessEqual((ROOT/'codex/AGENTS.md').stat().st_size,26624)
+  self.assertLessEqual((ROOT/'codex/AGENTS.md').stat().st_size,10240)
   self.assertLessEqual((ROOT/'codex/BRIEF-TEMPLATES.md').stat().st_size,18000)
  def test_self_healing_policy_is_consistent(self):
   agent=(ROOT/'codex/AGENTS.md').read_text(encoding='utf-8')
@@ -41,7 +41,7 @@ class Policy(unittest.TestCase):
    payload=json.loads(out)
    specific=payload['hookSpecificOutput']
    self.assertEqual(specific['hookEventName'],'SessionStart')
-   self.assertLessEqual(len(specific['additionalContext']),1500)
+   self.assertLessEqual(len(specific['additionalContext']),700)
    self.assertNotIn('systemMessage',payload)
    self.assertEqual(len(list(pathlib.Path(receipt_dir).glob('*.jsonl'))),1)
 if __name__=='__main__': unittest.main()

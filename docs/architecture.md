@@ -80,7 +80,10 @@ upgrade a mission. A missing task receipt cannot manufacture high risk.
 
 `codex/AGENTS.md` is the installed thin kernel. It defines communication,
 mission sizing, model roles, tool intent, code health, evidence, review,
-GitHub identity, knowledge retention, privacy, and completion.
+GitHub identity, knowledge retention, privacy, and completion. Conditional
+execution, strict proof, and GitHub delivery details live in personal skills;
+model-specific role detail lives in personal subagent TOMLs. This keeps the
+V19 contract intact without paying its full workflow cost on every turn.
 
 ### 2. Project adapters
 

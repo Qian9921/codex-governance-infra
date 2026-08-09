@@ -8,15 +8,20 @@ class Installer(unittest.TestCase):
    self.assertEqual(result['status'],'DRY_RUN')
    self.assertEqual(result['mode'],'managed-overlay')
    self.assertEqual(result['package'],'Codex Governance Infra')
-   self.assertEqual(result['version'],'19.0.0')
+   self.assertEqual(result['version'],'19.1.0')
    self.assertIn('AGENTS.md',result['hashes'])
    self.assertIn('hooks.json',result['hashes'])
    self.assertIn('hooks/hooks.json',result['hashes'])
+   self.assertIn('agents/luna-execution.toml',result['hashes'])
+   self.assertIn('rules/v19-safety.rules',result['hashes'])
+   self.assertIn('@agents/skills/v19-engineering/SKILL.md',result['hashes'])
+   self.assertEqual(result['agents_destination'],'$HOME/.agents')
    self.assertNotIn('codex/AGENTS.md',result['hashes'])
 
  def test_install_layout_and_rollback(self):
   with tempfile.TemporaryDirectory() as d:
-   parent=pathlib.Path(d); home=parent/'home'; home.mkdir()
+   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); agents_home=parent/'.agents'
+   agents_home.mkdir(); (agents_home/'sentinel').write_text('keep',encoding='utf-8')
    (home/'sentinel').write_text('before',encoding='utf-8')
    (home/'AGENTS.md').write_text('previous-agents',encoding='utf-8')
    subprocess.check_call([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home)])
@@ -24,15 +29,24 @@ class Installer(unittest.TestCase):
    self.assertNotEqual((home/'AGENTS.md').read_text(encoding='utf-8'),'previous-agents')
    self.assertTrue((home/'hooks.json').is_file())
    self.assertTrue((home/'hooks'/'hooks.json').is_file())
+   self.assertTrue((home/'agents'/'luna-execution.toml').is_file())
+   self.assertTrue((home/'rules'/'v19-safety.rules').is_file())
+   self.assertTrue((home/'governance-strict.config.toml').is_file())
+   self.assertTrue((agents_home/'skills'/'v19-engineering'/'SKILL.md').is_file())
    self.assertTrue((home/'v16'/'contracts.py').is_file())
    self.assertFalse((home/'codex').exists())
    self.assertFalse(any('__pycache__' in p.parts or p.suffix in {'.pyc','.pyo'} for p in home.rglob('*')))
    self.assertEqual((home/'sentinel').read_text(encoding='utf-8'),'before')
+   self.assertEqual((agents_home/'sentinel').read_text(encoding='utf-8'),'keep')
    self.assertTrue((home/'.governance-v16-backup'/'metadata.json').is_file())
    subprocess.check_call([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home),'--rollback'])
    self.assertEqual((home/'sentinel').read_text(encoding='utf-8'),'before')
    self.assertEqual((home/'AGENTS.md').read_text(encoding='utf-8'),'previous-agents')
    self.assertFalse((home/'hooks.json').exists())
+   self.assertFalse((home/'agents'/'luna-execution.toml').exists())
+   self.assertFalse((home/'rules'/'v19-safety.rules').exists())
+   self.assertFalse((agents_home/'skills'/'v19-engineering'/'SKILL.md').exists())
+   self.assertEqual((agents_home/'sentinel').read_text(encoding='utf-8'),'keep')
    self.assertFalse((home/'.governance-v16-backup').exists())
 
  def test_manifest_mismatch_rejected(self):
@@ -43,6 +57,49 @@ class Installer(unittest.TestCase):
    result=subprocess.run([sys.executable,str(source/'scripts/install-governance.py'),'--source',str(source),'--codex-home',str(pathlib.Path(d)/'home'),'--dry-run'],capture_output=True,text=True)
    self.assertNotEqual(result.returncode,0)
    self.assertIn('manifest mismatch:codex/AGENTS.md',result.stderr)
+
+ def test_personal_skill_upgrade_and_rollback_restore_previous_file(self):
+  with tempfile.TemporaryDirectory() as d:
+   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); agents_home=parent/'.agents'
+   skill=agents_home/'skills'/'v19-engineering'/'SKILL.md'; skill.parent.mkdir(parents=True)
+   skill.write_text('previous-personal-skill',encoding='utf-8')
+   command=[sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home)]
+   subprocess.check_call(command)
+   self.assertNotEqual(skill.read_text(encoding='utf-8'),'previous-personal-skill')
+   subprocess.check_call(command+['--rollback'])
+   self.assertEqual(skill.read_text(encoding='utf-8'),'previous-personal-skill')
+
+ def test_agents_home_symlink_into_codex_home_is_rejected(self):
+  with tempfile.TemporaryDirectory() as d:
+   parent=pathlib.Path(d); home=parent/'home'; home.mkdir()
+   (parent/'.agents').symlink_to(home,target_is_directory=True)
+   result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home),'--dry-run'],capture_output=True,text=True)
+   self.assertNotEqual(result.returncode,0)
+   self.assertIn('must be disjoint',result.stderr)
+
+ def test_rollback_rejects_agents_scope_outside_skills(self):
+  with tempfile.TemporaryDirectory() as d:
+   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); agents_home=parent/'.agents'; agents_home.mkdir()
+   backup=home/'.governance-v16-backup'; backup.mkdir()
+   (backup/'metadata.json').write_text(json.dumps({'schema':'governance-overlay-backup.v16','managed':['@agents/sentinel'],'previous':[],'installed':{'@agents/sentinel':'0'*64},'committed':True}),encoding='utf-8')
+   sentinel=agents_home/'sentinel'; sentinel.write_text('keep',encoding='utf-8')
+   result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home),'--rollback'],capture_output=True,text=True)
+   self.assertNotEqual(result.returncode,0)
+   self.assertIn('invalid agents-home target',result.stderr)
+   self.assertEqual(sentinel.read_text(encoding='utf-8'),'keep')
+
+ def test_rollback_rejects_backup_source_symlink_escape(self):
+  with tempfile.TemporaryDirectory() as d:
+   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); agents_home=parent/'.agents'; agents_home.mkdir()
+   outside=parent/'outside'; outside.mkdir(); (outside/'SKILL.md').write_text('outside',encoding='utf-8')
+   backup=home/'.governance-v16-backup'; files=backup/'files'/'@agents'; files.mkdir(parents=True)
+   (files/'skills').symlink_to(outside,target_is_directory=True)
+   key='@agents/skills/SKILL.md'
+   (backup/'metadata.json').write_text(json.dumps({'schema':'governance-overlay-backup.v16','managed':[key],'previous':[key],'installed':{key:'0'*64},'committed':True}),encoding='utf-8')
+   result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home),'--rollback'],capture_output=True,text=True)
+   self.assertNotEqual(result.returncode,0)
+   self.assertIn('backup source escape',result.stderr)
+   self.assertEqual((outside/'SKILL.md').read_text(encoding='utf-8'),'outside')
 
  def test_manifest_hash_matching_forbidden_content_is_rejected(self):
   with tempfile.TemporaryDirectory() as d:

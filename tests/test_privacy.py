@@ -53,7 +53,7 @@ class Privacy(unittest.TestCase):
   import json
   root=pathlib.Path(__file__).parents[1]
   manifest=json.loads((root/'manifest.json').read_text())
-  self.assertEqual(manifest['version'],'19.0.0')
+  self.assertEqual(manifest['version'],'19.1.0')
   self.assertIn('V19', (root/'README.md').read_text())
   self.assertIn('codex/v16', (root/'README.md').read_text())
  def test_presubmit_child_path_prefers_active_interpreter(self):

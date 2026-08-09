@@ -68,10 +68,7 @@ def _bounded_context(text: str, limit: int = 1500) -> str:
 
     if len(text) <= limit:
         return text
-    tail = (
-        " ... --strict-maintenance remains explicit; at most five short points; "
-        "Current hook mode=" + current_mode() + "."
-    )
+    tail = " ... See personal V19 policy. mode=" + current_mode() + "."
     return text[: max(0, limit - len(tail))] + tail
 REVIEW_RUNTIME_GUIDANCE = {
     "planner": "Sol",
@@ -114,29 +111,15 @@ def build_context(
 
     mode = current_mode()
     guidance = (
-        "ADAPTIVE-GOVERNANCE: choose QUICK/STANDARD/STRICT. No-flag maintenance is "
-        "adaptive tool-recovery.v1. Sol plans/reviews; Luna executes; Spark is "
-        "legacy/explicit and disabled; Terra uses bounded TERRA_REPLAN/TERRA_TRIAGE "
-        "R0/R1 bridges with direct Luna return, or continuity only when unavailable; "
-        "assigned models are unrestricted technically. Names expose actual family+role; "
-        "fallback names "
-        "never luna-prefix Sol/Terra. Receipt identity is advisory unless "
-        "misrepresented. New abstractions require REUSE/EXTEND/NEW after ownership "
-        "check. ROUTING: unknown/similar -> Semble; known structure/impact -> "
-        "revision-matching CodeGraph; exact -> rg; shell -> rtk. Verify semantic/"
-        "structural tools before relying on them. Luna recovery: never repeat a "
-        "no-progress strategy: continue distinct evidence-producing recovery until "
-        "the required capability is usable and exercised by its dependent slice. "
-        "Optional failure creates "
-        "repair debt; required failure blocks only its slice. Escalate only scientific/"
-        "product choices, credentials/licensing, irreversible/shared-state action, "
-        "material cost, privacy, or genuine external impossibility. Affected-first "
-        "evidence; one reviewer closes stable fixes delta-only. Default response: "
-        "outcome, status, "
-        "decisive evidence, risk, next action; at most five short points. Current "
-        f"hook mode={mode}. No-flag maintenance is adaptive tool-recovery.v1; explicit "
-        "STRICT tool-maintenance.v16 uses --strict-maintenance and keeps its one-attempt "
-        "V16 route."
+        f"V19 PERSONAL KERNEL. mode={mode}; QUICK/STANDARD/STRICT. "
+        "AGENTS.md owns durable behavior; skills and agent TOMLs own conditional detail; "
+        "hooks own mechanical integrity. Sol plans/contracts/reviews; Luna executes and "
+        "recovers; Spark is legacy-disabled; Terra is bounded R0/R1 triage or recorded "
+        "continuity; assigned models are unrestricted technically; identity "
+        "misrepresentation is rejected. Routes: unknown/similar=Semble, structure/"
+        "impact=CodeGraph, exact=rg, shell=rtk; verify semantic/structural identity. "
+        "Adaptive recovery never repeats a no-progress strategy. STRICT alone uses "
+        "$v19-strict-proof and --strict-maintenance."
     )
     return {
         "event": event or "SessionStart",
@@ -211,31 +194,21 @@ if __name__ == "__main__":
         )
         mode = current_mode()
         intake_context = (
-            "ADAPTIVE TOOL INTAKE. No-flag maintenance is adaptive tool-recovery.v1; " + lineage
-            + " ROUTES: unknown/similar -> Semble; structure/impact -> CodeGraph; exact "
-            "-> rg; shell -> rtk. Verify Semble/CodeGraph first. Default maintenance is "
-            "adaptive tool-recovery.v1; "
-            "explicit STRICT tool-maintenance.v16 uses --strict-maintenance (one V16 "
-            "attempt). Never repeat a no-progress strategy; Luna continues distinct "
-            "evidence-producing recovery until the dependent slice uses the required "
-            "capability. Escalate only for scientific/product choices, credentials/"
-            "licensing, irreversible/shared-state action, material unapproved cost, privacy, "
-            "or genuine external impossibility. In adaptive mode missing contracts/optional "
-            "receipts are advisory; unrelated work continues. "
-            "For an explicitly STRICT mission, record once: rtk python3 "
+            "V19 INTAKE. Adaptive default; missing optional receipts stay advisory. "
+            + lineage
+            + " STRICT only: use $v19-strict-proof and record once: rtk python3 "
             "\"${CODEX_HOME:-$HOME/.codex}/bin/toolchain-auto.py\" "
             "--record-task-contract [--repository-work|--non-repository-task] "
             f"--task-id-sha256 {intake['task_id_sha256']} "
             f"--task-shape-sha256 {intake['task_shape_sha256']} "
             f"--intake-id-sha256 {intake['intake_id_sha256']} "
-            "and only applicable flags from: " + choices + ". For a strict "
-            "non-repository task do not run repository preflight. "
-            f"Current hook mode={mode}."
+            "with applicable flags: " + choices + ". Non-repository STRICT skips "
+            f"repository preflight. mode={mode}."
         )
         # The intake contract is capped at 1500 bytes; this assembled form is
         # intentionally kept whole so its decisive tail (all route flags and
         # strict non-repository preflight rule) remains intact.
-        context["additionalContext"] = _bounded_context(intake_context, 1500)
+        context["additionalContext"] = _bounded_context(intake_context, 900)
     receipt_value = hook_receipt.receipt(
         event,
         runtime_model,

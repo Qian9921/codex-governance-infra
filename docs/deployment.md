@@ -9,6 +9,13 @@ and removes managed files that did not previously exist. Live global Codex-home
 deployment requires the exact manifest/hash review and the applicable
 authorization lane.
 
+The V19.1 personal overlay has two disjoint destinations: normal package files
+under the selected `CODEX_HOME`, and V19 Skills under the sibling
+`.agents/skills` root required by current Codex discovery. One backup generation
+inside `CODEX_HOME` covers both roots. A custom `--agents-home` must be supplied
+again for rollback; the default needs no extra flag. Empty installer-created
+skill directories are pruned, while unrelated `.agents` files remain untouched.
+
 Upgrade backup publication is generation-safe: the current rollback generation
 is atomically renamed to `.governance-v16-backup.previous` before the new one is
 published. The previous generation remains recoverable until every managed
