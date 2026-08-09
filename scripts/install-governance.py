@@ -93,6 +93,8 @@ def _target(
         if len(canonical.parts) < 3 or canonical.parts[1] != "skills":
             raise SystemExit("invalid agents-home target:" + relative)
         root = agents_home / "skills"
+        if root.is_symlink():
+            raise SystemExit("unsafe agents skills root")
         target = root.joinpath(*canonical.parts[2:])
     else:
         root = destination

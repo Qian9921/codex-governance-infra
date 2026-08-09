@@ -100,6 +100,19 @@ class Installer(unittest.TestCase):
    self.assertEqual(sentinel.read_text(encoding='utf-8'),'keep')
    self.assertFalse((home/'.governance-v16-backup').exists())
 
+ def test_personal_skills_root_symlink_escape_is_rejected(self):
+  with tempfile.TemporaryDirectory() as d:
+   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); agents_home=parent/'.agents'; agents_home.mkdir()
+   unrelated=parent/'unrelated-outside-agents'; unrelated.mkdir()
+   sentinel=unrelated/'sentinel'; sentinel.write_text('keep',encoding='utf-8')
+   (agents_home/'skills').symlink_to(unrelated,target_is_directory=True)
+   result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home)],capture_output=True,text=True)
+   self.assertNotEqual(result.returncode,0)
+   self.assertIn('unsafe agents skills root',result.stderr)
+   self.assertEqual(sentinel.read_text(encoding='utf-8'),'keep')
+   self.assertFalse((unrelated/'v19-engineering').exists())
+   self.assertFalse((home/'.governance-v16-backup').exists())
+
  def test_interrupted_recovery_rejects_agents_root_drift(self):
   with tempfile.TemporaryDirectory() as d:
    parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); custom=parent/'custom-agents'; default=parent/'.agents'
@@ -171,6 +184,36 @@ class Installer(unittest.TestCase):
    result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home)],capture_output=True,text=True)
    self.assertNotEqual(result.returncode,0)
    self.assertIn('destination escape:'+key,result.stderr)
+   self.assertEqual(sentinel.read_text(encoding='utf-8'),'keep')
+   self.assertTrue(backup.is_dir())
+
+ def test_rollback_rejects_personal_skills_root_symlink_escape(self):
+  with tempfile.TemporaryDirectory() as d:
+   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); agents_home=parent/'.agents'; agents_home.mkdir()
+   unrelated=parent/'unrelated-outside-agents'; unrelated.mkdir()
+   sentinel=unrelated/'SKILL.md'; sentinel.write_text('keep',encoding='utf-8')
+   (agents_home/'skills').symlink_to(unrelated,target_is_directory=True)
+   backup=home/'.governance-v16-backup'; backup.mkdir()
+   key='@agents/skills/SKILL.md'
+   (backup/'metadata.json').write_text(json.dumps({'schema':'governance-overlay-backup.v19','roots':{'codex_home':str(home.resolve()),'agents_home':str(agents_home.resolve())},'managed':[key],'previous':[],'installed':{key:'0'*64},'committed':True}),encoding='utf-8')
+   result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home),'--rollback'],capture_output=True,text=True)
+   self.assertNotEqual(result.returncode,0)
+   self.assertIn('unsafe agents skills root',result.stderr)
+   self.assertEqual(sentinel.read_text(encoding='utf-8'),'keep')
+   self.assertTrue(backup.is_dir())
+
+ def test_interrupted_recovery_rejects_personal_skills_root_symlink_escape(self):
+  with tempfile.TemporaryDirectory() as d:
+   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); agents_home=parent/'.agents'; agents_home.mkdir()
+   unrelated=parent/'unrelated-outside-agents'; unrelated.mkdir()
+   sentinel=unrelated/'SKILL.md'; sentinel.write_text('keep',encoding='utf-8')
+   (agents_home/'skills').symlink_to(unrelated,target_is_directory=True)
+   backup=home/'.governance-v16-backup'; backup.mkdir()
+   key='@agents/skills/SKILL.md'
+   (backup/'metadata.json').write_text(json.dumps({'schema':'governance-overlay-backup.v19','roots':{'codex_home':str(home.resolve()),'agents_home':str(agents_home.resolve())},'managed':[key],'previous':[],'installed':{key:'0'*64},'committed':False}),encoding='utf-8')
+   result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home)],capture_output=True,text=True)
+   self.assertNotEqual(result.returncode,0)
+   self.assertIn('unsafe agents skills root',result.stderr)
    self.assertEqual(sentinel.read_text(encoding='utf-8'),'keep')
    self.assertTrue(backup.is_dir())
 
