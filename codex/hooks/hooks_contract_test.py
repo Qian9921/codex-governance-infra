@@ -235,9 +235,8 @@ class HooksContractTests(unittest.TestCase):
                 directory, mode="adaptive",
             )
             self.assertEqual(pre.returncode, 0, pre.stderr)
-            self.assertEqual(
-                json.loads(pre.stdout)["hookSpecificOutput"]["permissionDecision"],
-                "allow",
+            self.assertNotIn(
+                "permissionDecision", json.loads(pre.stdout)["hookSpecificOutput"]
             )
             stop = self._run_entrypoint(
                 "stop_tool_enforcement.py",
@@ -318,9 +317,9 @@ class HooksContractTests(unittest.TestCase):
                 json.loads(subagent.stdout)["hookSpecificOutput"]["hookEventName"],
                 "SubagentStart",
             )
-            self.assertEqual(
-                json.loads(allowed.stdout)["hookSpecificOutput"]["permissionDecision"],
-                "allow",
+            self.assertNotIn(
+                "permissionDecision",
+                json.loads(allowed.stdout)["hookSpecificOutput"],
             )
             self.assertEqual(
                 json.loads(denied.stdout)["hookSpecificOutput"]["permissionDecision"],
@@ -356,7 +355,7 @@ class HooksContractTests(unittest.TestCase):
             proc = self._run_entrypoint("pre_tool_use_policy.py", {"tool_name": "rg"}, occupied)
             self.assertEqual(proc.returncode, 0)
             parsed = json.loads(proc.stdout)
-            self.assertEqual(parsed["hookSpecificOutput"]["permissionDecision"], "allow")
+            self.assertNotIn("permissionDecision", parsed["hookSpecificOutput"])
             self.assertIn("receipt write failed", parsed["systemMessage"])
 
     def test_repo_tool_fails_closed_without_bound_turn_contract(self):
@@ -1074,6 +1073,7 @@ class HooksContractTests(unittest.TestCase):
                 )
                 specific = json.loads(pre.stdout)["hookSpecificOutput"]
                 self.assertEqual(specific["permissionDecision"], "allow")
+                self.assertEqual(specific["permissionDecisionReason"], "policy-pass")
                 wrapped = specific["updatedInput"]["command"]
                 self.assertIn("tool_execution_status.py", wrapped)
                 execution = subprocess.run(
