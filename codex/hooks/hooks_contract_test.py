@@ -1073,6 +1073,7 @@ class HooksContractTests(unittest.TestCase):
                 )
                 specific = json.loads(pre.stdout)["hookSpecificOutput"]
                 self.assertEqual(specific["permissionDecision"], "allow")
+                self.assertEqual(specific["permissionDecisionReason"], "policy-pass")
                 wrapped = specific["updatedInput"]["command"]
                 self.assertIn("tool_execution_status.py", wrapped)
                 execution = subprocess.run(
