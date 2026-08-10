@@ -211,45 +211,113 @@ python3 scripts/install-governance.py \
   --codex-home "$ACTIVE_CODEX_HOME"
 ```
 
-### 7. Keep Luna and Spark available to native multi-agent V2
+### 7. Configure native multi-agent routing for Luna and Spark
 
-Codex currently advertises Luna and Spark in the general model catalog while
-their upstream `multi_agent_version` metadata can exclude them from native V2
-`spawn_agent`. Install the supported startup catalog overlay after the managed
-files are present:
+Codex may show Luna and Spark in its general catalog while their upstream
+`multi_agent_version` metadata does not yet expose them to native V2
+`spawn_agent`. The routing script refreshes the private catalog, adds the
+top-level `model_catalog_json` setting, and optionally installs a Linux
+user-systemd `ExecStartPre` drop-in. It never claims that a model is available:
+verify the live catalog and then exercise the real native spawn surface.
+The refresher uses an isolated temporary Codex home; POSIX hosts symlink
+`auth.json`, while Windows temporarily copies it there because unprivileged
+symlink creation is commonly unavailable. The temporary home is removed and
+authentication content is never printed.
+
+Before configuration, record the client version and live catalog separately.
+On Linux/macOS:
 
 ```bash
-ACTIVE_CODEX_BIN="$(command -v codex)"
-USER_SYSTEMD_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-
-if command -v systemctl >/dev/null 2>&1 \
-  && systemctl --user status codex-app-server.service >/dev/null 2>&1; then
-  python3 scripts/configure-model-routing.py \
-    --codex-home "$ACTIVE_CODEX_HOME" \
-    --codex-bin "$ACTIVE_CODEX_BIN" \
-    --systemd-user-dir "$USER_SYSTEMD_DIR"
-  systemctl --user daemon-reload
-  systemctl --user restart codex-app-server.service
-else
-  echo "No user-systemd app-server detected; keep model routing on-demand."
-fi
+codex --version
+codex debug models
 ```
 
-The refresher uses an isolated temporary Codex home, never copies or prints
-credentials, changes only the allowlisted multi-agent backend fields, publishes
-atomically, and retains a last-known-good catalog. If the app-server service
-requires a network wrapper, set `EXEC_WRAPPER` to a repo-local executable and add
-`--exec-wrapper "$EXEC_WRAPPER"`.
+On Windows PowerShell:
 
-Model-routing rollback:
+```powershell
+$ACTIVE_CODEX_BIN = (Get-Command codex -ErrorAction Stop).Source
+& $ACTIVE_CODEX_BIN --version
+& $ACTIVE_CODEX_BIN debug models
+```
+
+On-demand mode is portable and does not create launchd, Windows Task Scheduler,
+or other startup files. Use it on macOS, Windows 11, Linux without an app-server
+service, or whenever you prefer to restart the client yourself:
 
 ```bash
 python3 scripts/configure-model-routing.py \
   --codex-home "$ACTIVE_CODEX_HOME" \
-  --codex-bin "$ACTIVE_CODEX_BIN" \
-  --systemd-user-dir "$USER_SYSTEMD_DIR" \
+  --codex-bin "$(command -v codex)"
+```
+
+On Windows PowerShell, discover the installed binary instead of assuming an
+installation directory:
+
+```powershell
+$ACTIVE_CODEX_HOME = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
+$ACTIVE_CODEX_BIN = (Get-Command codex -ErrorAction Stop).Source
+python scripts/configure-model-routing.py `
+  --codex-home $ACTIVE_CODEX_HOME `
+  --codex-bin $ACTIVE_CODEX_BIN
+```
+
+Linux user-systemd is optional. Supply the directory only when the app-server
+is actually managed by user-systemd; the script does not invoke `systemctl`:
+
+```bash
+USER_SYSTEMD_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+python3 scripts/configure-model-routing.py \
+  --codex-home "$ACTIVE_CODEX_HOME" \
+  --codex-bin "$(command -v codex)" \
+  --systemd-user-dir "$USER_SYSTEMD_DIR"
+systemctl --user daemon-reload
+systemctl --user restart codex-app-server.service
+```
+
+Without systemd, fully quit and restart the affected Codex CLI/Desktop/app
+server after configuration. The script never restarts a process. If an
+app-server needs a network wrapper, set `EXEC_WRAPPER` to a repo-local
+executable and add `--exec-wrapper "$EXEC_WRAPPER"` (Linux systemd mode only).
+
+Verify in three layers: confirm the current model catalog exposes Luna,
+confirm `model-catalogs/multi-agent-v2.json` was generated and selected, then
+run an actual native `spawn_agent` using the installed `luna_execution` agent
+type (whose role file pins `gpt-5.6-luna`). The current collaboration schema
+uses `agent_type`, `task_name`, and `message`:
+
+```text
+spawn_agent(
+  agent_type="luna_execution",
+  task_name="routing_smoke_check",
+  message="Run the bounded routing smoke check and return one exact status line."
+)
+```
+
+The current catalog or native surface may still reject Luna; retain that result
+as a capability limitation rather than substituting Sol or Terra.
+The platform filesystem tests simulate Linux, macOS, and Windows branches on
+the current host; this verification did not run on a native Windows host.
+
+After the manual client restart, or after the Linux systemd daemon reload and
+service restart, run the same version and live-catalog commands again. A version
+match confirms the restarted client; a changed `debug models` response confirms
+the live catalog, while only the generated overlay and actual native spawn prove
+the configured route.
+
+Model-routing rollback uses the same platform mode used for configuration. For
+on-demand mode, omit `--systemd-user-dir`; for Linux systemd mode, pass the
+same directory:
+
+```bash
+python3 scripts/configure-model-routing.py \
+  --codex-home "$ACTIVE_CODEX_HOME" \
+  --codex-bin "$(command -v codex)" \
   --rollback
 ```
+
+Rollback checkpoints config, drop-in, and catalog restoration and keeps its
+state until all three targets validate. If a local filesystem fault interrupts
+rollback, rerun the same command to resume safely.
 
 Ensure `[features] hooks = true`, restart the affected Codex CLI/Desktop/app
 server, open `/hooks`, and trust the new exact hook hash.

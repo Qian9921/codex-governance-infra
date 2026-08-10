@@ -179,43 +179,100 @@ python3 scripts/install-governance.py \
   --codex-home "$ACTIVE_CODEX_HOME"
 ```
 
-### 7. 让 Luna 和 Spark 持续进入原生 multi-agent V2
+### 7. 配置原生 multi-agent 的 Luna/Spark 路由
 
-Codex 的普通模型列表可能显示 Luna/Spark，但上游 `multi_agent_version` 元数据会把
-它们排除在原生 V2 `spawn_agent` 之外。安装 managed files 后启用官方支持的启动级
-模型目录覆盖：
+Codex 普通目录可能显示 Luna/Spark，但上游 `multi_agent_version` 元数据仍可能不让它们
+进入原生 V2 `spawn_agent`。路由脚本刷新私有模型目录、加入顶层
+`model_catalog_json` 设置，并可选地安装 Linux user-systemd `ExecStartPre` drop-in。
+脚本不会宣称模型一定可用：必须检查当前目录，再在真实 native spawn 面上执行验证。
+刷新器使用隔离的临时 Codex home；POSIX 主机使用 `auth.json` symlink，Windows 因为未授权
+symlink 常常不可用而临时复制到该目录。临时目录会被删除，绝不打印认证内容。
+
+配置前分别记录客户端版本和 live catalog。Linux/macOS：
 
 ```bash
-ACTIVE_CODEX_BIN="$(command -v codex)"
-USER_SYSTEMD_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-
-if command -v systemctl >/dev/null 2>&1 \
-  && systemctl --user status codex-app-server.service >/dev/null 2>&1; then
-  python3 scripts/configure-model-routing.py \
-    --codex-home "$ACTIVE_CODEX_HOME" \
-    --codex-bin "$ACTIVE_CODEX_BIN" \
-    --systemd-user-dir "$USER_SYSTEMD_DIR"
-  systemctl --user daemon-reload
-  systemctl --user restart codex-app-server.service
-else
-  echo "未检测到 user-systemd app-server；保持按需模型路由。"
-fi
+codex --version
+codex debug models
 ```
 
-刷新器使用隔离临时 Codex home，不复制或输出 credential；只修改 allowlist 中的
-multi-agent backend 字段，原子发布并保留 last-known-good。若 app-server 必须经由
-网络 wrapper，将 `EXEC_WRAPPER` 设为仓库内 executable，并增加
-`--exec-wrapper "$EXEC_WRAPPER"`。
+Windows PowerShell：
 
-模型路由 rollback：
+```powershell
+$ACTIVE_CODEX_BIN = (Get-Command codex -ErrorAction Stop).Source
+& $ACTIVE_CODEX_BIN --version
+& $ACTIVE_CODEX_BIN debug models
+```
+
+按需模式可跨平台使用，不会创建 launchd、Windows Task Scheduler 或其他启动文件。macOS、
+Windows 11、没有 app-server 服务的 Linux，以及希望手动重启客户端时，都省略
+`--systemd-user-dir`：
 
 ```bash
 python3 scripts/configure-model-routing.py \
   --codex-home "$ACTIVE_CODEX_HOME" \
-  --codex-bin "$ACTIVE_CODEX_BIN" \
-  --systemd-user-dir "$USER_SYSTEMD_DIR" \
+  --codex-bin "$(command -v codex)"
+```
+
+Windows PowerShell 先发现已安装的 binary，不假设固定安装目录：
+
+```powershell
+$ACTIVE_CODEX_HOME = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
+$ACTIVE_CODEX_BIN = (Get-Command codex -ErrorAction Stop).Source
+python scripts/configure-model-routing.py `
+  --codex-home $ACTIVE_CODEX_HOME `
+  --codex-bin $ACTIVE_CODEX_BIN
+```
+
+Linux user-systemd 是可选项。只有 app-server 确实由 user-systemd 管理时才传目录；脚本
+本身不会调用 `systemctl`：
+
+```bash
+USER_SYSTEMD_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+python3 scripts/configure-model-routing.py \
+  --codex-home "$ACTIVE_CODEX_HOME" \
+  --codex-bin "$(command -v codex)" \
+  --systemd-user-dir "$USER_SYSTEMD_DIR"
+systemctl --user daemon-reload
+systemctl --user restart codex-app-server.service
+```
+
+没有 systemd 时，配置完成后完整退出并重启受影响的 Codex CLI/Desktop/app server。脚本
+不会重启任何进程。若 app-server 需要网络 wrapper，将 `EXEC_WRAPPER` 设为仓库内的
+executable，并增加 `--exec-wrapper "$EXEC_WRAPPER"`（仅 Linux systemd 模式）。
+
+验证分三层：确认当前模型目录暴露 Luna；确认生成并选用了
+`model-catalogs/multi-agent-v2.json`；然后使用已安装的 `luna_execution` agent type 执行
+真实 native `spawn_agent`。其 role file 已固定 `gpt-5.6-luna`，当前 collaboration schema
+使用 `agent_type`、`task_name` 和 `message`：
+
+```text
+spawn_agent(
+  agent_type="luna_execution",
+  task_name="routing_smoke_check",
+  message="Run the bounded routing smoke check and return one exact status line."
+)
+```
+
+当前目录或 native surface 仍可能拒绝 Luna；此时应记录 capability limitation，不能用
+Sol 或 Terra 静默替代。
+平台 filesystem 测试是在当前主机模拟 Linux、macOS 和 Windows 分支；本次验证没有在原生
+Windows 主机执行。
+手动重启客户端，或完成 Linux systemd daemon reload 和 service restart 后，再执行同一组
+版本及 live-catalog 命令。版本匹配只证明重启后的客户端；`debug models` 变化只证明 live
+catalog；只有生成的 overlay 和真实 native spawn 才能证明路由已生效。
+
+模型路由 rollback 必须使用与配置相同的平台模式。按需模式省略
+`--systemd-user-dir`；Linux systemd 模式传入同一个目录：
+
+```bash
+python3 scripts/configure-model-routing.py \
+  --codex-home "$ACTIVE_CODEX_HOME" \
+  --codex-bin "$(command -v codex)" \
   --rollback
 ```
+
+Rollback 会分别 checkpoint config、drop-in 和 catalog，并在三个 target 都验证恢复前保留
+state。若本地 filesystem fault 中断 rollback，重新执行相同命令即可安全继续。
 
 确认 `[features] hooks = true`，重启真正受影响的 Codex CLI、Desktop 或 app server，然后在 `/hooks` 信任新的精确 Hook hash。
 

@@ -46,13 +46,67 @@ distinct Luna-unavailable fallback.
 `codex/bin/refresh-model-catalog.py` discovers the current catalog through the
 installed Codex binary in an isolated temporary home, normalizes only the
 allowlisted Luna/Spark multi-agent backend selector, validates the required
-Luna route, and atomically publishes a private catalog. It never copies or
-prints authentication content. A valid prior catalog remains available if a
-later network refresh fails.
+Luna route, and atomically publishes a private catalog. POSIX hosts symlink
+`auth.json`; Windows temporarily copies it into the private temporary home when
+unprivileged symlink creation is unavailable. The temporary home is removed,
+authentication content is never printed, and a valid prior catalog remains
+available if a later network refresh fails.
 
 `scripts/configure-model-routing.py` adds the supported top-level
-`model_catalog_json` setting and a user-systemd `ExecStartPre` drop-in. It
-backs up the preexisting config and drop-in with hashes, is idempotent, and has
-an explicit rollback. The drop-in resolves the stable `standalone/current`
-binary path supplied at installation, so a Codex package update is picked up on
-the next app-server start.
+`model_catalog_json` setting and, only when `--systemd-user-dir` is supplied, a
+user-systemd `ExecStartPre` drop-in. Omitting that option selects the portable
+on-demand backend: no launchd plist, Windows Task Scheduler task, or other
+startup file is created. This is the supported mode for macOS and Windows 11,
+and for Linux installations without a user-systemd app-server.
+
+The script backs up the preexisting config, catalog, and (when enabled)
+systemd drop-in with hashes, is idempotent, and has an explicit rollback. The
+catalog and config writes use atomic replacement. The optional drop-in resolves
+the stable `standalone/current` binary path supplied at installation, so a
+Codex package update is picked up on the next app-server start. The script does
+not restart any process: after on-demand configuration, fully quit and restart
+the affected Codex CLI/Desktop/app server manually; after systemd
+configuration, run `systemctl --user daemon-reload` and restart the service.
+
+Use the same mode for rollback. On-demand configuration and rollback omit
+`--systemd-user-dir`; a systemd rollback passes the same user-systemd
+directory. The state metadata rejects changing modes during an existing install
+so rollback cannot remove unrelated startup state.
+
+Before configuration, record the current client version and live catalog:
+
+```bash
+codex --version
+codex debug models
+```
+
+On Windows PowerShell, resolve the supported command first and invoke it with
+the call operator:
+
+```powershell
+$ACTIVE_CODEX_BIN = (Get-Command codex -ErrorAction Stop).Source
+& $ACTIVE_CODEX_BIN --version
+& $ACTIVE_CODEX_BIN debug models
+```
+
+The portable setup does not guarantee that `gpt-5.6-luna` is currently exposed
+on every Codex surface. Verify (1) the live model catalog, (2) the generated
+`model-catalogs/multi-agent-v2.json` selection, and (3) an actual native
+`spawn_agent` using `agent_type="luna_execution"`, `task_name`, and `message`.
+The installed role file pins `gpt-5.6-luna`; no redundant model override is
+needed. If the live surface rejects it, report the limitation and do not
+substitute another model family.
+
+The filesystem tests simulate Linux, macOS, and Windows branches on the current
+host. This verification did not run on a native Windows host, so native Windows
+filesystem behavior remains an explicit limitation.
+
+Repeat the same version and live-catalog commands after the manual client
+restart or Linux systemd restart. Version, live catalog, generated overlay, and
+actual native spawn are separate evidence layers; none substitutes for the
+next layer.
+
+Rollback records per-target progress and retains its state until config,
+drop-in, and catalog restoration all validate. A local filesystem fault can be
+recovered by rerunning the same rollback command; already-restored targets are
+validated and skipped.
