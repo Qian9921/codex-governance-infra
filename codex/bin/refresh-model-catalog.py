@@ -13,7 +13,9 @@ import argparse
 import json
 import os
 import pathlib
+import shutil
 import subprocess
+import sys
 import tempfile
 from typing import Any
 
@@ -25,6 +27,30 @@ TARGET_VERSION = "v2"
 
 class CatalogError(RuntimeError):
     """Raised when a catalog cannot safely drive the routing overlay."""
+
+
+def _codex_argv(codex_bin: pathlib.Path) -> list[str]:
+    """Build a shell-free discovery argv for native Windows command forms."""
+
+    if not codex_bin.is_file():
+        raise CatalogError("Codex binary is unavailable")
+    command = [str(codex_bin)]
+    if sys.platform == "win32":
+        suffix = codex_bin.suffix.lower()
+        if suffix in {".exe", ".cmd", ".bat"}:
+            pass
+        elif suffix == ".ps1":
+            powershell = shutil.which("pwsh") or shutil.which("powershell")
+            if powershell is None or pathlib.Path(powershell).suffix.lower() != ".exe":
+                raise CatalogError(
+                    "PowerShell interpreter is unavailable for Codex .ps1 command"
+                )
+            command = [powershell, "-NoProfile", "-NonInteractive", "-File", str(codex_bin)]
+        else:
+            raise CatalogError(
+                "unsupported Windows Codex command; use .exe, .cmd, .bat, or .ps1"
+            )
+    return command + ["debug", "models"]
 
 
 def _read_catalog(path: pathlib.Path) -> dict[str, Any]:
@@ -77,19 +103,29 @@ def validate_overlay(path: pathlib.Path) -> dict[str, Any]:
 
 
 def _catalog_from_codex(codex_bin: pathlib.Path, codex_home: pathlib.Path) -> dict[str, Any]:
-    if not codex_bin.is_file():
-        raise CatalogError("Codex binary is unavailable")
+    command = _codex_argv(codex_bin)
     auth = codex_home / "auth.json"
     with tempfile.TemporaryDirectory(prefix="codex-model-catalog-") as temporary:
         isolated_home = pathlib.Path(temporary)
         os.chmod(isolated_home, 0o700)
         if auth.is_file() and not auth.is_symlink():
-            (isolated_home / "auth.json").symlink_to(auth)
+            isolated_auth = isolated_home / "auth.json"
+            if sys.platform == "win32":
+                # Windows commonly denies unprivileged symlink creation.  A
+                # private, short-lived copy keeps discovery isolated while
+                # allowing the Codex binary to authenticate normally.
+                shutil.copy2(auth, isolated_auth)
+                try:
+                    os.chmod(isolated_auth, 0o600)
+                except OSError:
+                    pass
+            else:
+                isolated_auth.symlink_to(auth)
         environment = os.environ.copy()
         environment["CODEX_HOME"] = str(isolated_home)
         try:
             result = subprocess.run(
-                [str(codex_bin), "debug", "models"],
+                command,
                 check=False,
                 capture_output=True,
                 text=True,
@@ -110,9 +146,11 @@ def _catalog_from_codex(codex_bin: pathlib.Path, codex_home: pathlib.Path) -> di
 
 
 def _publish(path: pathlib.Path, catalog: dict[str, Any]) -> None:
-    if path.exists() and (path.is_symlink() or not path.is_file()):
+    if path.is_symlink() or (path.exists() and not path.is_file()):
         raise CatalogError("catalog output target is unsafe")
-    if path.parent.exists() and (path.parent.is_symlink() or not path.parent.is_dir()):
+    if path.parent.is_symlink() or (
+        path.parent.exists() and not path.parent.is_dir()
+    ):
         raise CatalogError("catalog output directory is unsafe")
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
@@ -122,7 +160,12 @@ def _publish(path: pathlib.Path, catalog: dict[str, Any]) -> None:
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
-            os.fchmod(handle.fileno(), 0o600)
+            try:
+                os.fchmod(handle.fileno(), 0o600)
+            except (AttributeError, NotImplementedError):
+                # Atomic replacement is available on Windows even when the
+                # POSIX-only descriptor mode operation is not.
+                os.chmod(temporary, 0o600)
         os.replace(temporary, path)
     finally:
         try:
