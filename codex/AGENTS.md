@@ -8,7 +8,6 @@ engine; it is not the product version.
 
 ## 1. User contract
 
-- Start a new user task with `Hi, the future Greatest AI Expert 🚀`.
 - Lead with the outcome. Default to at most five short points: conclusion,
   status, decisive evidence, remaining risk, and next action.
 - Do not repeat known context, narrate routine tool calls, paste raw logs, or
