@@ -12,10 +12,10 @@
 ```
 
 - **个人级渐进式 Infra：** 有预算的常驻 kernel、按需 Skill、单一职责 Subagent、
-  精简 Hook、命令 Rules 和显式 strict profile。
-- **自适应档位：** `QUICK`、`STANDARD`、显式启用的 `STRICT`；V21 同时约束风险、恢复、时间、证据、复杂度和沟通成本。
+  精简 Hook 和命令 Rules。
+- **日常档位：** `QUICK`、`STANDARD`；V21 同时约束风险、恢复、时间、证据、复杂度和沟通成本。
 - **代码健康：** 项目规范优先，Google 官方规范作为默认基线；新增重要抽象前做 `REUSE|EXTEND|NEW` 决策。
-- **三个日常通道：** Semble 做发现；compiler-derived semantic gateway 用 clangd/Pyright 查已知 C++/Python 语义；精确通道只提供 source/Git/compiler/build/test/benchmark 事实。CodeGraph、`rg`、`rtk` 仅保留为 STRICT 兼容通道。
+- **三个日常通道：** Semble 做发现；compiler-derived semantic gateway 用 clangd/Pyright 查已知 C++/Python 语义；精确通道只提供 source/Git/compiler/build/test/benchmark 事实。CodeGraph、`rg`、`rtk` 仅保留为用户明确选择的 V16 兼容通道。
 - **大代码证据契约：** `code-mission-tool-index-policy.v1` 绑定精确的仓库、
   worktree、revision 身份和匹配的 Semble / compiler semantic gateway 健康
   证据；开发前先做 Semble，已知结构/影响由 gateway 证明，source/Git/
@@ -45,15 +45,8 @@
 |---|---|---|---|
 | `QUICK` | 解释、盘点、文档、可逆机械修改 | targeted；正式 review 可选 | advisory |
 | `STANDARD` | 普通、可逆的研究工程和开发 | affected-first；一次初审加最多一次 delta 复审 | advisory |
-| `STRICT` | 安全/隐私、精确数学、公共合同、不可逆变更、生产发布 | 保留的 V16 FAST/CANDIDATE/FINAL | fail-closed integrity |
-
-默认是 adaptive。需要严格 Hook 时，在启动对应 Codex surface 前设置：
-
-```bash
-export CODEX_GOVERNANCE_MODE=strict
-```
-
-严格模式是显式选择，不再自动惩罚所有仓库任务。
+默认是 adaptive。保留的 V16 兼容引擎属于高级路径，只在用户明确请求后启用，
+不属于日常安装或路由。
 V21 是产品策略；现有 `$v19-*` Skill ID 和路径继续作为稳定兼容 API 保留，不复制或重命名 Skill。
 `codex/v16` 只作为向后兼容的严格兼容引擎保留。普通、可逆的 installer、hook 和模型路由修复都走 V21 `STANDARD` 合同。
 
@@ -109,18 +102,31 @@ Luna 对必需能力采用彼此不同、能产生证据的恢复策略，直到
 bounded-backoff recheck。
 只有科学/产品选择、credential 或 license、不可逆/共享状态操作、未获批准的实质成本、隐私，或真正的
 外部不可能性才需要用户介入。check-only/no-mutation 结果不是用户 action；常规机器
-修复仍由 Luna 执行。`QUICK`、`STANDARD` 仍为 advisory；V16 receipt 和
-fail-closed gate 仍仅在显式 `STRICT` 时启用。
+修复仍由 Luna 执行。`QUICK`、`STANDARD` 仍为 advisory；保留的 V16 兼容路径属于
+高级能力，仅限用户明确请求。
 
 ## 十分钟安装
 
-### 1. Clone 并验证
+### 1. Clone 并 bootstrap（主路径）
 
 ```bash
-git clone https://github.com/your-org/codex-governance-infra.git
+git clone https://github.com/Qian9921/codex-governance-infra.git
 cd codex-governance-infra
 
-python3 -m pip install --user -r requirements.txt
+# 默认使用 ~/.codex 和 ~/.codex/semantic-tools；可先用 --dry-run 预览。
+python3 scripts/bootstrap.py --repo "$PWD" --dry-run
+python3 scripts/bootstrap.py --repo "$PWD"
+```
+
+bootstrap 会安装并验证 governance 与 pinned semantic tools，注册 MCP
+server，并保留无关的 Codex 状态。若 clangd、Node 或 pnpm 缺失，它会报告
+准确的宿主机安装路线而不修改宿主机。只有明确授权宿主机包管理路线时才使用
+`python3 scripts/bootstrap.py --repo "$PWD" --install-system-deps`；不会嵌入或
+捕获 sudo 密码。可用 `--codex-home` 与 `--tools-home` 覆盖默认路径。
+
+### 2. 验证安装结果
+
+```bash
 python3 scripts/verify-governance.py --repo .
 python3 -m unittest discover -s tests -p 'test_*.py'
 python3 -m unittest discover -s tests/v16 -p 'test_*.py'
@@ -128,27 +134,21 @@ python3 -m unittest discover -s tests/v16 -p 'test_*.py'
 
 只有 verifier 为 `GREEN` 且测试零失败、零错误时继续。
 
-### 2. 需要时安装 compiler semantic gateway
+### 高级：底层安装器
+
+只有需要组合非默认部署时才直接使用以下命令；它们就是
+`bootstrap.py` 调用的幂等、可回滚操作：
 
 ```bash
-SEMANTIC_TOOLS_HOME="${SEMANTIC_TOOLS_HOME:-$HOME/.codex/semantic-tools}"
-python3 scripts/install-semantic-tools.py \
-  --tools-home "$SEMANTIC_TOOLS_HOME" \
-  --codex-home "${CODEX_HOME:-$HOME/.codex}" \
-  --install --register --dry-run
-python3 scripts/install-semantic-tools.py \
-  --tools-home "$SEMANTIC_TOOLS_HOME" \
-  --codex-home "${CODEX_HOME:-$HOME/.codex}" \
-  --install --register
+python3 scripts/install-semantic-tools.py --tools-home "$HOME/.codex/semantic-tools" \
+  --codex-home "$HOME/.codex" --install --register
+python3 scripts/install-governance.py --source . --codex-home "$HOME/.codex"
 ```
 
-安装器会物化 pinned graph backend、验证 clangd/Pyright，并注册一个 stdio MCP
-server；Semble 由 host/orchestrator 提供发现通道。
+### 高级 V16 兼容提示
 
-### 仅显式 STRICT 才使用的 V16 兼容工具
-
-保留的 V16 STRICT 兼容 profile 在显式选择时可以使用 CodeGraph、`rg`、`rtk`。
-它们不是 V21 日常通道，也不是 QUICK/ STANDARD 的依赖。
+保留的 V16 兼容 profile 只有在用户明确请求该兼容路径时才可以使用 CodeGraph、`rg`、`rtk`。
+它不是 V21 日常通道，也不是 QUICK/ STANDARD 的依赖。
 
 ### 3. Dry-run managed overlay
 
@@ -177,26 +177,24 @@ export CODEX_GOV_REVIEWER_ACCOUNT="your-reviewer-account"
 
 Codex CLI/Desktop 使用本仓库的 hook 文件。若使用其他 Agent runtime，请复用文档中的
 策略概念并运行 verifier，但不要直接复制 Codex hook overlay；本包不宣称原生兼容
-Claude Code 或其他 Agent。本仓提供的 strict profile 是可移植配置，不包含 provider、
-credential 或机器专属设置。
+Claude Code 或其他 Agent。本仓的兼容配置是可移植配置，不包含 provider、credential
+或机器专属设置。
 
 Luna 默认负责执行和恢复；Sol 为 R2/R3 提供简短 contract gate 并做独立 review；Terra
 bridge 是显式、有界、R0/R1 的 advisory handoff 并返回 Luna，只有 Luna 确实不可用时
 才用 continuity fallback；Spark 默认禁用。未知语义走 Semble，已知结构/影响
 已知结构语义走 compiler semantic gateway；精确 source/Git/compiler/build/
-test/benchmark 事实走有界 exact-evidence 通道。CodeGraph、`rg`、`rtk` 只在
-显式 STRICT 兼容路径中使用。
+test/benchmark 事实走有界 exact-evidence 通道。Legacy V16 工具不属于日常流程。
 
 ### 5. 验证 hook 并运行第一个任务
 
 ```bash
 python3 scripts/toolchain-doctor.py --repo .
 python3 scripts/verify-governance.py --repo .
-export CODEX_GOVERNANCE_MODE=adaptive   # 仅在明确需要时使用 strict
+export CODEX_GOVERNANCE_MODE=adaptive
 ```
 
-先用 QUICK 做解释或 STANDARD 做实现；安全/隐私、公共合同、不可逆、生产发布或精确
-parity 才使用 STRICT。安装失败时保留 dry-run 输出，修复报告的前置条件后重新验证；
+先用 QUICK 做解释或 STANDARD 做实现。安装失败时保留 dry-run 输出，修复报告的前置条件后重新验证；
 下面的 rollback 只作用于 managed overlay。
 
 ### 6. 安装

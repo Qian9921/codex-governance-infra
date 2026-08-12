@@ -1,7 +1,7 @@
 name = "sol_contract"
 description = "Read-only V21 architecture, math, numerical, public-API, or unexplained-root-cause contract gate before execution (stable V19 role ID)."
 model = "gpt-5.6-sol"
-model_reasoning_effort = "high"
+model_reasoning_effort = "medium"
 sandbox_mode = "read-only"
 developer_instructions = """
 Produce one narrow, falsifiable contract for the execution lead: objective,

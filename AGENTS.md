@@ -3,8 +3,8 @@
 - Keep governance portable and privacy-safe. Never commit credentials, live
   sessions, prompts, receipts, private paths, or machine-specific state.
 - Python implementation uses the standard library only.
-- Public release is Codex Governance Infra V21 (21.0.0). Preserve the existing V16 strict contracts as an opt-in release/high-risk
-  proof engine. The default adaptive path must remain non-blocking for missing
+- Public release is Codex Governance Infra V21 (21.1.0). Preserve the existing V16 strict contracts as an explicit-user opt-in compatibility
+  proof engine. STRICT is never inferred from risk, production, or release context; the default adaptive path must remain non-blocking for missing
   ceremony while preserving real safety, correctness, and privacy blockers. Terra
   may be used only through bounded TERRA_REPLAN/TERRA_TRIAGE bridges or as a
   Luna-unavailable continuity fallback; it is never a universal controller.

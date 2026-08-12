@@ -9,6 +9,8 @@ sys.path.insert(0, str(ROOT / "codex" / "hooks"))
 from model_roles import (  # noqa: E402
     LUNA,
     SOL,
+    SOL_CONTRACT_REASONING,
+    SOL_REVIEWER_REASONING,
     TERRA,
     ModelRoleError,
     validate_code_mission_tool_policy,
@@ -16,6 +18,7 @@ from model_roles import (  # noqa: E402
     route_execution_task,
     route_mission,
     validate_controller_request,
+    validate_sol_reasoning_effort,
     validate_final_review,
     validate_nested_delegation,
     validate_receipt_identity,
@@ -72,6 +75,16 @@ def terra_bridge(kind="TERRA_REPLAN", *, permissions=None, risk="R1", **override
 
 
 class ModelRolePolicyTests(unittest.TestCase):
+    def test_sol_reasoning_is_bounded_by_role(self):
+        self.assertEqual(validate_sol_reasoning_effort("sol_contract", "medium"), SOL_CONTRACT_REASONING)
+        self.assertEqual(validate_sol_reasoning_effort("sol-reviewer", "high"), SOL_REVIEWER_REASONING)
+        with self.assertRaises(ModelRoleError):
+            validate_sol_reasoning_effort("sol_reviewer", "xhigh")
+
+    def test_strict_requires_explicit_user_opt_in(self):
+        with self.assertRaises(ModelRoleError):
+            route_mission("R1", profile="STRICT")
+        self.assertEqual(route_mission("R1", profile="STRICT", strict_opt_in=True)["profile"], "STRICT")
     def test_hook_context_exposes_same_machine_policy(self):
         context = session_context.build_context("SessionStart", LUNA)
         self.assertEqual(context["model_roles"]["controller"], LUNA)

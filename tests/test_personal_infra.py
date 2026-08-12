@@ -33,6 +33,12 @@ class PersonalInfra(unittest.TestCase):
             self.assertTrue(value.rstrip().endswith('"""'))
             if name != "luna_execution":
                 self.assertEqual(quoted_scalar(value, "sandbox_mode"), "read-only")
+            if name == "sol_contract":
+                self.assertEqual(quoted_scalar(value, "model_reasoning_effort"), "medium")
+                self.assertNotIn("max_output_tokens", value)
+            if name == "sol_reviewer":
+                self.assertEqual(quoted_scalar(value, "model_reasoning_effort"), "high")
+                self.assertNotIn("max_output_tokens", value)
 
     def test_personal_skills_are_bounded_and_progressive(self):
         expected = {"v19-engineering", "v19-strict-proof", "v19-github-delivery"}
@@ -75,7 +81,7 @@ class PersonalInfra(unittest.TestCase):
 
     def test_product_version_is_v21(self):
         manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "21.0.0")
+        self.assertEqual(manifest["version"], "21.1.0")
 
     def test_active_identity_and_communication_contract_are_v21(self):
         root_policy = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
@@ -91,9 +97,9 @@ class PersonalInfra(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn("Public release is Codex Governance Infra V21 (21.0.0)", root_policy)
+        self.assertIn("Public release is Codex Governance Infra V21 (21.1.0)", root_policy)
         self.assertNotIn("Public release is Codex Governance Infra V19", root_policy)
-        self.assertIn("V21.0.0 personal overlay", deployment)
+        self.assertIn("V21.1.0 personal overlay", deployment)
         self.assertIn("V21 PERSONAL KERNEL", session_context)
         self.assertIn("V21 INTAKE", session_context)
         self.assertNotIn("V19 PERSONAL KERNEL", session_context)

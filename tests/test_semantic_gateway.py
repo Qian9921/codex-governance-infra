@@ -9,6 +9,125 @@ from codex.semantic_gateway.gateway import BackendClient, Gateway, GatewayConfig
 
 
 class SemanticGatewayTest(unittest.TestCase):
+    def test_sync_auto_refreshes_relevant_untracked_files_with_64_file_bound(self):
+        holder, root = self.repo(); self.addCleanup(holder.cleanup)
+        gateway = self.configured_gateway(root)
+        first = gateway.sync()
+        for index in range(70):
+            (root / f"new_{index}.cpp").write_text("int x() { return 1; }\n", encoding="utf-8")
+        second = gateway.sync()
+        paths = [item["path"] for item in second["scope_manifest"]["workset"]]
+        self.assertNotEqual(first["snapshot_id"], second["snapshot_id"])
+        self.assertLessEqual(len(paths), 64)
+        self.assertIn("new_0.cpp", paths)
+
+    def test_full_workset_prioritizes_changed_untracked_file_over_stable_fill(self):
+        holder, root = self.repo(); self.addCleanup(holder.cleanup)
+        for index in range(64):
+            (root / f"seed_{index:02d}.cpp").write_text("int seed() { return 1; }\n", encoding="utf-8")
+        subprocess.check_call(["git", "add", "."], cwd=root)
+        subprocess.check_call(["git", "-c", "user.email=test@example.invalid", "-c", "user.name=test", "commit", "-qm", "seeds"], cwd=root)
+        seeds = sorted(path.name for path in root.glob("*.cpp"))[:64]
+        gateway = self.configured_gateway(root)
+        gateway.config = GatewayConfig(**{**gateway.config.__dict__, "workset": tuple(seeds)})
+        (root / "priority.cpp").write_text("int priority() { return 1; }\n", encoding="utf-8")
+        result = gateway.sync()
+        paths = [item["path"] for item in result["scope_manifest"]["workset"]]
+        self.assertEqual(len(paths), 64)
+        self.assertIn("priority.cpp", paths)
+        self.assertNotIn(seeds[-1], paths)
+
+    def test_query_refreshes_current_generation_but_explicit_snapshot_stays_stale(self):
+        holder, root = self.repo(); self.addCleanup(holder.cleanup)
+        gateway = self.configured_gateway(root)
+        snapshot = gateway.sync()["snapshot_id"]
+        (root / "new.cpp").write_text("int new_symbol() { return 1; }\n", encoding="utf-8")
+        stale = gateway.query(snapshot, "definition", "answer")
+        self.assertEqual(stale["status"], "STALE")
+        fresh = gateway.sync()
+        self.assertNotEqual(snapshot, fresh["snapshot_id"])
+
+    def test_configured_build_refresh_binds_compile_database_or_reports_failure(self):
+        holder, root = self.repo(); self.addCleanup(holder.cleanup)
+        build = root / "build"; build.mkdir()
+        command = (sys.executable, "-c", "import json,pathlib; pathlib.Path('build/compile_commands.json').write_text(json.dumps([{'file':'sample.cpp'}]))")
+        gateway = Gateway(GatewayConfig(repo=root, build_dir=build, workset=("sample.cpp",),
+                                        backend_command=(sys.executable, str(self.fake_backend(root))),
+                                        provider_commands={"cpp": "/bin/true", "python": "/bin/true"},
+                                        build_refresh_command=command))
+        result = gateway.sync()
+        self.assertEqual(result["build_inputs"]["refresh"]["status"], "READY")
+        self.assertTrue((build / "compile_commands.json").is_file())
+
+    def test_compile_database_uses_canonical_paths_not_same_basename(self):
+        holder, root = self.repo(); self.addCleanup(holder.cleanup)
+        build = root / "build"; build.mkdir()
+        (root / "src").mkdir(); (root / "other").mkdir()
+        (root / "src/sample.cpp").write_text("int answer() { return 42; }\n", encoding="utf-8")
+        (root / "other/sample.cpp").write_text("int other() { return 1; }\n", encoding="utf-8")
+        compile_db = build / "compile_commands.json"
+        compile_db.write_text(json.dumps([{"file": "other/sample.cpp", "directory": str(root)}]), encoding="utf-8")
+        gateway = Gateway(GatewayConfig(repo=root, build_dir=build, workset=("src/sample.cpp",),
+                                        backend_command=(sys.executable, str(self.fake_backend(root))),
+                                        provider_commands={"cpp": "/bin/true", "python": "/bin/true"}))
+        result = gateway.sync()
+        self.assertEqual(result["status"], "PARTIAL")
+        self.assertEqual(result["reason"], "COMPILE_COMMANDS_REFRESH_NOT_CONFIGURED")
+
+    def test_compile_database_accepts_relative_and_absolute_canonical_entries(self):
+        holder, root = self.repo(); self.addCleanup(holder.cleanup)
+        build = root / "build"; build.mkdir()
+        compile_db = build / "compile_commands.json"
+        compile_db.write_text(json.dumps([{"file": str(root / "sample.cpp")},
+                                           {"file": "sample.cpp", "directory": str(root)}]), encoding="utf-8")
+        gateway = self.configured_gateway(root)
+        gateway.config = GatewayConfig(**{**gateway.config.__dict__, "build_dir": build})
+        result = gateway.sync()
+        self.assertIn(result["status"], {"READY", "PARTIAL"})
+        self.assertNotEqual(result["reason"], "COMPILE_COMMANDS_REFRESH_NOT_CONFIGURED")
+
+    def test_fresh_gateway_refreshes_when_cmake_graph_is_newer_than_compile_database(self):
+        holder, root = self.repo(); self.addCleanup(holder.cleanup)
+        build = root / "build"; build.mkdir()
+        cmake = root / "CMakeLists.txt"; cmake.write_text("project(sample)\n", encoding="utf-8")
+        compile_db = build / "compile_commands.json"
+        compile_db.write_text(json.dumps([{"file": "sample.cpp"}]), encoding="utf-8")
+        command = (sys.executable, "-c", "import pathlib; pathlib.Path('build/compile_commands.json').write_text('[]')")
+        first = Gateway(GatewayConfig(repo=root, build_dir=build, workset=("sample.cpp",),
+                                      backend_command=(sys.executable, str(self.fake_backend(root))),
+                                      provider_commands={"cpp": "/bin/true", "python": "/bin/true"},
+                                      build_refresh_command=command))
+        first.sync()
+        cmake.write_text("project(sample)\nset(REFRESHED ON)\n", encoding="utf-8")
+        second = Gateway(GatewayConfig(repo=root, build_dir=build, workset=("sample.cpp",),
+                                       backend_command=(sys.executable, str(self.fake_backend(root))),
+                                       provider_commands={"cpp": "/bin/true", "python": "/bin/true"},
+                                       build_refresh_command=command))
+        result = second.sync()
+        self.assertEqual(result["build_inputs"]["refresh"]["status"], "PARTIAL")
+        self.assertEqual(result["reason"], "COMPILE_COMMANDS_INCOMPLETE")
+
+    def test_load_config_enables_cmake_refresh_by_default_and_allows_override(self):
+        holder, root = self.repo(); self.addCleanup(holder.cleanup)
+        (root / "CMakeLists.txt").write_text("project(sample)\n", encoding="utf-8")
+        self.assertTrue(load_config(None, root).auto_refresh_build)
+        config = root / "gateway.json"
+        config.write_text(json.dumps({"auto_refresh_build": False}), encoding="utf-8")
+        self.assertFalse(load_config(config, root).auto_refresh_build)
+
+    def test_query_propagates_incomplete_refresh_instead_of_backend_ready(self):
+        holder, root = self.repo(); self.addCleanup(holder.cleanup)
+        build = root / "build"; build.mkdir()
+        (root / "CMakeLists.txt").write_text("project(sample)\n", encoding="utf-8")
+        command = (sys.executable, "-c", "import pathlib; pathlib.Path('build/compile_commands.json').write_text('[]')")
+        gateway = Gateway(GatewayConfig(repo=root, build_dir=build, workset=("sample.cpp",),
+                                        auto_refresh_build=True, build_refresh_command=command,
+                                        backend_command=(sys.executable, str(self.fake_backend(root))),
+                                        provider_commands={"cpp": "/bin/true", "python": "/bin/true"}))
+        snapshot = gateway.sync()["snapshot_id"]
+        result = gateway.query(snapshot, "definition", "answer")
+        self.assertEqual(result["status"], "PARTIAL")
+        self.assertEqual(result["reason"], "COMPILE_COMMANDS_INCOMPLETE")
     def test_config_routes_language_and_derives_repo_local_workset(self):
         holder, root = self.repo(); self.addCleanup(holder.cleanup)
         (root / "module.py").write_text("def answer(): return 42\n", encoding="utf-8")
@@ -190,6 +309,37 @@ class SemanticGatewayTest(unittest.TestCase):
         payload = called["result"]["structuredContent"]
         self.assertEqual(payload["status"], "READY")
         self.assertEqual(payload["result"]["facts"][0]["operation"], "definition")
+
+    def test_mcp_call_exposes_refresh_failure_as_partial(self):
+        holder, root = self.repo(); self.addCleanup(holder.cleanup)
+        build = root / "build"; build.mkdir()
+        (root / "CMakeLists.txt").write_text("project(sample)\n", encoding="utf-8")
+        config = root / "gateway.json"
+        config.write_text(json.dumps({"repo": str(root), "build_dir": "build",
+                                     "auto_refresh_build": True,
+                                     "build_refresh_command": [sys.executable, "-c", "import pathlib; pathlib.Path('build/compile_commands.json').write_text('[]')"],
+                                     "backend_command": [sys.executable, str(self.fake_backend(root))],
+                                     "provider_commands": {"cpp": "/bin/true", "python": "/bin/true"},
+                                     "workset": ["sample.cpp"]}), encoding="utf-8")
+        process = subprocess.Popen([sys.executable, str(pathlib.Path(__file__).parents[1] / "codex/bin/semantic-gateway-mcp.py"), "--config", str(config)],
+                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        def stop_process():
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+            if process.stdin: process.stdin.close()
+            if process.stdout: process.stdout.close()
+        self.addCleanup(stop_process)
+        def request(value):
+            process.stdin.write(json.dumps(value) + "\n"); process.stdin.flush()
+            return json.loads(process.stdout.readline())
+        request({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+        process.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}) + "\n")
+        process.stdin.flush()
+        called = request({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
+            "name": "inspect_semantic_graph", "arguments": {"repo": str(root), "operation": "definition", "symbol": "answer"}}})
+        self.assertEqual(called["result"]["structuredContent"]["status"], "PARTIAL")
+        self.assertEqual(called["result"]["structuredContent"]["reason"], "COMPILE_COMMANDS_INCOMPLETE")
 
 
 if __name__ == "__main__":

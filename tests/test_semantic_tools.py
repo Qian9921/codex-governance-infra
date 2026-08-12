@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 import importlib.util
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).parents[1]
 
@@ -33,6 +34,38 @@ class SemanticToolsTest(unittest.TestCase):
             self.assertFalse(launcher.exists())
             self.assertFalse(launcher.parent.exists())
             self.assertIn("bin/semantic-backend-launcher.py", result["removed"])
+
+    def test_interrupted_install_rolls_back_each_managed_boundary_and_uninstall_is_safe(self):
+        spec = importlib.util.spec_from_file_location(
+            "semantic_tools_interruptions", ROOT / "scripts/install-semantic-tools.py")
+        installer = importlib.util.module_from_spec(spec); spec.loader.exec_module(installer)
+        boundaries = ("launcher", "checkout", "build", "pyright", "registration")
+        with tempfile.TemporaryDirectory() as directory:
+            base = pathlib.Path(directory)
+            tools_home = base / "tools"; codex_home = base / "codex"
+            codex_home.mkdir(); (tools_home / "unrelated").mkdir(parents=True)
+            (tools_home / "unrelated" / "keep").write_text("keep", encoding="utf-8")
+            for boundary in boundaries:
+                def interrupted(*_args, _boundary=boundary, **_kwargs):
+                    target = {
+                        "launcher": tools_home / "bin/semantic-backend-launcher.py",
+                        "checkout": tools_home / "samchon-graph/file",
+                        "build": tools_home / "samchon-graph/dist/index.js",
+                        "pyright": tools_home / "pyright/bin/pyright",
+                        "registration": codex_home / "config.toml",
+                    }[_boundary]
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text("owned residue", encoding="utf-8")
+                    raise KeyboardInterrupt(_boundary)
+                with mock.patch.object(installer, "_install", side_effect=interrupted):
+                    with self.assertRaises(KeyboardInterrupt):
+                        installer.install(tools_home, dry_run=False, codex_home=codex_home, register=True)
+                self.assertFalse((tools_home / "bin").exists())
+                self.assertFalse((tools_home / "samchon-graph").exists())
+                self.assertFalse((tools_home / "pyright").exists())
+                self.assertFalse((codex_home / "config.toml").exists())
+                self.assertEqual((tools_home / "unrelated" / "keep").read_text(encoding="utf-8"), "keep")
+                self.assertEqual(installer.uninstall(tools_home, codex_home)["status"], "UNINSTALLED")
 
     def test_run_accepts_build_environment_for_ttsc_go_plugin(self):
         spec = importlib.util.spec_from_file_location(
@@ -79,14 +112,28 @@ class SemanticToolsTest(unittest.TestCase):
             tools_home = pathlib.Path(directory)
             checkout = tools_home / "checkout"; checkout.mkdir()
             entrypoint = checkout / "bin.js"; entrypoint.write_text("", encoding="utf-8")
+            repo = tools_home / "repo"; repo.mkdir()
+            (repo / "CMakeLists.txt").write_text("project(test)\n", encoding="utf-8")
             config = installer._write_backend_config(
                 tools_home, ["legacy"], None, {"path": "/usr/bin/clangd"},
-                checkout, entrypoint, ("module.py",))
+                checkout, entrypoint, ("module.py",), repo)
             value = json.loads(config.read_text(encoding="utf-8"))
             self.assertEqual(value["workset"], [])
             self.assertEqual(value["profiles"], {"cpp": "cpp_resident", "python": "python_resident"})
             self.assertIn("clangd", " ".join(value["backend_commands"]["cpp"]))
             self.assertIn("pyright-langserver", " ".join(value["backend_commands"]["python"]))
+            self.assertTrue(value["auto_refresh_build"])
+
+    def test_unbound_installed_config_keeps_query_time_cmake_refresh_enabled(self):
+        spec = importlib.util.spec_from_file_location(
+            "semantic_tools_installer_unbound", ROOT / "scripts/install-semantic-tools.py")
+        installer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(installer)
+        with tempfile.TemporaryDirectory() as directory:
+            tools_home = pathlib.Path(directory)
+            config = installer._write_backend_config(
+                tools_home, ["legacy"], None, {"path": "/usr/bin/clangd"})
+            self.assertTrue(json.loads(config.read_text(encoding="utf-8"))["auto_refresh_build"])
 
     def test_dry_run_is_idempotent_and_does_not_write(self):
         with tempfile.TemporaryDirectory() as directory:

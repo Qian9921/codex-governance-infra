@@ -53,7 +53,7 @@ class Privacy(unittest.TestCase):
   import json
   root=pathlib.Path(__file__).parents[1]
   manifest=json.loads((root/'manifest.json').read_text())
-  self.assertEqual(manifest['version'],'21.0.0')
+  self.assertEqual(manifest['version'],'21.1.0')
   readme=(root/'README.md').read_text()
   self.assertIn('$v19-*', readme)
   self.assertIn('codex/v16', readme)

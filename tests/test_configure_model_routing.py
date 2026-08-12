@@ -84,6 +84,8 @@ class ConfigureModelRouting(unittest.TestCase):
         self.assertEqual(second["status"], "READY")
         configured = (self.home / "config.toml").read_text(encoding="utf-8")
         self.assertEqual(configured.count("model_catalog_json"), 1)
+        self.assertEqual(configured.count("model_verbosity"), 1)
+        self.assertIn('model_verbosity = "medium"', configured)
         catalog = json.loads((self.home / "model-catalogs" / "multi-agent-v2.json").read_text())
         models = {item["slug"]: item for item in catalog["models"]}
         self.assertEqual(models["gpt-5.6-luna"]["multi_agent_version"], "v2")
@@ -120,6 +122,49 @@ class ConfigureModelRouting(unittest.TestCase):
         restored = config.read_text(encoding="utf-8")
         self.assertNotIn("model_catalog_json", restored)
         self.assertIn("[features]\nhooks = true", restored)
+
+    def test_rollback_rejects_user_drift_in_managed_reasoning_or_verbosity(self):
+        MODULE.configure(self.home, self.codex, self.systemd, "codex-app-server.service", None)
+        config = self.home / "config.toml"
+        drifted = config.read_text(encoding="utf-8").replace(
+            'model_reasoning_effort = "medium"', 'model_reasoning_effort = "high"'
+        ).replace('model_verbosity = "medium"', 'model_verbosity = "low"')
+        config.write_text(drifted, encoding="utf-8")
+        with self.assertRaisesRegex(MODULE.ConfigureError, "owned model_reasoning_effort setting has drifted"):
+            MODULE.rollback(self.home, self.systemd, "codex-app-server.service")
+        self.assertIn('model_reasoning_effort = "high"', config.read_text(encoding="utf-8"))
+
+    def test_rollback_accepts_managed_settings_when_catalog_is_the_only_drift(self):
+        MODULE.configure(self.home, self.codex, self.systemd, "codex-app-server.service", None)
+        config = self.home / "config.toml"
+        config.write_text(config.read_text(encoding="utf-8").replace(
+            'model_catalog_json = "', 'model_catalog_json = "'  # preserve exact managed value
+        ), encoding="utf-8")
+        result = MODULE.rollback(self.home, self.systemd, "codex-app-server.service")
+        self.assertEqual(result["status"], "ROLLED_BACK")
+
+    def test_rollback_restores_original_when_catalog_already_equals_managed_path(self):
+        config = self.home / "config.toml"
+        catalog = self.home / MODULE.CATALOG_RELATIVE
+        catalog.parent.mkdir(parents=True, exist_ok=True)
+        catalog.write_text('{"original":true}\n', encoding="utf-8")
+        original_config = (
+            f'model = "gpt-5.6-sol"\n'
+            f'model_catalog_json = "{catalog}"\n'
+            'model_reasoning_effort = "low"\n'
+            'model_verbosity = "low"\n\n'
+            '[agents]\nmax_threads = 4\n'
+        )
+        config.write_text(original_config, encoding="utf-8")
+        original_catalog = catalog.read_bytes()
+        MODULE.configure(self.home, self.codex, self.systemd, "codex-app-server.service", None)
+        result = MODULE.rollback(self.home, self.systemd, "codex-app-server.service")
+        self.assertEqual(result["status"], "ROLLED_BACK")
+        self.assertEqual(config.read_bytes(), original_config.encode("utf-8"))
+        self.assertEqual(catalog.read_bytes(), original_catalog)
+        self.assertFalse((self.home / MODULE.STATE_DIR).exists())
+        self.assertFalse((self.home / MODULE.CLEANUP_DIR).exists())
+        self.assertFalse((self.home / MODULE.COMPLETION_MARKER).exists())
 
     def test_quoted_top_level_catalog_key_is_replaced_and_restored(self):
         config = self.home / "config.toml"
