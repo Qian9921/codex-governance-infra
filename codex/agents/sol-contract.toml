@@ -1,5 +1,5 @@
 name = "sol_contract"
-description = "Read-only V19 architecture, math, numerical, public-API, or unexplained-root-cause contract gate before execution."
+description = "Read-only V21 architecture, math, numerical, public-API, or unexplained-root-cause contract gate before execution (stable V19 role ID)."
 model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"

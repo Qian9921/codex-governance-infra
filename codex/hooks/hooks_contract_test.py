@@ -41,24 +41,23 @@ class HooksContractTests(unittest.TestCase):
         self.assertEqual(
             context["routing"],
             {
-                "known_structure": "CodeGraph",
-                "unknown_semantic_or_similar": "Semble",
-                "shell_display": "rtk",
-                "exact_text_log_config": "rg",
+                "discovery": "Semble",
+                "semantic_gateway": "compiler-derived clangd/Pyright gateway",
+                "exact_evidence": "source/Git/compiler/build/test/benchmark",
             },
         )
         guidance = context["additionalContext"]
-        for route in ("CodeGraph", "Semble", "rtk", "rg"):
+        for route in ("Semble", "compiler-derived", "source/Git/compiler/build/test/benchmark"):
             self.assertIn(route, guidance)
         self.assertEqual(
             context["tool_preflight"],
             {
                 "required_before_repo_work": False,
-                "required_before_relying_on_semantic_or_structural_tool": True,
-                "schema": "tool-preflight.v16",
-                "strict_ready_status": "ready",
-                "mandatory_tools": ["codegraph", "semble", "rtk"],
-                "usage_schema": "tool-usage.v16",
+                "required_before_relying_on_semantic_or_structural_tool": False,
+                "schema": "semantic-gateway.v1",
+                "strict_ready_status": "READY",
+                "mandatory_lanes": ["discovery", "semantic_gateway", "exact_evidence"],
+                "usage_schema": "semantic-gateway.v1",
                 "receipt_backed_usage_required": True,
                 "task_contract_schema": "tool-task-contract.v16",
                 "enforcement_schema": "tool-enforcement.v16",
@@ -66,16 +65,16 @@ class HooksContractTests(unittest.TestCase):
                 "adaptive_recovery_default": True,
                 "strict_maintenance_schema": "tool-maintenance.v16",
                 "strict_maintenance_flag": "--strict-maintenance",
-                "automatic_repo_index_repair": True,
-                "strict_repair_budget": 1,
-                "strict_repair_owner": "assigned_execution_agent:tool_maintainer",
+                "automatic_repo_index_repair": False,
+                "strict_repair_budget": 0,
+                "strict_repair_owner": "explicit-semantic-tools-installer",
                 "recovery_policy": (
                     "do not repeat no-progress strategy; continue distinct "
                     "evidence-producing recovery until the required capability is usable"
                 ),
             },
         )
-        self.assertIn("V19 PERSONAL KERNEL", guidance)
+        self.assertIn("V21 PERSONAL KERNEL", guidance)
         self.assertEqual(context["review_runtime"]["formal_review_calls"], 1)
         self.assertEqual(
             context["review_runtime"]["duplicate_full_scope_reviews"], 0
@@ -105,7 +104,7 @@ class HooksContractTests(unittest.TestCase):
             )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         guidance = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("V19 INTAKE", guidance)
+        self.assertIn("V21 INTAKE", guidance)
         self.assertIn("Adaptive default", guidance)
         self.assertIn("$v19-strict-proof", guidance)
         self.assertIn("--record-task-contract", guidance)

@@ -8,7 +8,7 @@ class Installer(unittest.TestCase):
    self.assertEqual(result['status'],'DRY_RUN')
    self.assertEqual(result['mode'],'managed-overlay')
    self.assertEqual(result['package'],'Codex Governance Infra')
-   self.assertEqual(result['version'],'19.1.0')
+   self.assertEqual(result['version'],'21.0.0')
    self.assertIn('AGENTS.md',result['hashes'])
    self.assertIn('hooks.json',result['hashes'])
    self.assertIn('hooks/hooks.json',result['hashes'])

@@ -1,5 +1,36 @@
 # Deployment
 
+The active overlay is V21.0.0. `install-governance.py` remains the atomic
+governance installer; `install-semantic-tools.py` is a separate idempotent,
+dry-run-capable dependency installer/doctor. The latter clones and verifies the
+pinned @samchon/graph commit/tree, runs its frozen-lockfile pnpm install/build,
+materializes and verifies a pinned Pyright launcher, locates host clangd, writes
+the runnable backend config/launcher, and can perform a real gateway doctor for
+`--repo PATH`. A missing host clangd or unconfigured workset remains PARTIAL;
+the installer never vendors opaque binaries or credentials.
+
+Preview and install the separate toolchain (use an isolated tools home):
+
+```bash
+python3 scripts/install-semantic-tools.py --tools-home "$SEMANTIC_TOOLS_HOME" \
+  --codex-home "$CODEX_HOME" --install --register --dry-run
+python3 scripts/install-semantic-tools.py --tools-home "$SEMANTIC_TOOLS_HOME" \
+  --codex-home "$CODEX_HOME" --install --register
+python3 scripts/install-semantic-tools.py --tools-home "$SEMANTIC_TOOLS_HOME" \
+  --doctor --repo /path/to/repository
+# The doctor derives at most 64 tracked source files, or accept an explicit set:
+python3 scripts/install-semantic-tools.py --tools-home "$SEMANTIC_TOOLS_HOME" \
+  --doctor --repo /path/to/repository \
+  --workset src/main.cpp --workset src/main.hpp
+```
+
+The managed `semantic-gateway-config.json` records the backend checkout, binary
+identity, and bounded workset. Registration writes one
+`[mcp_servers.codex-semantic-gateway]` section to `config.toml`, preserving an
+unrelated existing config and retaining a rollback copy. It does not write
+credentials or silently change unrelated sections. Use `--uninstall` to remove
+only the manifest-owned checkout, provider, config, and registration.
+
 Use an isolated `CODEX_HOME` for verification first.
 `install-governance.py --dry-run` prints the allowlisted plan; a real install
 is a manifest-bound managed overlay. It atomically replaces only package-owned
@@ -9,11 +40,11 @@ and removes managed files that did not previously exist. Live global Codex-home
 deployment requires the exact manifest/hash review and the applicable
 authorization lane.
 
-The V19.1 personal overlay has two disjoint destinations: normal package files
-under the selected `CODEX_HOME`, and V19 Skills under the sibling
+The V21.0.0 personal overlay has two disjoint destinations: normal package files
+under the selected `CODEX_HOME`, and stable V19 compatibility skills under the sibling
 `.agents/skills` root required by current Codex discovery. One backup generation
 inside `CODEX_HOME` covers both roots. A custom `--agents-home` must be supplied
-again for rollback; V19 binds both resolved roots into private backup metadata
+again for rollback; V21 binds both resolved roots into private backup metadata
 and fails closed before recovery, upgrade, or rollback on root drift. Empty
 installer-created skill directories are pruned, while unrelated `.agents` files
 remain untouched. The managed `.agents/skills` root must be a physical
@@ -34,9 +65,9 @@ observation. CodeGraph index build/sync is a separate, project-local authorized
 mutation. Unknown or degraded health stays visible and fallback requires a real
 reason code plus evidence reference.
 
-## V19 native model routing overlay
+## V21 native model routing overlay
 
-V19 keeps the adaptive policy separate from the retained V16 strict evidence
+V21 keeps the adaptive policy separate from the retained V16 strict evidence
 engine. Reversible machine-local model routing is a `STANDARD` operation. The
 adaptive role contract also exposes bounded `TERRA_REPLAN` and `TERRA_TRIAGE`
 bridges: R0/R1 advisory slices return directly to Luna and cannot review, merge,

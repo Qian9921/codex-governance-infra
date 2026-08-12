@@ -1,7 +1,17 @@
-# Toolchain: adaptive routing and strict proof
+# Toolchain: V21 three-lane routing and strict proof
 
-This document is the operational contract for CodeGraph, Semble, and `rtk`.
+This document is the operational contract for the V21 three-lane surface.
+Daily `QUICK`/`STANDARD` work uses Semble discovery, the compiler-derived
+semantic gateway, and bounded exact source/Git/compiler/build/test/benchmark
+evidence. CodeGraph, `rg`, and `rtk` are retained only for explicit V16
+`STRICT` compatibility.
 The short path is in [README.md](../README.md).
+
+The gateway launcher is `codex/bin/semantic-gateway.py`; its normalized
+receipt is `semantic-gateway.v1`. `doctor` and `sync` may be PARTIAL or
+NOT_READY when clangd/Pyright or the configured workset are absent. That state
+is truthful and routes the dependent fact to one named bounded exact-evidence
+fallback; it does not block unrelated STANDARD work.
 
 In `QUICK` and `STANDARD`, use only task-relevant routes and verify a semantic
 or structural tool before relying on its answer. Missing contracts and optional
@@ -285,18 +295,17 @@ Compile the complete task contract from seven structured booleans:
 - shell output for model context;
 - machine-exact-only processing.
 
-The compiler derives exactly four rows:
-`semantic_discovery|structural_analysis|exact_lookup|shell_context`. Every row
-is `required|not_applicable`; omission is invalid. A repository task with no
-required row is invalid unless it is explicitly machine-exact-only.
+The V21 daily contract derives exactly three rows:
+`discovery|semantic_gateway|exact_evidence`. Every row is
+`required|not_applicable`; omission is invalid. The older four-row contract
+below is retained only inside explicit V16 `STRICT` compatibility.
 
 | Intent | Required first tool | Result that must be retained |
 |---|---|---|
 | Unknown semantic entrypoint or similar implementation | Semble | Candidate path/line used to choose the next inspection |
-| Known symbol, call, dependency, or blast radius | CodeGraph | Current structural path/impact result |
-| Shell output shown to the model | `rtk` | Compact human-context output |
-| Exact string, error, config, or log | `rg`/bounded exact read | Literal match |
-| Hash, parser input, byte identity, exact denominator | Raw command | Unmodified machine evidence |
+| Known symbol, call, dependency, or blast radius | semantic gateway | Compiler/provider receipt and result |
+| Source/Git/compiler/build/test/benchmark fact | bounded exact evidence | Unmodified machine evidence |
+| Unknown semantic or similar implementation | Semble | Candidate path/line used to choose next inspection |
 
 Fallback requires a real failed preferred attempt, a stable reason code, and an
 evidence reference. It never claims equivalent structural or semantic coverage.

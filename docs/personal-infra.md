@@ -1,18 +1,18 @@
 # Personal Codex infrastructure and context budget
 
-V19 installs only personal Codex infrastructure. It does not create repository,
+V21 installs only personal Codex infrastructure. It does not create repository,
 team, administrator, or managed-enterprise configuration. The installer owns
 only manifest-listed files below the selected `CODEX_HOME` and the three V19
-skills below its sibling personal `.agents/skills` root.
+compatibility skills below its sibling personal `.agents/skills` root.
 
 ## Native ownership map
 
-| Concern | Personal Codex surface | Load behavior | V19 owner |
+| Concern | Personal Codex surface | Load behavior | V21 owner |
 |---|---|---|---|
 | Durable constitution and routing | `~/.codex/AGENTS.md` | always loaded | thin kernel |
 | Execution, contract, review, triage roles | `~/.codex/agents/*.toml` | selected subagent | four single-role agents |
-| Conditional workflows | `~/.agents/skills/*/SKILL.md` | metadata first, body on match | three V19 skills |
-| Lifecycle integrity and task binding | `~/.codex/hooks.json` plus scripts | matching event only | V19 hooks |
+| Conditional workflows | `~/.agents/skills/*/SKILL.md` | metadata first, body on match | three stable V19 compatibility skills |
+| Lifecycle integrity and task binding | `~/.codex/hooks.json` plus scripts | matching event only | V21 hooks |
 | Catastrophic command safety | `~/.codex/rules/*.rules` | runtime policy, not prompt | safety rules |
 | Explicit strict runtime defaults | `~/.codex/governance-strict.config.toml` | selected profile only | strict profile |
 | Tool and data integrations | existing `~/.codex/config.toml` MCP tables | tool metadata on enablement | user configuration |
@@ -32,19 +32,19 @@ or 8,000 characters when the context size is unknown. Installing every useful-
 looking workflow globally can therefore shorten or evict the descriptions that
 matter most.
 
-V19 uses these budgets for a 256k-context subscription account:
+V21 uses these budgets for a 256k-context subscription account:
 
 - installed `AGENTS.md`: at most 10 KiB;
 - SessionStart/SubagentStart context: at most 700 characters;
 - per-prompt intake context: at most 900 characters, including strict identity;
-- each V19 `SKILL.md`: at most 3 KiB;
-- three globally discoverable V19 skills and four single-role subagents;
+- each compatibility `v19-*` `SKILL.md`: at most 3 KiB;
+- three globally discoverable compatibility skills and four single-role subagents;
 - no repeated checklist or long command block in the always-loaded kernel.
 
 The Addy Osmani `agent-skills` project informed the workflow/persona split and
-progressive-disclosure design. V19 does not install that entire catalog: its
+progressive-disclosure design. V21 does not install that entire catalog: its
 large collection would compete with existing personal, system, and plugin skill
-descriptions, while several workflows overlap V19 ownership. V19 reuses the
+descriptions, while several workflows overlap existing ownership. V21 reuses the
 useful shape—short activation metadata, focused workflow bodies, scripts for
 deterministic work—without creating a second governance framework.
 
@@ -55,7 +55,7 @@ deterministic work—without creating a second governance framework.
 | Global instructions consume every turn | fixed kernel budget; conditional detail moves to skills |
 | Hooks repeat the constitution on every prompt | hooks emit only mode, integrity, and strict intake identity |
 | A role prompt becomes a workflow router | each agent has one role; skills own the workflow |
-| All skills activate or descriptions are truncated | only three non-overlapping V19 skills are installed |
+| All skills activate or descriptions are truncated | only three non-overlapping compatibility skills are installed |
 | Deterministic safety depends on model obedience | hooks and `.rules` own mechanical enforcement |
 | Strict ceremony penalizes ordinary work | strict proof and profile remain explicit and lazy |
 | Local tools or memories become package truth | config, generated state, caches, and credentials remain outside the overlay |

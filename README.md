@@ -1,8 +1,8 @@
-# Codex Governance Infra V19
+# Codex Governance Infra V21
 
 [简体中文](README.zh-CN.md) · English
 
-A Codex-only starter for researcher-engineers who need fast implementation,
+A Codex-only V21 policy for researcher-engineers who need fast implementation,
 trustworthy evidence, convergent review, clean code, and durable knowledge—without
 turning every task into a release ceremony.
 
@@ -10,31 +10,56 @@ turning every task into a release ceremony.
 
 ```text
 Outcome -> Reuse scan -> Luna executes (optional bounded Terra bridge) -> Affected evidence
-        -> One Sol review -> configured author/reviewer PR trace -> Knowledge
+        -> Initial Sol review -> at most one delta -> configured PR trace -> Knowledge
 ```
 
 - **Personal progressive infrastructure:** a bounded always-loaded kernel,
   on-demand skills, single-role subagents, compact hooks, command rules, and an
   opt-in strict profile.
-- **Adaptive profiles:** `QUICK`, `STANDARD`, and opt-in `STRICT`.
+- **Adaptive profiles:** `QUICK`, `STANDARD`, and opt-in `STRICT`; V21 balances
+  risk, recovery, time, evidence, complexity, and communication cost.
 - **Code health:** project rules first, official Google guidance as the default,
   and a `REUSE|EXTEND|NEW` decision before meaningful new abstractions.
-- **Relevant tool routing:** Semble for semantic discovery, CodeGraph for known
-  structure/impact, `rg` for exact facts, and `rtk` for shell context.
+- **Three daily lanes:** Semble discovery; the compiler-derived semantic gateway
+  for known C++/Python semantics; and bounded exact source/Git/compiler/build/
+  test/benchmark evidence. CodeGraph/`rg`/`rtk` are retained STRICT compatibility.
 - **Large-code evidence contract:** `code-mission-tool-index-policy.v1` binds
-  exact repo/worktree/revision identity and healthy revision-matching Semble /
-  CodeGraph evidence. Semble precedes development, CodeGraph precedes
-  `CANDIDATE_READY`; only pure non-code or exact-mechanical work may use `N/A`
+  exact repo/worktree/revision identity and healthy Semble plus compiler-gateway
+  evidence. Semble precedes development; the semantic gateway proves known
+  structure/impact and exact evidence proves source/Git/compiler/build/test/
+  benchmark facts. Only pure non-code or exact-mechanical work may use `N/A`
   with a reason. Evidence is carried by canonical privacy-safe refs and hashes,
-  not booleans; candidate readiness also requires healthy, unblocked state and
-  no per-turn/count quota is imposed.
-- **Convergent review:** one independent reviewer; stable fixes are delta-only.
+  not booleans; no per-turn/count quota is imposed.
+- **Convergent review:** one initial independent review and at most one delta
+  review; a third round requires explicit replan.
 - **Safe installation:** manifest-bound, dry-run capable, atomic, backed up,
   hash-verified, and rollback-capable across the personal `.codex` and `.agents`
   roots.
 
 The package installs personal configuration only. See the
 [personal infrastructure and context budget](docs/personal-infra.md).
+
+## Compiler-derived semantic gateway
+
+The V21 gateway is a real CLI/MCP-compatible surface, not a documentation
+placeholder. Use `codex/bin/semantic-gateway.py doctor --repo .` to inspect
+repository/build/provider identity, `sync` to create a snapshot, and one of
+`resolve_symbol`, `definition`, `declaration`, `references`, `callers`,
+`callees`, `inheritance`, `type_relations`, or `impact` with
+`--snapshot-id`. The normalized receipt reports `READY`, `PARTIAL`, `STALE`,
+or `NOT_READY`, compiler/provider hashes, scope/resource limits, generation,
+and a named bounded exact-evidence fallback. It never invents symbols when a
+compiler protocol is unavailable.
+
+The pinned upstream identity is `@samchon/graph` HEAD
+`95e20c9540e85fef542466172484229356d3d0d8`, tree
+`e9ce033e380d77265c601579e436218502a6ccbd`. Resident C++ is limited to 64
+translation units, concurrency 2, 4 CPUs, 4 GiB, and 180 seconds; offline C++
+is 4 CPUs, 8 GiB, and 15 minutes; resident Python is 4 CPUs, 2.5 GiB, and
+180 seconds. `scripts/install-semantic-tools.py` is a separate idempotent,
+dry-run-capable installer/doctor for the pinned source checkout and host
+provider observations. Missing tools are truthful PARTIAL/NOT_READY states,
+not fake compiler proof.
 
 This repository supports Codex only. It does not claim compatibility with
 Claude Code, Kimi Code, Zcode, or other agent runtimes.
@@ -44,7 +69,7 @@ Claude Code, Kimi Code, Zcode, or other agent runtimes.
 | Profile | Use | Evidence and review | Hooks |
 |---|---|---|---|
 | `QUICK` | explanations, inventory, docs, reversible mechanics | targeted; formal review optional | advisory |
-| `STANDARD` | normal development and research engineering | affected-first; one independent review | advisory |
+| `STANDARD` | ordinary reversible development and research engineering | affected-first; one initial plus at most one delta review | advisory |
 | `STRICT` | security/privacy, exact math, public contracts, irreversible changes, production releases | retained V16 FAST/CANDIDATE/FINAL proof | fail-closed integrity |
 
 Adaptive mode is the default. To run the installed hooks in strict mode, start
@@ -55,9 +80,20 @@ export CODEX_GOVERNANCE_MODE=strict
 ```
 
 Strict mode is intentional, not an automatic penalty for every repository task.
-# V19 is the public adaptive policy. The `codex/v16` package remains only as the
-backward-compatible strict compatibility engine; ordinary reversible installer,
-hook, and model-routing repairs use `STANDARD`.
+# V21 is the product policy. The existing `$v19-*` skill IDs and paths remain
+stable compatibility APIs, and `codex/v16` remains only the backward-compatible
+strict compatibility engine. Ordinary reversible installer, hook, and
+model-routing repairs use the V21 `STANDARD` contract.
+
+### V21 STANDARD contract
+
+Freeze acceptance, rollback, time/evidence budgets, and known limitations before
+execution. A blocker must map to frozen acceptance and weigh user impact,
+likelihood, recoverability, repair cost, and complexity cost; a theoretical
+counterexample without that mapping is `FOLLOW_UP`. Known bounded limitations
+are legal completion states when documented and outside acceptance. Run only
+checks that can change the decision. If budget expires, or defensive/recovery
+logic exceeds the core feature or keeps introducing state, simplify and replan.
 
 ## Model roles
 
@@ -69,7 +105,8 @@ hook, and model-routing repairs use `STANDARD`.
   Sol-led when interpretation is material.
 - Sol performs the fresh, read-only final review. High-risk review reads source,
   contract, and tests and adds a source-derived counterexample; stable fixes
-  return to the same reviewer delta-only, for at most two rounds.
+  return to the same reviewer for at most one delta round. A third round needs
+  explicit replan.
 - Spark remains catalog-supported for legacy or explicitly selected contracts;
   it is disabled by this role policy and is never part of the default flow.
 - Terra: explicit short-lived `TERRA_REPLAN`/`TERRA_TRIAGE` bridges for bounded
@@ -131,22 +168,29 @@ python3 -m unittest discover -s tests/v16 -p 'test_*.py'
 
 Continue only with verifier status `GREEN` and zero test failures/errors.
 
-### 2. Install and configure the preferred tools if missing
+### 2. Install the compiler semantic gateway if needed
 
 ```bash
-npm install -g @colbymchenry/codegraph
-uv tool install semble
-cargo install --git https://github.com/rtk-ai/rtk
-
-codegraph install --target codex --location global --yes
-semble install --agent codex --type mcp --yes
-rtk init --codex --global --dry-run
-rtk init --codex --global
+SEMANTIC_TOOLS_HOME="${SEMANTIC_TOOLS_HOME:-$HOME/.codex/semantic-tools}"
+python3 scripts/install-semantic-tools.py \
+  --tools-home "$SEMANTIC_TOOLS_HOME" \
+  --codex-home "${CODEX_HOME:-$HOME/.codex}" \
+  --install --register --dry-run
+python3 scripts/install-semantic-tools.py \
+  --tools-home "$SEMANTIC_TOOLS_HOME" \
+  --codex-home "${CODEX_HOME:-$HOME/.codex}" \
+  --install --register
 ```
 
-Upstream projects: [CodeGraph](https://github.com/colbymchenry/codegraph),
-[Semble](https://github.com/MinishLab/semble), and
-[rtk](https://github.com/rtk-ai/rtk).
+The installer materializes the pinned graph backend, verifies clangd/Pyright,
+and registers one stdio MCP server. Semble remains the discovery lane supplied
+by the host/orchestrator.
+
+### Explicit V16 STRICT compatibility tools (opt-in only)
+
+The retained V16 STRICT compatibility profile may use CodeGraph, `rg`, and
+`rtk` when that profile is explicitly selected. They are not V21 daily lanes
+and are not required for QUICK or STANDARD work.
 
 ### 3. Inspect the managed overlay
 
@@ -180,9 +224,10 @@ Luna is the default execution/recovery lead. Sol supplies the short contract
 gate for R2/R3 work and the independent review; Terra bridges are explicit
 bounded R0/R1 advisory handoffs that return to Luna, while continuity fallback
 is only for a genuinely unavailable Luna; Spark is disabled in the default flow.
-Route unknown semantics to
-Semble, known structure/impact to CodeGraph, exact text to `rg`, and shell
-context through `rtk`.
+Route unknown semantics to Semble, known structural semantics to the compiler
+semantic gateway, and exact source/Git/compiler/build/test/benchmark facts to
+the bounded exact-evidence lane. CodeGraph, `rg`, and `rtk` are explicit STRICT
+compatibility tools only.
 
 ### 5. Verify hooks and run the first task
 
@@ -199,7 +244,8 @@ reported prerequisite, and rerun the verifier; the rollback command below is
 safe and scoped to the managed overlay.
 
 The overlay owns only manifest-listed paths in the selected personal `.codex`
-root and the V19 skills under the sibling `.agents/skills` root. It preserves configuration,
+root and the stable V19 compatibility skills under the sibling `.agents/skills`
+root. It preserves configuration,
 credentials, plugins, memories, sessions, connections, caches, receipts, and
 all unrelated files.
 
@@ -335,19 +381,22 @@ python3 scripts/install-governance.py \
 
 Tell Codex the desired result. The installed policy then:
 
-1. selects a mission slice and profile;
+1. selects a mission slice and V21 profile;
 2. discovers existing ownership before creating abstractions;
 3. routes execution and only relevant tools;
 4. runs affected evidence, including representative synthetic/real data when
    the capability requires both;
-5. performs one independent review and delta-only closure;
+5. performs one initial independent review and at most one delta-only closure;
 6. leaves author/reviewer history and reusable knowledge.
 
-Tool calls are not a checklist. Verify CodeGraph or Semble before relying on
-its answer. The bounded V16 controller may repair the exact owning-repository
-index once; that circuit is one recovery strategy, not the end of Luna's
-evidence-backed recovery mission. A broken optional tool reports degraded
-coverage and repair debt; it blocks only the dependent claim.
+Replies lead with the conclusion and default to at most three short points or
+paragraphs. During long work, report only a new milestone, blocker, or scope
+change; request detail when the compact result is insufficient.
+
+Tool calls are not a checklist. Verify Semble or the semantic gateway before
+relying on its answer; use exact evidence for source/Git/compiler/build/test/
+benchmark facts. A missing semantic provider reports a named exact-evidence
+fallback and does not block unrelated STANDARD work.
 
 ## Code standards
 

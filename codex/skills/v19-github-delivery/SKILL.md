@@ -1,9 +1,9 @@
 ---
 name: v19-github-delivery
-description: Deliver a V19 change through formal review, GitHub PR, approval, expected-head merge, and optional personal-overlay deployment. Use when the user requests review, publication, PR handling, merge, release, or global personal installation.
+description: Deliver a V21 change through the stable v19-github-delivery compatibility ID with formal review, GitHub PR, approval, expected-head merge, and optional personal-overlay deployment. Use when the user requests review, publication, PR handling, merge, release, or global personal installation.
 ---
 
-# V19 GitHub Delivery
+# V21 GitHub Delivery (stable ID: v19-github-delivery)
 
 ## Freeze identity
 
