@@ -226,10 +226,11 @@ def inspect(tools_home: pathlib.Path | None, codex_home: pathlib.Path | None = N
 def _write_registration(codex_home: pathlib.Path, tools_home: pathlib.Path) -> pathlib.Path:
     codex_home.mkdir(mode=0o700, parents=True, exist_ok=True)
     target = codex_home / REGISTRATION
-    command = codex_home / "bin" / "semantic-gateway-mcp.py"
+    command = pathlib.Path(sys.executable).resolve()
+    gateway = codex_home / "bin" / "semantic-gateway-mcp.py"
     config = tools_home / "semantic-gateway-config.json"
     value = {"name": "codex-semantic-gateway", "command": str(command),
-             "args": ["--config", str(config)],
+             "args": [str(gateway), "--config", str(config)],
              "config": str(config),
              "transport": "stdio", "managed_by": MANIFEST, "upstream": UPSTREAM}
     descriptor, temporary = tempfile.mkstemp(prefix=target.name + ".", dir=codex_home)
@@ -269,13 +270,15 @@ def _upsert_mcp_config(codex_home: pathlib.Path, tools_home: pathlib.Path) -> pa
     if start is None:
         updated = original.rstrip("\n") + ("\n\n" if original else "")
         config = tools_home / "semantic-gateway-config.json"
-        updated += MCP_SECTION + "\ncommand = " + json.dumps(str(codex_home / "bin" / "semantic-gateway-mcp.py")) + "\nargs = " + json.dumps(["--config", str(config)]) + "\n"
+        gateway = codex_home / "bin" / "semantic-gateway-mcp.py"
+        updated += MCP_SECTION + "\ncommand = " + json.dumps(str(pathlib.Path(sys.executable).resolve())) + "\nargs = " + json.dumps([str(gateway), "--config", str(config)]) + "\n"
     else:
         end = next((i for i in range(start + 1, len(lines)) if lines[i].lstrip().startswith("[")), len(lines))
         config = tools_home / "semantic-gateway-config.json"
         replacement = [MCP_SECTION + "\n",
-                       "command = " + json.dumps(str(codex_home / "bin" / "semantic-gateway-mcp.py")) + "\n",
-                       "args = " + json.dumps(["--config", str(config)]) + "\n"]
+                       "command = " + json.dumps(str(pathlib.Path(sys.executable).resolve())) + "\n",
+                       "args = " + json.dumps([str(codex_home / "bin" / "semantic-gateway-mcp.py"),
+                                               "--config", str(config)]) + "\n"]
         updated = "".join(lines[:start] + replacement + lines[end:])
     temporary = target.with_name(target.name + ".tmp")
     temporary.write_text(updated, encoding="utf-8")
