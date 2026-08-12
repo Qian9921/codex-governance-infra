@@ -114,7 +114,7 @@ def _backend_command(checkout: pathlib.Path, entrypoint: pathlib.Path | None,
                      tools_home: pathlib.Path, workset: tuple[str, ...]) -> list[str] | None:
     if not entrypoint:
         return None
-    runner = pathlib.Path(__file__).resolve().parents[1] / "codex" / "bin" / "semantic-backend-launcher.py"
+    runner = tools_home / "bin" / "semantic-backend-launcher.py"
     language, profile, server, server_args = _semantic_lane(workset, tools_home)
     backend = ["node", str(entrypoint)] if entrypoint.suffix == ".js" else [str(entrypoint)]
     backend.extend(["--mode", "lsp", "--language", language, "--server", server])
@@ -327,6 +327,10 @@ def install(tools_home: pathlib.Path, *, dry_run: bool, codex_home: pathlib.Path
     if dry_run:
         return result
     tools_home.mkdir(mode=0o700, parents=True, exist_ok=True)
+    launcher_source = pathlib.Path(__file__).resolve().parents[1] / "codex/bin/semantic-backend-launcher.py"
+    launcher_target = tools_home / "bin/semantic-backend-launcher.py"
+    launcher_target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    shutil.copy2(launcher_source, launcher_target)
     checkout = tools_home / "samchon-graph"
     if checkout.exists() and not checkout.is_dir():
         raise SystemExit("unsafe semantic tools checkout")
@@ -398,8 +402,13 @@ def uninstall(tools_home: pathlib.Path, codex_home: pathlib.Path | None = None) 
     if pyright_dir.exists(): shutil.rmtree(pyright_dir)
     config = tools_home / "semantic-gateway-config.json"
     if config.exists(): config.unlink()
+    launcher = tools_home / "bin/semantic-backend-launcher.py"
+    if launcher.exists(): launcher.unlink()
+    launcher_dir = launcher.parent
+    if launcher_dir.is_dir() and not any(launcher_dir.iterdir()): launcher_dir.rmdir()
     manifest.unlink()
-    removed = ["samchon-graph", "pyright", "semantic-gateway-config.json", MANIFEST]
+    removed = ["samchon-graph", "pyright", "semantic-gateway-config.json",
+               "bin/semantic-backend-launcher.py", MANIFEST]
     if codex_home and (codex_home / REGISTRATION).is_file():
         (codex_home / REGISTRATION).unlink(); removed.append(REGISTRATION)
     if codex_home:
