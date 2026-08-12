@@ -17,6 +17,23 @@ _LAUNCHER_SPEC.loader.exec_module(semantic_backend_launcher)
 
 
 class SemanticToolsTest(unittest.TestCase):
+    def test_uninstall_removes_managed_launcher(self):
+        spec = importlib.util.spec_from_file_location(
+            "semantic_tools_installer_uninstall", ROOT / "scripts/install-semantic-tools.py")
+        installer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(installer)
+        with tempfile.TemporaryDirectory() as directory:
+            tools_home = pathlib.Path(directory) / "tools"
+            launcher = tools_home / "bin/semantic-backend-launcher.py"
+            launcher.parent.mkdir(parents=True)
+            launcher.write_text("managed\n", encoding="utf-8")
+            (tools_home / installer.MANIFEST).write_text(
+                json.dumps({"upstream": {"head": installer.UPSTREAM["head"]}}), encoding="utf-8")
+            result = installer.uninstall(tools_home)
+            self.assertFalse(launcher.exists())
+            self.assertFalse(launcher.parent.exists())
+            self.assertIn("bin/semantic-backend-launcher.py", result["removed"])
+
     def test_run_accepts_build_environment_for_ttsc_go_plugin(self):
         spec = importlib.util.spec_from_file_location(
             "semantic_tools_installer_run", ROOT / "scripts/install-semantic-tools.py")
@@ -51,6 +68,7 @@ class SemanticToolsTest(unittest.TestCase):
             self.assertIn("python", command)
             self.assertIn(str(tools_home / "pyright/bin/pyright-langserver"), command)
             self.assertIn("--stdio", command)
+            self.assertIn(str(tools_home / "bin/semantic-backend-launcher.py"), command)
 
     def test_dry_run_is_idempotent_and_does_not_write(self):
         with tempfile.TemporaryDirectory() as directory:
