@@ -5,10 +5,34 @@ import sys
 import tempfile
 import unittest
 
-from codex.semantic_gateway.gateway import BackendClient, Gateway, GatewayConfig, OPERATIONS, close, doctor, query, sync
+from codex.semantic_gateway.gateway import BackendClient, Gateway, GatewayConfig, OPERATIONS, close, doctor, load_config, query, sync
 
 
 class SemanticGatewayTest(unittest.TestCase):
+    def test_config_routes_language_and_derives_repo_local_workset(self):
+        holder, root = self.repo(); self.addCleanup(holder.cleanup)
+        (root / "module.py").write_text("def answer(): return 42\n", encoding="utf-8")
+        (root / "build").mkdir()
+        (root / "build/compile_commands.json").write_text("[]\n", encoding="utf-8")
+        subprocess.check_call(["git", "add", "module.py"], cwd=root)
+        config = root / "gateway.json"
+        config.write_text(json.dumps({
+            "backend_command": ["legacy"],
+            "backend_commands": {"cpp": ["cpp-backend"], "python": ["python-backend"]},
+            "profiles": {"cpp": "cpp_resident", "python": "python_resident"},
+        }), encoding="utf-8")
+        cpp = load_config(config, root, "cpp")
+        python = load_config(config, root, "python")
+        self.assertEqual(cpp.backend_command, ("cpp-backend",))
+        self.assertEqual(cpp.profile, "cpp_resident")
+        self.assertIn("sample.cpp", cpp.workset)
+        self.assertEqual(cpp.build_dir, root / "build")
+        self.assertNotIn("module.py", cpp.workset)
+        self.assertEqual(python.backend_command, ("python-backend",))
+        self.assertEqual(python.profile, "python_resident")
+        self.assertIn("module.py", python.workset)
+        self.assertNotIn("sample.cpp", python.workset)
+
     def repo(self):
         directory = tempfile.TemporaryDirectory()
         root = pathlib.Path(directory.name)
@@ -85,6 +109,24 @@ class SemanticGatewayTest(unittest.TestCase):
         self.assertEqual(result["status"], "READY")
         self.assertEqual(result["result"]["facts"][0]["operation"], "definition")
         self.assertEqual(result["provenance"]["backend"], "fake-pinned")
+
+    def test_snapshot_cannot_cross_language_backend(self):
+        holder, root = self.repo(); self.addCleanup(holder.cleanup)
+        gateway = self.configured_gateway(root)
+        snapshot = gateway.sync()["snapshot_id"]
+        result = gateway.query(snapshot, "definition", "answer", "python")
+        self.assertEqual(result["status"], "STALE")
+        self.assertEqual(result["reason"], "SNAPSHOT_LANGUAGE_MISMATCH")
+        self.assertEqual(result["query"]["language"], "python")
+
+    def test_snapshot_cannot_cross_repository(self):
+        holder_a, root_a = self.repo(); self.addCleanup(holder_a.cleanup)
+        holder_b, root_b = self.repo(); self.addCleanup(holder_b.cleanup)
+        snapshot = self.configured_gateway(root_a).sync()["snapshot_id"]
+        result = self.configured_gateway(root_b).query(snapshot, "definition", "answer", "cpp")
+        self.assertEqual(result["status"], "STALE")
+        self.assertEqual(result["reason"], "SNAPSHOT_REPOSITORY_MISMATCH")
+        self.assertEqual(result["requested_repo"], str(root_b))
 
     def test_backend_accepts_standard_mcp_structured_content(self):
         holder, root = self.repo(); self.addCleanup(holder.cleanup)

@@ -70,6 +70,24 @@ class SemanticToolsTest(unittest.TestCase):
             self.assertIn("--stdio", command)
             self.assertIn(str(tools_home / "bin/semantic-backend-launcher.py"), command)
 
+    def test_installed_config_contains_both_language_backends(self):
+        spec = importlib.util.spec_from_file_location(
+            "semantic_tools_installer_dual", ROOT / "scripts/install-semantic-tools.py")
+        installer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(installer)
+        with tempfile.TemporaryDirectory() as directory:
+            tools_home = pathlib.Path(directory)
+            checkout = tools_home / "checkout"; checkout.mkdir()
+            entrypoint = checkout / "bin.js"; entrypoint.write_text("", encoding="utf-8")
+            config = installer._write_backend_config(
+                tools_home, ["legacy"], None, {"path": "/usr/bin/clangd"},
+                checkout, entrypoint, ("module.py",))
+            value = json.loads(config.read_text(encoding="utf-8"))
+            self.assertEqual(value["workset"], [])
+            self.assertEqual(value["profiles"], {"cpp": "cpp_resident", "python": "python_resident"})
+            self.assertIn("clangd", " ".join(value["backend_commands"]["cpp"]))
+            self.assertIn("pyright-langserver", " ".join(value["backend_commands"]["python"]))
+
     def test_dry_run_is_idempotent_and_does_not_write(self):
         with tempfile.TemporaryDirectory() as directory:
             home = pathlib.Path(directory) / "tools"

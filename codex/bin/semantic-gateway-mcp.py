@@ -52,13 +52,15 @@ def _call_tool(arguments: dict[str, Any]) -> dict[str, Any]:
     repo = arguments.get("repo")
     if not isinstance(repo, str):
         raise GatewayError("repo is required")
-    gateway = Gateway(load_config(arguments.get("config") or DEFAULT_CONFIG, repo))
     profile = arguments.get("profile")
     operation = arguments.get("operation")
     symbol = arguments.get("symbol", "")
     language = arguments.get("language", "cpp")
     if not isinstance(operation, str) or not isinstance(symbol, str) or not isinstance(language, str):
         raise GatewayError("operation, symbol, and language are required")
+    gateway = Gateway(load_config(arguments.get("config") or DEFAULT_CONFIG, repo, language))
+    if profile is None:
+        profile = gateway.config.profile
     snapshot_id = arguments.get("snapshot_id")
     if not isinstance(snapshot_id, str):
         snapshot_id = gateway.sync(profile=profile).get("snapshot_id")
