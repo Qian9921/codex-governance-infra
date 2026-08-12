@@ -120,7 +120,8 @@ class GatewayConfig:
 
 
 def load_config(path: str | os.PathLike[str] | None,
-                repo: str | os.PathLike[str] | None = None) -> GatewayConfig:
+                repo: str | os.PathLike[str] | None = None,
+                language: str | None = None) -> GatewayConfig:
     raw: dict[str, Any] = {}
     config_path = pathlib.Path(path).expanduser().resolve(strict=True) if path else None
     if config_path:
@@ -132,11 +133,15 @@ def load_config(path: str | os.PathLike[str] | None,
             raise GatewayError("semantic gateway config must be an object")
     root = _canonical_repo(repo or raw.get("repo") or os.getcwd())
     build_dir = None if raw.get("build_dir") in (None, "") else (root / str(raw["build_dir"])).resolve()
+    if build_dir is None and (selected := next((candidate.parent for candidate in (
+            root / "compile_commands.json", root / "build/compile_commands.json") if candidate.is_file()), None)):
+        build_dir = selected
     if build_dir:
         try:
             build_dir.relative_to(root)
         except ValueError as exc:
             raise GatewayError("build_dir escapes repository") from exc
+    selected_language = "python" if language == "python" else "cpp"
     workset = raw.get("workset", [])
     if not isinstance(workset, list) or not all(isinstance(item, str) for item in workset):
         raise GatewayError("workset must be a list of relative paths")
@@ -145,12 +150,30 @@ def load_config(path: str | os.PathLike[str] | None,
             (root / item).resolve().relative_to(root)
         except ValueError as exc:
             raise GatewayError("workset escapes repository") from exc
+    if not workset:
+        suffixes = {".py", ".pyi"} if selected_language == "python" else {
+            ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"}
+        tracked = (_git_full(root, "ls-files", "-z") or "").split("\0")
+        workset = [item for item in tracked if item and pathlib.Path(item).suffix.lower() in suffixes
+                   and (root / item).is_file()][:64]
     upstream = raw.get("upstream", UPSTREAM)
     if not isinstance(upstream, dict) or any(upstream.get(k) != UPSTREAM[k] for k in UPSTREAM):
         raise GatewayError("upstream identity must match the pinned @samchon/graph revision")
     backend = raw.get("backend_command", [])
     if not isinstance(backend, list) or not all(isinstance(item, str) for item in backend):
         raise GatewayError("backend_command must be a string list")
+    backend_commands = raw.get("backend_commands", {})
+    if not isinstance(backend_commands, dict) or any(
+            key not in {"cpp", "python"} or not isinstance(value, list)
+            or not all(isinstance(item, str) for item in value)
+            for key, value in backend_commands.items()):
+        raise GatewayError("backend_commands must map cpp/python to string lists")
+    if selected_language in backend_commands:
+        backend = backend_commands[selected_language]
+    profiles = raw.get("profiles", {})
+    if not isinstance(profiles, dict) or any(key not in {"cpp", "python"} or not isinstance(value, str)
+                                             for key, value in profiles.items()):
+        raise GatewayError("profiles must map cpp/python to resource profiles")
     backend_cwd = raw.get("backend_cwd")
     if backend_cwd:
         backend_cwd = (root / str(backend_cwd)).resolve()
@@ -167,7 +190,7 @@ def load_config(path: str | os.PathLike[str] | None,
         cpp_provider=str(raw.get("cpp_provider", "clangd")),
         python_provider=str(raw.get("python_provider", "pyright")),
         provider_commands=providers, upstream=upstream,
-        profile=str(raw.get("profile", "cpp_resident")), workset=tuple(workset),
+        profile=str(profiles.get(selected_language, raw.get("profile", "cpp_resident"))), workset=tuple(workset),
         mcp_name=str(raw.get("mcp_name", "codex-semantic-gateway")),
         backend_command=tuple(backend), backend_cwd=backend_cwd,
         backend_identity=raw.get("backend_identity", {}), config_path=config_path,
@@ -503,6 +526,16 @@ class Gateway:
         if not gateway:
             return self._result("NOT_READY", "SNAPSHOT_NOT_FOUND", self._receipt(), snapshot_id=snapshot_id,
                                 operation=operation, query={"symbol": symbol, "language": language}, result=None)
+        if gateway.config.repo != self.config.repo:
+            return self._result("STALE", "SNAPSHOT_REPOSITORY_MISMATCH", self._receipt(),
+                                snapshot_id=snapshot_id, operation=operation,
+                                query={"symbol": symbol, "language": language}, result=None,
+                                requested_repo=str(self.config.repo))
+        expected_profile = "python_resident" if language == "python" else "cpp_resident"
+        if gateway.config.profile != expected_profile:
+            return gateway._result("STALE", "SNAPSHOT_LANGUAGE_MISMATCH", gateway._receipt(),
+                                   snapshot_id=snapshot_id, operation=operation,
+                                   query={"symbol": symbol, "language": language}, result=None)
         receipt = gateway._receipt()
         if snapshot_id != "sgw-" + receipt["generation"]:
             return gateway._result("STALE", "SNAPSHOT_IDENTITY_CHANGED", receipt, snapshot_id=snapshot_id,
@@ -542,7 +575,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        gateway = Gateway(load_config(args.config, args.repo))
+        gateway = Gateway(load_config(args.config, args.repo, args.language))
         if args.operation == "doctor": result = gateway.doctor()
         elif args.operation == "sync": result = gateway.sync()
         elif args.operation == "close": result = gateway.close()

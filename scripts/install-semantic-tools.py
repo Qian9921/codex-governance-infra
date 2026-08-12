@@ -102,20 +102,22 @@ def _backend_entrypoint(checkout: pathlib.Path) -> pathlib.Path | None:
     return next((path for path in candidates if path.is_file() and not path.is_symlink()), None)
 
 
-def _semantic_lane(workset: tuple[str, ...], tools_home: pathlib.Path) -> tuple[str, str, str, tuple[str, ...]]:
+def _semantic_lane(workset: tuple[str, ...], tools_home: pathlib.Path,
+                   language: str | None = None) -> tuple[str, str, str, tuple[str, ...]]:
     cpp = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"}
-    if any(pathlib.Path(item).suffix.lower() in cpp for item in workset):
+    if language == "cpp" or (language is None and any(pathlib.Path(item).suffix.lower() in cpp for item in workset)):
         return "cpp", "cpp_resident", shutil.which("clangd") or "clangd", ()
     langserver = tools_home / "pyright" / "bin" / "pyright-langserver"
     return "python", "python_resident", str(langserver), ("--stdio",)
 
 
 def _backend_command(checkout: pathlib.Path, entrypoint: pathlib.Path | None,
-                     tools_home: pathlib.Path, workset: tuple[str, ...]) -> list[str] | None:
+                     tools_home: pathlib.Path, workset: tuple[str, ...],
+                     language: str | None = None) -> list[str] | None:
     if not entrypoint:
         return None
     runner = tools_home / "bin" / "semantic-backend-launcher.py"
-    language, profile, server, server_args = _semantic_lane(workset, tools_home)
+    language, profile, server, server_args = _semantic_lane(workset, tools_home, language)
     backend = ["node", str(entrypoint)] if entrypoint.suffix == ".js" else [str(entrypoint)]
     backend.extend(["--mode", "lsp", "--language", language, "--server", server])
     for argument in server_args:
@@ -154,8 +156,13 @@ def _write_backend_config(tools_home: pathlib.Path, command: list[str] | None,
     target = tools_home / "semantic-gateway-config.json"
     _, profile, _, _ = _semantic_lane(workset, tools_home)
     value = {"version": VERSION, "upstream": UPSTREAM, "profile": profile,
-             "workset": list(workset),
+             "profiles": {"cpp": "cpp_resident", "python": "python_resident"},
+             "workset": [],
              "backend_command": command or [],
+             "backend_commands": {
+                 "cpp": _backend_command(checkout, entrypoint, tools_home, (), "cpp") or [],
+                 "python": _backend_command(checkout, entrypoint, tools_home, (), "python") or [],
+             },
              "provider_commands": {"cpp": clangd.get("path", "clangd"),
                                    "python": str(pyright) if pyright else "pyright"},
              "backend_identity": {"checkout_head": _git(checkout, "rev-parse", "HEAD") if checkout else None,
