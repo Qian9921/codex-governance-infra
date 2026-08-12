@@ -24,7 +24,7 @@ from typing import Any, Mapping, Sequence
 
 
 SCHEMA = "semantic-gateway.v1"
-VERSION = "21.0.0"
+VERSION = "21.1.0"
 UPSTREAM = {
     "name": "@samchon/graph",
     "head": "95e20c9540e85fef542466172484229356d3d0d8",
@@ -46,6 +46,10 @@ PROFILES: dict[str, dict[str, Any]] = {
                          "mode": "resident"},
 }
 _SNAPSHOTS: dict[str, "Gateway"] = {}
+# Request-scoped MCP calls construct fresh Gateway objects. Keep only the
+# content evidence needed to notice a graph edit across those objects; this is
+# deliberately process-local and never a resident watcher or repo state file.
+_BUILD_GRAPH_EVIDENCE: dict[str, str] = {}
 
 
 class GatewayError(ValueError):
@@ -109,6 +113,9 @@ class GatewayConfig:
     backend_identity: Mapping[str, Any] = field(default_factory=dict)
     config_path: pathlib.Path | None = None
     known_answer_symbol: str = "__codex_semantic_gateway_probe__"
+    auto_refresh_build: bool = False
+    build_refresh_command: tuple[str, ...] = ()
+    workset_limit: int = 64
 
     def __post_init__(self) -> None:
         if self.profile not in PROFILES:
@@ -117,6 +124,12 @@ class GatewayConfig:
             raise GatewayError("compiler providers are required")
         if any(not item for item in self.backend_command):
             raise GatewayError("backend command contains an empty argument")
+        if self.workset_limit < 1 or self.workset_limit > 64:
+            raise GatewayError("workset_limit must be between 1 and 64")
+        if len(self.workset) > self.workset_limit:
+            raise GatewayError("WORKSET_EXCEEDS_RESIDENT_LIMIT")
+        if any(not item for item in self.build_refresh_command):
+            raise GatewayError("build_refresh_command contains an empty argument")
 
 
 def load_config(path: str | os.PathLike[str] | None,
@@ -185,6 +198,17 @@ def load_config(path: str | os.PathLike[str] | None,
     if not isinstance(providers, dict) or not all(isinstance(k, str) and isinstance(v, str)
                                                    for k, v in providers.items()):
         raise GatewayError("provider_commands must be an object of strings")
+    refresh_command = raw.get("build_refresh_command", [])
+    if not isinstance(refresh_command, list) or not all(isinstance(item, str) for item in refresh_command):
+        raise GatewayError("build_refresh_command must be a string list")
+    # Installed configs may omit the switch. CMake projects get the safe,
+    # bounded refresh route by default; an explicit boolean remains sovereign.
+    auto_refresh_build = raw.get("auto_refresh_build", (root / "CMakeLists.txt").is_file())
+    if type(auto_refresh_build) is not bool:
+        raise GatewayError("auto_refresh_build must be boolean")
+    workset_limit = raw.get("workset_limit", 64)
+    if type(workset_limit) is not int or not 1 <= workset_limit <= 64:
+        raise GatewayError("workset_limit must be between 1 and 64")
     return GatewayConfig(
         repo=root, build_dir=build_dir,
         cpp_provider=str(raw.get("cpp_provider", "clangd")),
@@ -195,6 +219,8 @@ def load_config(path: str | os.PathLike[str] | None,
         backend_command=tuple(backend), backend_cwd=backend_cwd,
         backend_identity=raw.get("backend_identity", {}), config_path=config_path,
         known_answer_symbol=str(raw.get("known_answer_symbol", "__codex_semantic_gateway_probe__")),
+        auto_refresh_build=auto_refresh_build, build_refresh_command=tuple(refresh_command),
+        workset_limit=workset_limit,
     )
 
 
@@ -430,6 +456,129 @@ class Gateway:
         self.config = config
         self.started_at = time.time()
         self._closed = False
+        self._build_graph_signature: str | None = None
+        self._build_refresh: dict[str, Any] = {"status": "NOT_RUN", "command": None}
+
+    def _language_suffixes(self) -> set[str]:
+        return {".py", ".pyi"} if self.config.profile.startswith("python") else {
+            ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"
+        }
+
+    def _refresh_workset(self) -> None:
+        """Reconcile the bounded input set at request time; never start a watcher."""
+        suffixes = self._language_suffixes()
+        tracked = (_git_full(self.config.repo, "ls-files", "-z") or "").split("\0")
+        untracked = (_git_full(self.config.repo, "ls-files", "--others", "--exclude-standard", "-z") or "").split("\0")
+        relevant = sorted({item for item in tracked + untracked if item and pathlib.Path(item).suffix.lower() in suffixes
+                           and (self.config.repo / item).is_file()})
+        status_lines = (_git_full(self.config.repo, "status", "--porcelain=v1") or "").splitlines()
+        changed = sorted({line[3:] for line in status_lines if len(line) >= 4 and line[3:] in relevant})
+        configured = [item for item in self.config.workset if item in relevant and item not in changed]
+        selected = changed + configured
+        selected.extend(item for item in relevant if item not in selected)
+        selected = selected[: self.config.workset_limit]
+        if tuple(selected) != self.config.workset:
+            self.config = GatewayConfig(**{**self.config.__dict__, "workset": tuple(selected)})
+
+    def _canonical_compile_entry(self, entry: Mapping[str, Any], compile_db: pathlib.Path) -> str | None:
+        raw_file = entry.get("file")
+        if not isinstance(raw_file, str) or not raw_file:
+            return None
+        candidate = pathlib.Path(raw_file)
+        if not candidate.is_absolute():
+            directory = entry.get("directory")
+            base = pathlib.Path(directory) if isinstance(directory, str) and directory else self.config.repo
+            if not base.is_absolute():
+                base = (compile_db.parent / base)
+            candidate = base / candidate
+        try:
+            return candidate.resolve(strict=False).as_posix()
+        except OSError:
+            return None
+
+    def _canonical_selected_tu(self, relative: str) -> str:
+        return (self.config.repo / relative).resolve(strict=False).as_posix()
+
+    def _build_graph_state(self) -> tuple[str, list[str], list[str], bool]:
+        graph_files: list[str] = []
+        for candidate in ("CMakeLists.txt", "CMakeCache.txt"):
+            path = self.config.repo / candidate
+            if path.is_file():
+                graph_files.append(candidate)
+        graph_files.extend(sorted(path.relative_to(self.config.repo).as_posix() for path in self.config.repo.rglob("*.cmake")
+                                  if path.is_file() and ".git" not in path.parts))
+        compile_db = self.config.build_dir / "compile_commands.json" if self.config.build_dir else None
+        entries: list[str] = []
+        if compile_db and compile_db.is_file():
+            try:
+                raw = json.loads(compile_db.read_text(encoding="utf-8"))
+                entries = [canonical for item in raw if isinstance(item, dict)
+                           for canonical in [self._canonical_compile_entry(item, compile_db)]
+                           if canonical] if isinstance(raw, list) else []
+            except (OSError, json.JSONDecodeError):
+                entries = []
+        payload = []
+        newest_graph_mtime = 0
+        for relative in graph_files:
+            path = self.config.repo / relative
+            payload.append((relative, _sha256(path.read_bytes())))
+            newest_graph_mtime = max(newest_graph_mtime, path.stat().st_mtime_ns)
+        compile_mtime = compile_db.stat().st_mtime_ns if compile_db and compile_db.is_file() else 0
+        graph_stale = bool(graph_files and compile_db and compile_db.is_file() and newest_graph_mtime > compile_mtime)
+        return _sha256(json.dumps(payload, sort_keys=True).encode()), graph_files, entries, graph_stale
+
+    def _refresh_build_if_needed(self) -> None:
+        if not self.config.profile.startswith("cpp"):
+            return
+        signature, _graph_files, entries, graph_stale = self._build_graph_state()
+        evidence_key = str((self.config.repo, self.config.build_dir))
+        previous_signature = _BUILD_GRAPH_EVIDENCE.get(evidence_key)
+        graph_changed = previous_signature is not None and previous_signature != signature
+        _BUILD_GRAPH_EVIDENCE[evidence_key] = signature
+        compile_db = self.config.build_dir / "compile_commands.json" if self.config.build_dir else None
+        selected_cpp = [item for item in self.config.workset if pathlib.Path(item).suffix.lower() in {".c", ".cc", ".cpp", ".cxx"}]
+        # A plain source checkout without a configured build graph is still a
+        # valid semantic-provider configuration. There is no compile database
+        # refresh claim to make until the user supplies a build directory,
+        # CMake project, or explicit bounded route.
+        if (compile_db is None and not (self.config.repo / "CMakeLists.txt").is_file()
+                and not self.config.build_refresh_command):
+            self._build_refresh = {"status": "NOT_NEEDED", "command": None}
+            self._build_graph_signature = signature
+            return
+        absent = bool(selected_cpp) and (not entries or any(
+            self._canonical_selected_tu(item) not in entries for item in selected_cpp))
+        changed = graph_stale or graph_changed or (
+            self._build_graph_signature is not None and signature != self._build_graph_signature)
+        self._build_graph_signature = signature
+        if not absent and not changed:
+            if self._build_refresh.get("status") not in {"READY", "FAILED"}:
+                self._build_refresh = {"status": "NOT_NEEDED", "command": None}
+            return
+        if not self.config.auto_refresh_build and not self.config.build_refresh_command:
+            self._build_refresh = {"status": "NOT_CONFIGURED", "command": None,
+                                   "reason": "COMPILE_COMMANDS_REFRESH_REQUIRED" if absent or changed else None}
+            return
+        if self.config.build_refresh_command:
+            command = list(self.config.build_refresh_command)
+        elif self.config.build_dir and (self.config.repo / "CMakeLists.txt").is_file():
+            command = ["cmake", "-S", str(self.config.repo), "-B", str(self.config.build_dir),
+                       "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"]
+        else:
+            self._build_refresh = {"status": "NOT_CONFIGURED", "command": None,
+                                   "reason": "SAFE_CMAKE_ROUTE_UNAVAILABLE"}
+            return
+        timeout = int(PROFILES[self.config.profile]["timeout_sec"])
+        code, output = _run(command, self.config.repo, timeout=timeout)
+        self._build_refresh = {"status": "READY" if code == 0 else "FAILED", "command": command,
+                               "returncode": code, "output": output}
+        if code == 0:
+            self._build_graph_signature, _files, refreshed_entries, _stale = self._build_graph_state()
+            still_absent = bool(selected_cpp) and (not refreshed_entries or any(
+                self._canonical_selected_tu(item) not in refreshed_entries for item in selected_cpp))
+            if still_absent:
+                self._build_refresh.update({"status": "PARTIAL",
+                                            "reason": "COMPILE_COMMANDS_INCOMPLETE"})
 
     def _receipt(self) -> dict[str, Any]:
         identity = _content_identity(self.config.repo)
@@ -440,6 +589,7 @@ class Gateway:
                                               "present": bool(compile_db and compile_db.is_file()),
                                               "sha256": _sha256(compile_db.read_bytes()) if compile_db and compile_db.is_file() else None}}
         build_inputs["sha256"] = _sha256(json.dumps(build_inputs, sort_keys=True).encode())
+        build_inputs["refresh"] = dict(self._build_refresh)
         scope = {"profile": self.config.profile, "resources": PROFILES[self.config.profile],
                  "workset": [{"path": item, "sha256": _sha256((self.config.repo / item).read_bytes())
                               if (self.config.repo / item).is_file() else None} for item in self.config.workset]}
@@ -488,11 +638,19 @@ class Gateway:
         if repo is not None or profile is not None:
             self.config = GatewayConfig(**{**self.config.__dict__, "repo": _canonical_repo(repo or self.config.repo),
                                            "profile": profile or self.config.profile})
+        self._refresh_workset()
+        self._refresh_build_if_needed()
         receipt = self._receipt()
         language = "python" if self.config.profile.startswith("python") else "cpp"
         required = receipt["providers"][language]
         if required["status"] != "READY":
             return self._result("PARTIAL", "LANGUAGE_PROVIDER_UNAVAILABLE", receipt, truthful=True)
+        refresh_status = self._build_refresh.get("status")
+        if refresh_status in {"FAILED", "PARTIAL", "NOT_CONFIGURED"}:
+            reason = {"FAILED": "COMPILE_COMMANDS_REFRESH_FAILED",
+                      "PARTIAL": "COMPILE_COMMANDS_INCOMPLETE",
+                      "NOT_CONFIGURED": "COMPILE_COMMANDS_REFRESH_NOT_CONFIGURED"}[refresh_status]
+            return self._result("PARTIAL", reason, receipt, truthful=True)
         client = BackendClient(self.config)
         try:
             handshake = client.start()
@@ -536,7 +694,17 @@ class Gateway:
             return gateway._result("STALE", "SNAPSHOT_LANGUAGE_MISMATCH", gateway._receipt(),
                                    snapshot_id=snapshot_id, operation=operation,
                                    query={"symbol": symbol, "language": language}, result=None)
+        gateway._refresh_workset()
+        gateway._refresh_build_if_needed()
         receipt = gateway._receipt()
+        refresh_status = gateway._build_refresh.get("status")
+        if refresh_status in {"FAILED", "PARTIAL", "NOT_CONFIGURED"}:
+            reason = {"FAILED": "COMPILE_COMMANDS_REFRESH_FAILED",
+                      "PARTIAL": "COMPILE_COMMANDS_INCOMPLETE",
+                      "NOT_CONFIGURED": "COMPILE_COMMANDS_REFRESH_NOT_CONFIGURED"}[refresh_status]
+            return gateway._result("PARTIAL", reason, receipt, snapshot_id=snapshot_id,
+                                   operation=operation, query={"symbol": symbol, "language": language},
+                                   result=None, truthful=True)
         if snapshot_id != "sgw-" + receipt["generation"]:
             return gateway._result("STALE", "SNAPSHOT_IDENTITY_CHANGED", receipt, snapshot_id=snapshot_id,
                                    operation=operation, query={"symbol": symbol, "language": language}, result=None)

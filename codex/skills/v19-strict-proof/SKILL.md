@@ -1,6 +1,6 @@
 ---
 name: v19-strict-proof
-description: Run the V21 STRICT profile through the stable v19-strict-proof compatibility ID for security, privacy, exact math or numeric parity, public APIs or schemas, irreversible migration, production release, or an explicit STRICT request. Do not activate merely because ordinary maintenance is difficult.
+description: Run the retained V21 STRICT profile through the stable v19-strict-proof compatibility ID only after an explicit user request. Risk, production, release, public API, or irreversibility never activates it automatically.
 ---
 
 # V21 Strict Proof (stable ID: v19-strict-proof)

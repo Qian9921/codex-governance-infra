@@ -18,13 +18,14 @@ from typing import Any
 UPSTREAM_URL = "https://github.com/samchon/graph.git"
 UPSTREAM = {"name": "@samchon/graph", "head": "95e20c9540e85fef542466172484229356d3d0d8",
             "tree": "e9ce033e380d77265c601579e436218502a6ccbd"}
-VERSION = "21.0.0"
+VERSION = "21.1.0"
 MANIFEST = "semantic-tools.v21.json"
 PYRIGHT_VERSION = "1.1.390"
 REGISTRATION = "semantic-gateway-mcp.json"
 CONFIG_TOML = "config.toml"
 CONFIG_BACKUP = "config.toml.semantic-gateway.v21.backup"
 REGISTRATION_STATE = "semantic-gateway-registration.v21.json"
+INSTALL_STATE = "semantic-tools-install.v21.json"
 MCP_SECTION = "[mcp_servers.codex-semantic-gateway]"
 
 
@@ -122,7 +123,7 @@ def _backend_command(checkout: pathlib.Path, entrypoint: pathlib.Path | None,
     backend.extend(["--mode", "lsp", "--language", language, "--server", server])
     for argument in server_args:
         backend.extend(["--server-arg", argument])
-    return ["python3", str(runner), "--profile", profile, "--", *backend]
+    return [sys.executable, str(runner), "--profile", profile, "--", *backend]
 
 
 def _pyright_executable(tools_home: pathlib.Path | None) -> pathlib.Path | None:
@@ -152,11 +153,17 @@ def _write_backend_config(tools_home: pathlib.Path, command: list[str] | None,
                           pyright: pathlib.Path | None, clangd: dict[str, Any],
                           checkout: pathlib.Path | None = None,
                           entrypoint: pathlib.Path | None = None,
-                          workset: tuple[str, ...] = ()) -> pathlib.Path:
+                          workset: tuple[str, ...] = (),
+                          repo: pathlib.Path | None = None) -> pathlib.Path:
     target = tools_home / "semantic-gateway-config.json"
     _, profile, _, _ = _semantic_lane(workset, tools_home)
     value = {"version": VERSION, "upstream": UPSTREAM, "profile": profile,
              "profiles": {"cpp": "cpp_resident", "python": "python_resident"},
+             # A config without a fixed repository is reused for per-call MCP
+             # repos, so leave the safe CMake auto route enabled. load_config
+             # still applies the repository-local default and explicit config
+             # values remain authoritative.
+             "auto_refresh_build": repo is None or (repo / "CMakeLists.txt").is_file(),
              "workset": [],
              "backend_command": command or [],
              "backend_commands": {
@@ -320,7 +327,7 @@ def _remove_mcp_config(codex_home: pathlib.Path) -> list[str]:
     return removed
 
 
-def install(tools_home: pathlib.Path, *, dry_run: bool, codex_home: pathlib.Path | None = None,
+def _install(tools_home: pathlib.Path, *, dry_run: bool, codex_home: pathlib.Path | None = None,
             register: bool = False, repo: pathlib.Path | None = None,
             workset: tuple[str, ...] = (), known_answer_symbol: str = "__codex_semantic_gateway_probe__") -> dict[str, Any]:
     result = inspect(tools_home, codex_home, repo, workset, known_answer_symbol)
@@ -372,14 +379,14 @@ def install(tools_home: pathlib.Path, *, dry_run: bool, codex_home: pathlib.Path
         code, output = _run(invocation, checkout, 930, env=build_env)
         if code != 0: raise SystemExit("semantic backend build failed:" + output)
     pyright_dir = tools_home / "pyright"
-    code, output = _run(["python3", "-m", "pip", "install", "--disable-pip-version-check", "--target", str(pyright_dir), f"pyright=={PYRIGHT_VERSION}"], tools_home, 900)
+    code, output = _run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--target", str(pyright_dir), f"pyright=={PYRIGHT_VERSION}"], tools_home, 900)
     if code != 0: raise SystemExit("pyright installation failed:" + output)
     pyright_executable = _write_pyright_launcher(tools_home)
     entrypoint = _backend_entrypoint(checkout)
     selected_workset = _derive_workset(repo, workset) if repo else tuple(workset)
     backend_command = _backend_command(checkout, entrypoint, tools_home, selected_workset)
     config_path = _write_backend_config(tools_home, backend_command, pyright_executable,
-                                        _provider("clangd"), checkout, entrypoint, selected_workset)
+                                        _provider("clangd"), checkout, entrypoint, selected_workset, repo)
     result = inspect(tools_home, codex_home, repo, selected_workset, known_answer_symbol)
     result["config"] = {"path": str(config_path), "present": config_path.is_file(),
                          "sha256": _sha(config_path)}
@@ -401,11 +408,104 @@ def install(tools_home: pathlib.Path, *, dry_run: bool, codex_home: pathlib.Path
     return result
 
 
+def _managed_install_paths(tools_home: pathlib.Path, codex_home: pathlib.Path | None) -> list[pathlib.Path]:
+    paths = [tools_home / "bin" / "semantic-backend-launcher.py",
+             tools_home / "samchon-graph", tools_home / "pyright",
+             tools_home / "semantic-gateway-config.json", tools_home / MANIFEST,
+             tools_home / INSTALL_STATE,
+             tools_home / "bin" / "semantic-backend-launcher.py.tmp",
+             tools_home / "pyright" / "bin" / "pyright.tmp",
+             tools_home / "pyright" / "bin" / "pyright-langserver.tmp"]
+    if codex_home:
+        paths.extend([codex_home / REGISTRATION, codex_home / CONFIG_TOML,
+                      codex_home / CONFIG_BACKUP, codex_home / REGISTRATION_STATE,
+                      codex_home / "config.toml.tmp"])
+    return paths
+
+
+def _restore_install_paths(snapshot: pathlib.Path, paths: list[pathlib.Path]) -> None:
+    for index, target in enumerate(paths):
+        backup = snapshot / str(index)
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        elif target.exists() or target.is_symlink():
+            target.unlink()
+        existed = (snapshot / (str(index) + ".exists")).is_file()
+        if not existed:
+            continue
+        target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if backup.is_dir():
+            shutil.copytree(backup, target, symlinks=True)
+        else:
+            shutil.copy2(backup, target, follow_symlinks=False)
+
+
+def _snapshot_install_paths(paths: list[pathlib.Path], snapshot: pathlib.Path) -> None:
+    for index, target in enumerate(paths):
+        if not target.exists() and not target.is_symlink():
+            continue
+        (snapshot / (str(index) + ".exists")).write_text("1", encoding="ascii")
+        backup = snapshot / str(index)
+        if target.is_dir() and not target.is_symlink():
+            shutil.copytree(target, backup, symlinks=True)
+        else:
+            shutil.copy2(target, backup, follow_symlinks=False)
+
+
+def install(tools_home: pathlib.Path, *, dry_run: bool, codex_home: pathlib.Path | None = None,
+            register: bool = False, repo: pathlib.Path | None = None,
+            workset: tuple[str, ...] = (), known_answer_symbol: str = "__codex_semantic_gateway_probe__") -> dict[str, Any]:
+    if dry_run:
+        return _install(tools_home, dry_run=True, codex_home=codex_home, register=register,
+                       repo=repo, workset=workset, known_answer_symbol=known_answer_symbol)
+    paths = _managed_install_paths(tools_home, codex_home)
+    tools_home.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    tools_home.mkdir(mode=0o700, parents=True, exist_ok=True)
+    marker = tools_home / INSTALL_STATE
+    with tempfile.TemporaryDirectory(prefix="semantic-install-rollback-",
+                                      dir=str(tools_home.parent)) as temporary:
+        snapshot = pathlib.Path(temporary)
+        _snapshot_install_paths(paths, snapshot)
+        marker.write_text(json.dumps({"schema": MANIFEST, "version": VERSION,
+                                      "managed": [str(path) for path in paths],
+                                      "status": "IN_PROGRESS"}, sort_keys=True) + "\n",
+                          encoding="utf-8")
+        try:
+            result = _install(tools_home, dry_run=False, codex_home=codex_home, register=register,
+                              repo=repo, workset=workset, known_answer_symbol=known_answer_symbol)
+            if marker.exists():
+                marker.unlink()
+            return result
+        except BaseException:
+            _restore_install_paths(snapshot, paths)
+            # The marker is an ownership intent, not a user file. Remove it
+            # after rollback so a normal retry starts from a clean transaction.
+            if marker.exists():
+                marker.unlink()
+            for parent in (tools_home / "pyright" / "bin", tools_home / "pyright",
+                           tools_home / "bin"):
+                if parent.is_dir() and not any(parent.iterdir()):
+                    parent.rmdir()
+            if tools_home.is_dir() and not any(tools_home.iterdir()):
+                tools_home.rmdir()
+            raise
+
+
 def uninstall(tools_home: pathlib.Path, codex_home: pathlib.Path | None = None) -> dict[str, Any]:
     manifest = tools_home / MANIFEST
-    if not manifest.is_file() or manifest.is_symlink(): raise SystemExit("no managed semantic-tools manifest")
-    value = json.loads(manifest.read_text(encoding="utf-8"))
-    if value.get("upstream", {}).get("head") != UPSTREAM["head"]: raise SystemExit("managed semantic upstream identity mismatch")
+    marker = tools_home / INSTALL_STATE
+    if not manifest.is_file() or manifest.is_symlink():
+        if not marker.is_file() or marker.is_symlink():
+            return {"schema": MANIFEST, "version": VERSION, "status": "UNINSTALLED", "removed": []}
+        try:
+            marker_value = json.loads(marker.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SystemExit("semantic-tools install state is invalid") from exc
+        if marker_value.get("schema") != MANIFEST:
+            raise SystemExit("semantic-tools install state identity mismatch")
+    else:
+        value = json.loads(manifest.read_text(encoding="utf-8"))
+        if value.get("upstream", {}).get("head") != UPSTREAM["head"]: raise SystemExit("managed semantic upstream identity mismatch")
     checkout = tools_home / "samchon-graph"
     if checkout.exists(): shutil.rmtree(checkout)
     pyright_dir = tools_home / "pyright"
@@ -416,9 +516,15 @@ def uninstall(tools_home: pathlib.Path, codex_home: pathlib.Path | None = None) 
     if launcher.exists(): launcher.unlink()
     launcher_dir = launcher.parent
     if launcher_dir.is_dir() and not any(launcher_dir.iterdir()): launcher_dir.rmdir()
-    manifest.unlink()
+    if manifest.is_file():
+        manifest.unlink()
     removed = ["samchon-graph", "pyright", "semantic-gateway-config.json",
-               "bin/semantic-backend-launcher.py", MANIFEST]
+               "bin/semantic-backend-launcher.py"]
+    if manifest.exists():
+        removed.append(MANIFEST)
+    if marker.exists():
+        marker.unlink()
+        removed.append(INSTALL_STATE)
     if codex_home and (codex_home / REGISTRATION).is_file():
         (codex_home / REGISTRATION).unlink(); removed.append(REGISTRATION)
     if codex_home:

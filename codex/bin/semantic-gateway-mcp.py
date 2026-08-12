@@ -90,7 +90,7 @@ def main() -> int:
                 initialized = True
                 result = {"protocolVersion": PROTOCOL_VERSION,
                           "capabilities": {"tools": {"listChanged": False}},
-                          "serverInfo": {"name": "codex-semantic-gateway", "version": "21.0.0"}}
+                          "serverInfo": {"name": "codex-semantic-gateway", "version": "21.1.0"}}
                 print(json.dumps(_response(request_id, result), separators=(",", ":")), flush=True)
             elif method == "tools/list":
                 if not initialized:

@@ -118,7 +118,7 @@ def build_context(
         "misrepresentation is rejected. Lanes: unknown/similar=Semble, known="
         "compiler-derived semantic gateway, exact=source/Git/compiler/build/test/benchmark; "
         "verify provider and repository identity. "
-        "Adaptive recovery never repeats a no-progress strategy. STRICT alone uses "
+        "Adaptive recovery never repeats a no-progress strategy. Explicit-user STRICT uses "
         "$v19-strict-proof and --strict-maintenance."
     )
     return {
@@ -196,7 +196,7 @@ if __name__ == "__main__":
         intake_context = (
             "V21 INTAKE. Adaptive default; missing optional receipts stay advisory. "
             + lineage
-            + " STRICT only: use $v19-strict-proof and record once: rtk python3 "
+            + " Explicit STRICT only: after the user requests it, use $v19-strict-proof and record once: rtk python3 "
             "\"${CODEX_HOME:-$HOME/.codex}/bin/toolchain-auto.py\" "
             "--record-task-contract [--repository-work|--non-repository-task] "
             f"--task-id-sha256 {intake['task_id_sha256']} "

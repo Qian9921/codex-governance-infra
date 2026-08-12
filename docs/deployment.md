@@ -1,6 +1,6 @@
 # Deployment
 
-The active overlay is V21.0.0. `install-governance.py` remains the atomic
+The active overlay is V21.1.0. `install-governance.py` remains the atomic
 governance installer; `install-semantic-tools.py` is a separate idempotent,
 dry-run-capable dependency installer/doctor. The latter clones and verifies the
 pinned @samchon/graph commit/tree, runs its frozen-lockfile pnpm install/build,
@@ -9,7 +9,20 @@ the runnable backend config/launcher, and can perform a real gateway doctor for
 `--repo PATH`. A missing host clangd or unconfigured workset remains PARTIAL;
 the installer never vendors opaque binaries or credentials.
 
-Preview and install the separate toolchain (use an isolated tools home):
+Preview and install the separate toolchain (use an isolated tools home). For a
+clean clone-to-ready path, the stdlib-only bootstrap runs both managed
+installers, registers the MCP server, verifies host prerequisites, and prints a
+platform-specific package-manager route for missing clangd/Node/pnpm. It never
+runs that system route implicitly:
+
+```bash
+python3 scripts/bootstrap.py --codex-home "$CODEX_HOME" \
+  --tools-home "$SEMANTIC_TOOLS_HOME" --repo /path/to/repository --dry-run
+python3 scripts/bootstrap.py --codex-home "$CODEX_HOME" \
+  --tools-home "$SEMANTIC_TOOLS_HOME" --repo /path/to/repository
+```
+
+The lower-level semantic installer remains available for isolated toolchain work:
 
 ```bash
 python3 scripts/install-semantic-tools.py --tools-home "$SEMANTIC_TOOLS_HOME" \
@@ -40,7 +53,7 @@ and removes managed files that did not previously exist. Live global Codex-home
 deployment requires the exact manifest/hash review and the applicable
 authorization lane.
 
-The V21.0.0 personal overlay has two disjoint destinations: normal package files
+The V21.1.0 personal overlay has two disjoint destinations: normal package files
 under the selected `CODEX_HOME`, and stable V19 compatibility skills under the sibling
 `.agents/skills` root required by current Codex discovery. One backup generation
 inside `CODEX_HOME` covers both roots. A custom `--agents-home` must be supplied

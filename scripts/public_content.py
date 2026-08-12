@@ -25,6 +25,9 @@ FORBIDDEN_RE = (
 def scan_text(text: str) -> list[str]:
     """Return stable reason codes for content that must not ship publicly."""
     errors: list[str] = []
+    # The public release repository is an intentional, non-private identity;
+    # keep the generic personal-name guard while allowing that exact URL.
+    text = text.replace("https://github.com/Qian9921/codex-governance-infra.git", "")
     for pattern in FORBIDDEN_RE:
         if pattern.search(text):
             errors.append(pattern.pattern)

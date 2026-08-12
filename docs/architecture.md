@@ -92,9 +92,9 @@ fresh independent reviewer role.
 |---|---|---|---|---|
 | `QUICK` | explanation, inventory, docs, reversible mechanics | direct/targeted | optional | advisory |
 | `STANDARD` | ordinary reversible research engineering and development | affected-first, representative end-to-end when applicable | one initial review plus at most one delta review | advisory |
-| `STRICT` | security/privacy, exact math, public contracts, irreversible changes, production releases, or explicit strict selection | frozen V16 FAST/CANDIDATE/FINAL contracts | fresh risk-routed review, delta continuation | fail-closed integrity gates |
+| `STRICT` | explicit strict selection by the user only; never inferred from risk or release context | frozen V16 FAST/CANDIDATE/FINAL contracts | fresh risk-routed review, delta continuation | fail-closed integrity gates |
 
-The user or mission selects `STRICT`; a newly discovered high-risk trigger may
+The user explicitly selects `STRICT`; a newly discovered high-risk trigger may
 upgrade a mission. A missing task receipt cannot manufacture high risk.
 
 ### STANDARD contract

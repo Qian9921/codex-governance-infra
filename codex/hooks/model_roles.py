@@ -25,6 +25,11 @@ LUNA = "gpt-5.6-luna"
 SOL = "gpt-5.6-sol"
 TERRA = "gpt-5.6-terra"
 SPARK = "gpt-5.3-codex-spark"
+SOL_CONTRACT_REASONING = "medium"
+SOL_REVIEWER_REASONING = "high"
+SOL_CONTRACT_MAX_OUTPUT_TOKENS = 2048
+SOL_REVIEWER_MAX_OUTPUT_TOKENS = 4096
+SOL_ALLOWED_REASONING = frozenset(("medium", "high"))
 
 RISK_LEVELS = ("R0", "R1", "R2", "R3", "R4")
 HIGH_RISK_LEVELS = frozenset(("R2", "R3", "R4"))
@@ -154,6 +159,25 @@ EXECUTION_CONTEXT = {
 
 class ModelRoleError(ValueError):
     """Raised when a role route, delegation, or review packet is unsafe."""
+
+
+def validate_sol_reasoning_effort(role: str, effort: str) -> str:
+    """Keep Sol's two bounded roles on the supported medium/high envelope."""
+
+    role_text = _text(role, "role").lower().replace("-", "_")
+    value = _text(effort, "reasoning_effort").lower()
+    expected = {
+        "sol_contract": SOL_CONTRACT_REASONING,
+        "contract_gate": SOL_CONTRACT_REASONING,
+        "sol_reviewer": SOL_REVIEWER_REASONING,
+        "reviewer": SOL_REVIEWER_REASONING,
+        "independent_final_reviewer": SOL_REVIEWER_REASONING,
+    }.get(role_text)
+    if expected is None:
+        raise ModelRoleError("unknown Sol role")
+    if value not in SOL_ALLOWED_REASONING or value != expected:
+        raise ModelRoleError(f"{role_text} requires reasoning_effort={expected}")
+    return value
 
 
 def _family(value: Any) -> str:
@@ -927,6 +951,7 @@ def route_mission(
     actual_model: str | None = None,
     task_name: str | None = None,
     role: str = "execution",
+    strict_opt_in: bool = False,
 ) -> dict[str, Any]:
     """Return the compact lifecycle route for one mission.
 
@@ -942,6 +967,8 @@ def route_mission(
     profile = _text(profile, "profile").upper()
     if profile not in {"QUICK", "STANDARD", "STRICT"}:
         raise ModelRoleError("profile must be QUICK, STANDARD, or STRICT")
+    if profile == "STRICT" and strict_opt_in is not True:
+        raise ModelRoleError("STRICT requires an explicit user opt-in")
     fallback_reason = "none"
     actual_controller = LUNA
     controller_role = "controller"
@@ -992,12 +1019,15 @@ def route_mission(
         "fallback_reason": fallback_reason,
         "universal_controller": actual_controller == LUNA,
         "sol_contract_gate": high_risk,
-        "sol_contract_reasoning": "xhigh" if high_risk else None,
+        "sol_contract_reasoning": SOL_CONTRACT_REASONING if high_risk else None,
+        "sol_contract_max_output_tokens": SOL_CONTRACT_MAX_OUTPUT_TOKENS if high_risk else None,
         "sol_research_interpretation": risk == "R4",
         "sol_inner_loop_required": False,
         "review": {
             "required": review_required,
             "model": SOL,
+            "reasoning_effort": SOL_REVIEWER_REASONING,
+            "max_output_tokens": SOL_REVIEWER_MAX_OUTPUT_TOKENS,
             "role": "independent_final_reviewer",
             "fresh": True,
             "read_only": True,

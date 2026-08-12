@@ -33,11 +33,10 @@ Choose one profile:
   engineering. Freeze acceptance, map blockers to impact, likelihood,
   recoverability, repair and complexity cost; use decision-changing evidence
   and one initial review plus at most one delta review.
-- `STRICT`: safety/privacy/security, mathematical or exact numeric parity,
-  public API/schema/data format, irreversible migration, production release,
-  or an explicit user request. Use `$v19-strict-proof` and the retained V16
-  evidence contracts. Ordinary reversible installer, hook, and model-routing
-  work remains `STANDARD` unless it crosses one of these boundaries.
+- `STRICT`: an explicit user request only. Use `$v19-strict-proof` and the
+  retained V16 evidence contracts only after that request. Risk, production,
+  release, public API, or irreversibility never auto-enables STRICT. Ordinary
+  reversible installer, hook, and model-routing work remains `STANDARD`.
 
 Profiles may upgrade on new evidence. Missing ceremony alone is not a
 correctness failure in `QUICK` or `STANDARD`.

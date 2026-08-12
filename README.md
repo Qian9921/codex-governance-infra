@@ -14,15 +14,14 @@ Outcome -> Reuse scan -> Luna executes (optional bounded Terra bridge) -> Affect
 ```
 
 - **Personal progressive infrastructure:** a bounded always-loaded kernel,
-  on-demand skills, single-role subagents, compact hooks, command rules, and an
-  opt-in strict profile.
-- **Adaptive profiles:** `QUICK`, `STANDARD`, and opt-in `STRICT`; V21 balances
-  risk, recovery, time, evidence, complexity, and communication cost.
+  on-demand skills, single-role subagents, compact hooks, and command rules.
+- **Adaptive profiles:** `QUICK` and `STANDARD`; V21 balances risk, recovery,
+  time, evidence, complexity, and communication cost.
 - **Code health:** project rules first, official Google guidance as the default,
   and a `REUSE|EXTEND|NEW` decision before meaningful new abstractions.
 - **Three daily lanes:** Semble discovery; the compiler-derived semantic gateway
   for known C++/Python semantics; and bounded exact source/Git/compiler/build/
-  test/benchmark evidence. CodeGraph/`rg`/`rtk` are retained STRICT compatibility.
+  test/benchmark evidence. Legacy V16 tools remain outside the daily lanes.
 - **Large-code evidence contract:** `code-mission-tool-index-policy.v1` binds
   exact repo/worktree/revision identity and healthy Semble plus compiler-gateway
   evidence. Semble precedes development; the semantic gateway proves known
@@ -56,7 +55,11 @@ The pinned upstream identity is `@samchon/graph` HEAD
 `e9ce033e380d77265c601579e436218502a6ccbd`. Resident C++ is limited to 64
 translation units, concurrency 2, 4 CPUs, 4 GiB, and 180 seconds; offline C++
 is 4 CPUs, 8 GiB, and 15 minutes; resident Python is 4 CPUs, 2.5 GiB, and
-180 seconds. `scripts/install-semantic-tools.py` is a separate idempotent,
+180 seconds. `scripts/bootstrap.py` is the one-command clone-to-ready entrypoint;
+it runs governance and semantic installation, registers MCP, verifies host
+prerequisites, and prints an executable platform package route for missing
+clangd/Node/pnpm without silently mutating system state. The lower-level
+`scripts/install-semantic-tools.py` remains a separate idempotent,
 dry-run-capable installer/doctor for the pinned source checkout and host
 provider observations. Missing tools are truthful PARTIAL/NOT_READY states,
 not fake compiler proof.
@@ -64,22 +67,15 @@ not fake compiler proof.
 This repository supports Codex only. It does not claim compatibility with
 Claude Code, Kimi Code, Zcode, or other agent runtimes.
 
-## Profiles
+## Daily profiles
 
 | Profile | Use | Evidence and review | Hooks |
 |---|---|---|---|
 | `QUICK` | explanations, inventory, docs, reversible mechanics | targeted; formal review optional | advisory |
 | `STANDARD` | ordinary reversible development and research engineering | affected-first; one initial plus at most one delta review | advisory |
-| `STRICT` | security/privacy, exact math, public contracts, irreversible changes, production releases | retained V16 FAST/CANDIDATE/FINAL proof | fail-closed integrity |
-
-Adaptive mode is the default. To run the installed hooks in strict mode, start
-the relevant Codex surface with:
-
-```bash
-export CODEX_GOVERNANCE_MODE=strict
-```
-
-Strict mode is intentional, not an automatic penalty for every repository task.
+Adaptive mode is the default. The retained V16 compatibility engine is an
+advanced path and activates only after an explicit user request; it is not part
+of daily installation or routing.
 # V21 is the product policy. The existing `$v19-*` skill IDs and paths remain
 stable compatibility APIs, and `codex/v16` remains only the backward-compatible
 strict compatibility engine. Ordinary reversible installer, hook, and
@@ -149,18 +145,33 @@ Involve the user only for scientific/product choices, credentials or licensing,
 irreversible/shared-state actions, material unapproved cost, privacy, or a
 genuine external impossibility. A check-only/no-mutation result is not a user
 action; normal machine repair remains Luna's work. `QUICK` and `STANDARD`
-remain advisory; V16 receipts and fail-closed gates remain explicit `STRICT`
-opt-in.
+remain advisory; the retained V16 compatibility path is advanced and
+explicit-user-only.
 
 ## Ten-minute setup
 
-### 1. Clone and verify
+### 1. Clone and bootstrap (primary path)
 
 ```bash
-git clone https://github.com/your-org/codex-governance-infra.git
+git clone https://github.com/Qian9921/codex-governance-infra.git
 cd codex-governance-infra
 
-python3 -m pip install --user -r requirements.txt
+# Defaults are ~/.codex and ~/.codex/semantic-tools; --dry-run is safe to preview.
+python3 scripts/bootstrap.py --repo "$PWD" --dry-run
+python3 scripts/bootstrap.py --repo "$PWD"
+```
+
+The bootstrap installs and verifies governance plus the pinned semantic tools,
+registers the MCP server, and preserves unrelated Codex state. If clangd,
+Node, or pnpm is missing, it reports the exact host route without mutating the
+host. To explicitly authorize that package-manager route, use
+`python3 scripts/bootstrap.py --repo "$PWD" --install-system-deps`; no sudo
+password is embedded or captured. Defaults can be overridden with
+`--codex-home` and `--tools-home`.
+
+### 2. Verify the installation
+
+```bash
 python3 scripts/verify-governance.py --repo .
 python3 -m unittest discover -s tests -p 'test_*.py'
 python3 -m unittest discover -s tests/v16 -p 'test_*.py'
@@ -168,29 +179,22 @@ python3 -m unittest discover -s tests/v16 -p 'test_*.py'
 
 Continue only with verifier status `GREEN` and zero test failures/errors.
 
-### 2. Install the compiler semantic gateway if needed
+### Advanced: lower-level installers
+
+Use these commands only when composing a non-default deployment. They are the
+same idempotent, reversible operations invoked by `bootstrap.py`:
 
 ```bash
-SEMANTIC_TOOLS_HOME="${SEMANTIC_TOOLS_HOME:-$HOME/.codex/semantic-tools}"
-python3 scripts/install-semantic-tools.py \
-  --tools-home "$SEMANTIC_TOOLS_HOME" \
-  --codex-home "${CODEX_HOME:-$HOME/.codex}" \
-  --install --register --dry-run
-python3 scripts/install-semantic-tools.py \
-  --tools-home "$SEMANTIC_TOOLS_HOME" \
-  --codex-home "${CODEX_HOME:-$HOME/.codex}" \
-  --install --register
+python3 scripts/install-semantic-tools.py --tools-home "$HOME/.codex/semantic-tools" \
+  --codex-home "$HOME/.codex" --install --register
+python3 scripts/install-governance.py --source . --codex-home "$HOME/.codex"
 ```
 
-The installer materializes the pinned graph backend, verifies clangd/Pyright,
-and registers one stdio MCP server. Semble remains the discovery lane supplied
-by the host/orchestrator.
+### Advanced V16 compatibility pointer
 
-### Explicit V16 STRICT compatibility tools (opt-in only)
-
-The retained V16 STRICT compatibility profile may use CodeGraph, `rg`, and
-`rtk` when that profile is explicitly selected. They are not V21 daily lanes
-and are not required for QUICK or STANDARD work.
+The retained V16 compatibility profile may use CodeGraph, `rg`, and `rtk` only
+when the user explicitly requests that compatibility path. It is not a V21
+daily lane and is not required for QUICK or STANDARD work.
 
 ### 3. Inspect the managed overlay
 
@@ -217,8 +221,9 @@ export CODEX_GOV_REVIEWER_ACCOUNT="your-reviewer-account"
 Use the Codex hook files for Codex CLI/Desktop. For another agent runtime,
 reuse the documented policy concepts and invoke the repository verifier, but do
 not copy the Codex hook overlay blindly; this package does not claim native
-compatibility with Claude Code or other agents. The shipped strict profile is
-portable and contains no provider, credential, or machine-specific setting.
+compatibility with Claude Code or other agents. The retained compatibility
+configuration is portable and contains no provider, credential, or
+machine-specific setting.
 
 Luna is the default execution/recovery lead. Sol supplies the short contract
 gate for R2/R3 work and the independent review; Terra bridges are explicit
@@ -226,20 +231,18 @@ bounded R0/R1 advisory handoffs that return to Luna, while continuity fallback
 is only for a genuinely unavailable Luna; Spark is disabled in the default flow.
 Route unknown semantics to Semble, known structural semantics to the compiler
 semantic gateway, and exact source/Git/compiler/build/test/benchmark facts to
-the bounded exact-evidence lane. CodeGraph, `rg`, and `rtk` are explicit STRICT
-compatibility tools only.
+the bounded exact-evidence lane. Legacy V16 tools are outside the daily flow.
 
 ### 5. Verify hooks and run the first task
 
 ```bash
 python3 scripts/toolchain-doctor.py --repo .
 python3 scripts/verify-governance.py --repo .
-export CODEX_GOVERNANCE_MODE=adaptive   # use strict only when explicitly required
+export CODEX_GOVERNANCE_MODE=adaptive
 ```
 
-Start with a QUICK explanation or STANDARD implementation task. Use STRICT for
-security/privacy, public-contract, irreversible, production-release, or exact
-parity work. If installation fails, preserve the dry-run output, fix the
+Start with a QUICK explanation or STANDARD implementation task. If installation
+fails, preserve the dry-run output, fix the
 reported prerequisite, and rerun the verifier; the rollback command below is
 safe and scoped to the managed overlay.
 

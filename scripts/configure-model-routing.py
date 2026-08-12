@@ -76,6 +76,14 @@ CATALOG_KEY = "model_catalog_json"
 CATALOG_ASSIGNMENT = re.compile(
     r'^\s*(?:model_catalog_json|"model_catalog_json"|\'model_catalog_json\')\s*='
 )
+REASONING_ASSIGNMENT = re.compile(
+    r'^\s*(?:model_reasoning_effort|"model_reasoning_effort"|\'model_reasoning_effort\')\s*='
+)
+VERBOSITY_ASSIGNMENT = re.compile(
+    r'^\s*(?:model_verbosity|"model_verbosity"|\'model_verbosity\')\s*='
+)
+MANAGED_REASONING_EFFORT = "medium"
+MANAGED_VERBOSITY = "medium"
 
 
 class ConfigureError(RuntimeError):
@@ -162,11 +170,77 @@ def _set_top_level_catalog(config: str, catalog: pathlib.Path) -> str:
         )
         lines.insert(insert_at, setting)
     updated = "".join(lines)
+    updated = _set_top_level_reasoning(updated, "medium")
+    updated = _set_top_level_verbosity(updated, "medium")
     _catalog_assignment(updated)
     return updated
 
 
-def _restore_catalog_setting(current: str, original: str, expected: pathlib.Path) -> str:
+def _reasoning_assignment(config: str) -> tuple[list[str], int | None, str | None]:
+    try:
+        parsed = tomllib.loads(config)
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigureError("Codex config.toml is invalid") from exc
+    lines = config.splitlines(keepends=True)
+    table_start = next((i for i, line in enumerate(lines) if line.lstrip().startswith("[")), len(lines))
+    matches = [i for i, line in enumerate(lines[:table_start]) if REASONING_ASSIGNMENT.match(line)]
+    value = parsed.get("model_reasoning_effort")
+    if value is not None and not isinstance(value, str):
+        raise ConfigureError("top-level model_reasoning_effort must be a string")
+    if value is not None and len(matches) != 1:
+        raise ConfigureError("unsupported top-level model_reasoning_effort spelling")
+    if len(matches) > 1:
+        raise ConfigureError("multiple top-level model_reasoning_effort settings")
+    return lines, matches[0] if matches else None, value
+
+
+def _set_top_level_reasoning(config: str, effort: str) -> str:
+    lines, match, _value = _reasoning_assignment(config)
+    table_start = next((i for i, line in enumerate(lines) if line.lstrip().startswith("[")), len(lines))
+    setting = f"model_reasoning_effort = {json.dumps(effort)}\n"
+    if match is not None:
+        lines[match] = setting
+    else:
+        lines.insert(table_start if table_start else 0, setting)
+    return "".join(lines)
+
+
+def _verbosity_assignment(config: str) -> tuple[list[str], int | None, str | None]:
+    try:
+        parsed = tomllib.loads(config)
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigureError("Codex config.toml is invalid") from exc
+    lines = config.splitlines(keepends=True)
+    table_start = next((i for i, line in enumerate(lines) if line.lstrip().startswith("[")), len(lines))
+    matches = [i for i, line in enumerate(lines[:table_start]) if VERBOSITY_ASSIGNMENT.match(line)]
+    value = parsed.get("model_verbosity")
+    if value is not None and not isinstance(value, str):
+        raise ConfigureError("top-level model_verbosity must be a string")
+    if value is not None and len(matches) != 1:
+        raise ConfigureError("unsupported top-level model_verbosity spelling")
+    if len(matches) > 1:
+        raise ConfigureError("multiple top-level model_verbosity settings")
+    return lines, matches[0] if matches else None, value
+
+
+def _set_top_level_verbosity(config: str, value: str) -> str:
+    lines, match, _value = _verbosity_assignment(config)
+    table_start = next((i for i, line in enumerate(lines) if line.lstrip().startswith("[")), len(lines))
+    setting = f"model_verbosity = {json.dumps(value)}\n"
+    if match is not None:
+        lines[match] = setting
+    else:
+        lines.insert(table_start if table_start else 0, setting)
+    return "".join(lines)
+
+
+def _restore_catalog_setting(
+    current: str,
+    original: str,
+    expected: pathlib.Path,
+    managed_reasoning: str = MANAGED_REASONING_EFFORT,
+    managed_verbosity: str = MANAGED_VERBOSITY,
+) -> str:
     current_lines, current_match, current_value = _catalog_assignment(current)
     original_lines, original_match, original_value = _catalog_assignment(original)
     if current_match is None or current_value != str(expected):
@@ -176,6 +250,24 @@ def _restore_catalog_setting(current: str, original: str, expected: pathlib.Path
     else:
         current_lines[current_match] = original_lines[original_match]
     restored = "".join(current_lines)
+    current_reason_lines, current_reason_match, current_reason_value = _reasoning_assignment(restored)
+    _original_reason_lines, original_reason_match, _ = _reasoning_assignment(original)
+    if current_reason_match is None or current_reason_value != managed_reasoning:
+        raise ConfigureError("owned model_reasoning_effort setting has drifted")
+    if original_reason_match is None:
+        del current_reason_lines[current_reason_match]
+    else:
+        current_reason_lines[current_reason_match] = _original_reason_lines[original_reason_match]
+    restored = "".join(current_reason_lines)
+    current_verbosity_lines, current_verbosity_match, current_verbosity_value = _verbosity_assignment(restored)
+    original_verbosity_lines, original_verbosity_match, _ = _verbosity_assignment(original)
+    if current_verbosity_match is None or current_verbosity_value != managed_verbosity:
+        raise ConfigureError("owned model_verbosity setting has drifted")
+    if original_verbosity_match is None:
+        del current_verbosity_lines[current_verbosity_match]
+    else:
+        current_verbosity_lines[current_verbosity_match] = original_verbosity_lines[original_verbosity_match]
+    restored = "".join(current_verbosity_lines)
     _lines, _match, restored_value = _catalog_assignment(restored)
     if restored_value != original_value:
         raise ConfigureError("model_catalog_json rollback validation failed")
@@ -486,6 +578,8 @@ def _config_is_restored(
     original: str,
     config: pathlib.Path,
     expected_sha256: str | None = None,
+    managed_reasoning: str = MANAGED_REASONING_EFFORT,
+    managed_verbosity: str = MANAGED_VERBOSITY,
 ) -> bool:
     if config.is_symlink():
         return False
@@ -493,9 +587,28 @@ def _config_is_restored(
         return False
     _original_lines, original_match, original_value = _catalog_assignment(original)
     _current_lines, current_match, current_value = _catalog_assignment(current)
-    if original_match is None:
-        return current_match is None
-    return current_match is not None and current_value == original_value
+    _current_reason_lines, _current_reason_match, current_reasoning = _reasoning_assignment(current)
+    _current_verbosity_lines, _current_verbosity_match, current_verbosity = _verbosity_assignment(current)
+    _original_reason_lines, original_reason_match, original_reasoning = _reasoning_assignment(original)
+    _original_verbosity_lines, original_verbosity_match, original_verbosity = _verbosity_assignment(original)
+    if (original_reason_match is None and _current_reason_match is None and
+            original_verbosity_match is None and _current_verbosity_match is None):
+        settings_restored = True
+    else:
+        settings_restored = (
+            _current_reason_match == original_reason_match and
+            current_reasoning == original_reasoning and
+            _current_verbosity_match == original_verbosity_match and
+            current_verbosity == original_verbosity
+        )
+    if settings_restored:
+        if original_match is None:
+            return current_match is None
+        return current_match is not None and current_value == original_value
+    # A matching catalog alone is not a restored config. This is important when
+    # the original catalog already pointed at the managed path: settings must
+    # also match the original before the rollback state can be consumed.
+    return False
 
 
 def _target_is_restored(
@@ -654,6 +767,8 @@ def configure(
                 "catalog_path": _path_binding(catalog),
                 "dropin_path": _path_binding(dropin),
                 "config_sha256": _sha(temporary_state / "config.toml.before"),
+                "managed_reasoning_effort": MANAGED_REASONING_EFFORT,
+                "managed_model_verbosity": MANAGED_VERBOSITY,
                 "dropin_existed": dropin_existed,
                 "dropin_sha256": (
                     _sha(temporary_state / "dropin.before") if dropin_existed else None
@@ -788,6 +903,8 @@ def rollback(
             original_config,
             config,
             metadata.get("rollback_config_sha256"),
+            metadata.get("managed_reasoning_effort", MANAGED_REASONING_EFFORT),
+            metadata.get("managed_model_verbosity", MANAGED_VERBOSITY),
         ):
             raise ConfigureError("config rollback target drifted after restore")
     else:
@@ -797,11 +914,15 @@ def rollback(
             original_config,
             config,
             metadata.get("rollback_config_sha256"),
+            metadata.get("managed_reasoning_effort", MANAGED_REASONING_EFFORT),
+            metadata.get("managed_model_verbosity", MANAGED_VERBOSITY),
         ):
             restored_config = _restore_catalog_setting(
                 current_config,
                 original_config,
                 catalog,
+                metadata.get("managed_reasoning_effort", MANAGED_REASONING_EFFORT),
+                metadata.get("managed_model_verbosity", MANAGED_VERBOSITY),
             )
             metadata["rollback_config_sha256"] = _sha_bytes(
                 restored_config.encode("utf-8")
@@ -815,6 +936,8 @@ def rollback(
             original_config,
             config,
             metadata.get("rollback_config_sha256"),
+            metadata.get("managed_reasoning_effort", MANAGED_REASONING_EFFORT),
+            metadata.get("managed_model_verbosity", MANAGED_VERBOSITY),
         ):
             raise ConfigureError("config rollback validation failed")
         _mark_rollback_progress(metadata_path, metadata, "config")
