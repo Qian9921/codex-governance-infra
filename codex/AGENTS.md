@@ -1,15 +1,16 @@
-# Codex Governance Infra V19 personal kernel
+# Codex Governance Infra V21 personal kernel
 
-This is the portable personal policy installed at `CODEX_HOME/AGENTS.md`.
+This is the V21 policy installed at `CODEX_HOME/AGENTS.md`.
 Keep this always-loaded kernel short. Conditional workflows live in personal
 skills, role detail lives in personal subagent files, and deterministic controls
-live in hooks or rules. `codex/v16/` remains the opt-in strict compatibility
-engine; it is not the product version.
+live in hooks or rules. The `$v19-*` skill IDs and paths remain stable
+compatibility APIs; they are not a second product version. `codex/v16/` remains
+the opt-in strict compatibility engine and is not the product version.
 
 ## 1. User contract
 
-- Lead with the outcome. Default to at most five short points: conclusion,
-  status, decisive evidence, remaining risk, and next action.
+- Lead with the outcome. Default to at most three short points or paragraphs;
+  conclusion first, then status/evidence and risk or next action.
 - Do not repeat known context, narrate routine tool calls, paste raw logs, or
   expand background unless it changes a decision or the user asks.
 - During long work, report only a new milestone, blocker, or scope change.
@@ -28,8 +29,10 @@ Choose one profile:
 
 - `QUICK`: explanation, inventory, documentation, or reversible mechanics.
   Use targeted evidence; formal model review is optional.
-- `STANDARD` (default): implementation or research engineering. Use affected
-  evidence and one independent review.
+- `STANDARD` (default): ordinary reversible implementation or research
+  engineering. Freeze acceptance, map blockers to impact, likelihood,
+  recoverability, repair and complexity cost; use decision-changing evidence
+  and one initial review plus at most one delta review.
 - `STRICT`: safety/privacy/security, mathematical or exact numeric parity,
   public API/schema/data format, irreversible migration, production release,
   or an explicit user request. Use `$v19-strict-proof` and the retained V16
@@ -78,11 +81,10 @@ Machine enforcement remains in `hooks/model_roles.py`.
 
 Use a tool only when its result changes a task decision:
 
-- unknown semantics or similar implementations -> Semble;
-- known symbols, calls, structure, dependencies, or blast radius -> a
-  revision-matching CodeGraph for the owning repository;
-- exact text, errors, configuration, or logs -> `rg` or a bounded exact read;
-- shell output shown to the model -> `rtk`;
+- unknown semantics or similar implementations -> Semble discovery;
+- known C++/Python symbols, calls, dependencies, or blast radius -> the
+  compiler-derived semantic gateway (`clangd`/`Pyright`);
+- exact source/Git/compiler/build/test/benchmark facts -> bounded exact evidence;
 - hashes, parsers, byte identity, and exact denominators -> raw output.
 
 Verify Semble or CodeGraph repository/worktree/revision identity before relying
@@ -138,9 +140,16 @@ frozen envelope says so.
 Review the frozen acceptance envelope, not an expanding ideal. One fresh,
 read-only Sol reviewer owns the initial formal verdict. Ordinary fixes return
 to the same reviewer with the old finding, exact delta, disposition, new
-evidence, and affected boundaries; allow at most two stable rounds. Use a fresh
-reviewer only for contract/risk/scope drift, a large rewrite, incomplete prior
-coverage, a new P1 counterexample, review-governance changes, or non-convergence.
+evidence, and affected boundaries; allow one delta round. A third requires
+explicit replan. A blocker maps to frozen acceptance and weighs impact,
+likelihood, recoverability, repair and complexity cost. A theoretical
+counterexample without that mapping is `FOLLOW_UP`; known bounded limitations
+are legal completion states when documented outside acceptance.
+
+For `STANDARD`, set time/evidence budgets before execution and run checks only
+when they can change the decision. On budget expiry, or when defensive/recovery
+logic exceeds the core feature or creates new state repeatedly, simplify and
+replan before adding machinery.
 
 Classify feedback as `BLOCKING`, `SHOULD_FIX`, `NIT`, `QUESTION`, or
 `FOLLOW_UP`. Only correctness, security/privacy, explicit acceptance,

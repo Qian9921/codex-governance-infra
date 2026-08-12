@@ -1,9 +1,9 @@
 ---
 name: v19-engineering
-description: Execute a non-STRICT implementation or research-engineering mission with V19 ownership, reuse, recovery, evidence, and review boundaries. Use for building, fixing, refactoring, tool repair, data runs, or repository changes; do not use for explanation-only tasks, formal GitHub delivery, or STRICT proof work.
+description: V21 STANDARD execution with stable v19-engineering ID: bounded ownership, reuse, recovery, evidence, and review for implementation or data work; not explanation, GitHub delivery, or STRICT proof.
 ---
 
-# V19 Engineering
+# V21 STANDARD Engineering (stable ID: v19-engineering)
 
 ## Freeze the slice
 
@@ -16,11 +16,17 @@ description: Execute a non-STRICT implementation or research-engineering mission
 3. Record the pre-mortem: likely failure, affected boundary, and cheapest check
    that would turn red.
 
+4. For `STANDARD`, freeze time/evidence budgets and map blockers to acceptance,
+   user impact, likelihood, recoverability, repair cost, and complexity cost.
+   Theoretical counterexamples default to `FOLLOW_UP` without that mapping;
+   documented bounded limitations may be a legal completion state.
+
 ## Discover and execute
 
-1. Find the owning implementation before creating code. Use Semble for unknown
-   semantics or similar code, revision-matching CodeGraph for known structure or
-   impact, `rg` for exact text, and `rtk` for shell output.
+1. Find the owner first. Use Semble for unknown/similar code, the compiler
+   semantic gateway for known C++/Python structure/impact, and bounded exact
+   evidence for source/Git/compiler/build/test/benchmark facts. CodeGraph, `rg`,
+   and `rtk` are explicit V16 `STRICT` compatibility tools only.
 2. For a meaningful abstraction, record `REUSE`, `EXTEND`, or `NEW`. A `NEW`
    owner needs a real consumer, valid dependency direction, focused tests, and
    less complexity than duplication.
@@ -37,14 +43,17 @@ description: Execute a non-STRICT implementation or research-engineering mission
 2. Reject parity claims with an unknown denominator, skipped required case,
    NaN/Inf, stale identity, or missing oracle.
 3. Send one compact exact-snapshot packet to `sol_reviewer` when `STANDARD`
-   review is required. Stable findings return to the same reviewer delta-only.
+   review is required. Allow one initial review and at most one delta review;
+   a third round requires explicit replan.
 4. Finish only when the frozen envelope is met, blocking findings are closed,
    and no required work remains. Use `$v19-github-delivery` for publication.
 
+5. Run decision-changing checks. If recovery logic grows beyond the feature,
+   simplify and replan.
+
 ## Context discipline
 
-- Read only task-relevant contracts and references.
-- Keep raw logs and large evidence in artifacts; return hashes, denominators,
-  decisive excerpts, and paths.
+- Read only task-relevant contracts/references; keep raw logs in artifacts and
+  return hashes, denominators, decisive excerpts, and paths.
 - Do not load the V16 strict corpus unless the task actually upgrades to
   `STRICT`.

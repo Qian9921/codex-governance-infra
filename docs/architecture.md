@@ -1,4 +1,27 @@
-# Adaptive governance architecture
+# V21 balanced-standard governance architecture
+
+V21 is the product policy for ordinary reversible work. The existing `$v19-*`
+skill IDs and paths remain stable compatibility APIs; V21 extends their owners
+instead of copying or renaming the skills. `codex/v16/**` remains the unchanged
+strict compatibility engine and is not the V21 product version.
+
+## Three daily evidence lanes
+
+Daily `QUICK` and `STANDARD` work uses exactly three lanes: Semble discovery for
+unknown or similar implementations; the compiler-derived semantic gateway for
+known C++/Python symbols and impact; and bounded exact evidence for source,
+Git, compiler, build, test, and benchmark facts. CodeGraph, `rg`, and `rtk` are
+retained only as explicit V16 `STRICT` compatibility routes. Missing semantic
+providers produce `PARTIAL` or `NOT_READY` plus one named exact-evidence
+fallback and do not block unrelated STANDARD work.
+
+The gateway is an `EXTEND` of the prior overlay lifecycle and a `NEW` owner for
+compiler orchestration because no existing semantic owner exists. It delegates
+language facts to clangd/Pyright and uses the pinned `@samchon/graph` identity
+(`95e20c9540e85fef542466172484229356d3d0d8`, tree
+`e9ce033e380d77265c601579e436218502a6ccbd`). Its receipt freezes repository
+HEAD/tree/parent/dirty diff, build inputs, provider versions and binary hashes,
+scope/resource limits, generation, and stable-versus-ephemeral identity rules.
 
 ## Design goal
 
@@ -42,7 +65,7 @@ flowchart LR
     H -- optional unavailable --> D
     E --> D{Acceptance met?}
     D -- no --> L
-    D -- yes --> R[One independent Sol review]
+    D -- yes --> R[Initial independent Sol review]
     R -- blocking delta --> L
     R -- approve --> Q[your-developer-account opens PR]
     Q --> G[your-reviewer-account reviews and merges]
@@ -68,11 +91,27 @@ fresh independent reviewer role.
 | Profile | Typical work | Evidence | Review | Hook behavior |
 |---|---|---|---|---|
 | `QUICK` | explanation, inventory, docs, reversible mechanics | direct/targeted | optional | advisory |
-| `STANDARD` | normal research engineering and development | affected-first, representative end-to-end when applicable | one independent review | advisory |
-| `STRICT` | security/privacy, exact math, public contracts, irreversible changes, hooks/installers/releases | frozen V16 FAST/CANDIDATE/FINAL contracts | fresh risk-routed review, delta continuation | fail-closed integrity gates |
+| `STANDARD` | ordinary reversible research engineering and development | affected-first, representative end-to-end when applicable | one initial review plus at most one delta review | advisory |
+| `STRICT` | security/privacy, exact math, public contracts, irreversible changes, production releases, or explicit strict selection | frozen V16 FAST/CANDIDATE/FINAL contracts | fresh risk-routed review, delta continuation | fail-closed integrity gates |
 
 The user or mission selects `STRICT`; a newly discovered high-risk trigger may
 upgrade a mission. A missing task receipt cannot manufacture high risk.
+
+### STANDARD contract
+
+Before execution, freeze the acceptance envelope, time budget, evidence budget,
+rollback, and limitation boundary. A blocker is blocking only when it maps to
+that envelope and weighs user impact, occurrence likelihood, recoverability,
+repair cost, and complexity cost. A theoretical counterexample without that
+mapping is `FOLLOW_UP` by default. A known, bounded limitation is a legal
+completion state when documented and outside the frozen acceptance.
+
+Run a check only when its result can change the decision. If the time or
+evidence budget expires, replan instead of expanding scope silently. The
+complexity circuit breaker requires simplification when defensive/recovery
+logic exceeds the core feature or consecutive attempts create new state
+problems. Review is one initial pass and at most one delta pass; a third round
+requires explicit replan.
 
 ## Layers
 
@@ -83,7 +122,8 @@ mission sizing, model roles, tool intent, code health, evidence, review,
 GitHub identity, knowledge retention, privacy, and completion. Conditional
 execution, strict proof, and GitHub delivery details live in personal skills;
 model-specific role detail lives in personal subagent TOMLs. This keeps the
-V19 contract intact without paying its full workflow cost on every turn.
+V21 policy thin while preserving the V19 compatibility IDs without paying the
+full workflow cost on every turn.
 
 ### 2. Project adapters
 
@@ -162,8 +202,10 @@ It is not required for every read, shell command, or small edit.
 
 One reviewer owns the verdict. The initial review receives a compact clean-room
 packet. Stable fixes return to the same reviewer with only the finding lineage,
-exact delta, new evidence, and direct boundaries. A fresh reviewer is reserved
-for explicit escalation triggers.
+exact delta, new evidence, and direct boundaries, for at most one delta pass.
+A third round requires explicit replan; a fresh reviewer is reserved for
+contract/risk/scope drift, a large rewrite, incomplete prior coverage, a new P1
+counterexample, review-governance changes, or non-convergence.
 
 your-developer-account owns author actions. your-reviewer-account owns review, approval, and merge. The PR
 is the durable record of objective, evidence, feedback, dispositions,
@@ -181,14 +223,13 @@ sessions, memories, plugins, connections, model caches, or unrelated files.
 
 ## Communication contract
 
-Default user-visible output is bounded to:
+Default user-visible output is bounded to three short points or paragraphs,
+conclusion first:
 
 ```text
 Conclusion
-Status
-Decisive evidence
-Remaining risk
-Next action
+Status and evidence
+Risk or next action
 ```
 
 Routine tool narration and raw logs remain in artifacts. Long explanations are

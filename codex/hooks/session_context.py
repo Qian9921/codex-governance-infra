@@ -34,18 +34,17 @@ from v16.tool_runtime import (  # noqa: E402
 
 
 ROUTING_GUIDANCE = {
-    "known_structure": "CodeGraph",
-    "unknown_semantic_or_similar": "Semble",
-    "shell_display": "rtk",
-    "exact_text_log_config": "rg",
+    "discovery": "Semble",
+    "semantic_gateway": "compiler-derived clangd/Pyright gateway",
+    "exact_evidence": "source/Git/compiler/build/test/benchmark",
 }
 TOOL_PREFLIGHT_GUIDANCE = {
     "required_before_repo_work": False,
-    "required_before_relying_on_semantic_or_structural_tool": True,
-    "schema": "tool-preflight.v16",
-    "strict_ready_status": "ready",
-    "mandatory_tools": ["codegraph", "semble", "rtk"],
-    "usage_schema": "tool-usage.v16",
+    "required_before_relying_on_semantic_or_structural_tool": False,
+    "schema": "semantic-gateway.v1",
+    "strict_ready_status": "READY",
+    "mandatory_lanes": ["discovery", "semantic_gateway", "exact_evidence"],
+    "usage_schema": "semantic-gateway.v1",
     "receipt_backed_usage_required": True,
     "task_contract_schema": "tool-task-contract.v16",
     "enforcement_schema": "tool-enforcement.v16",
@@ -53,9 +52,9 @@ TOOL_PREFLIGHT_GUIDANCE = {
     "adaptive_recovery_default": True,
     "strict_maintenance_schema": "tool-maintenance.v16",
     "strict_maintenance_flag": "--strict-maintenance",
-    "automatic_repo_index_repair": True,
-    "strict_repair_budget": 1,
-    "strict_repair_owner": "assigned_execution_agent:tool_maintainer",
+    "automatic_repo_index_repair": False,
+    "strict_repair_budget": 0,
+    "strict_repair_owner": "explicit-semantic-tools-installer",
     "recovery_policy": (
         "do not repeat no-progress strategy; continue distinct evidence-producing "
         "recovery until the required capability is usable"
@@ -68,7 +67,7 @@ def _bounded_context(text: str, limit: int = 1500) -> str:
 
     if len(text) <= limit:
         return text
-    tail = " ... See personal V19 policy. mode=" + current_mode() + "."
+    tail = " ... See personal V21 policy. mode=" + current_mode() + "."
     return text[: max(0, limit - len(tail))] + tail
 REVIEW_RUNTIME_GUIDANCE = {
     "planner": "Sol",
@@ -111,13 +110,14 @@ def build_context(
 
     mode = current_mode()
     guidance = (
-        f"V19 PERSONAL KERNEL. mode={mode}; QUICK/STANDARD/STRICT. "
+        f"V21 PERSONAL KERNEL. mode={mode}; QUICK/STANDARD/STRICT. "
         "AGENTS.md owns durable behavior; skills and agent TOMLs own conditional detail; "
         "hooks own mechanical integrity. Sol plans/contracts/reviews; Luna executes and "
         "recovers; Spark is legacy-disabled; Terra is bounded R0/R1 triage or recorded "
         "continuity; assigned models are unrestricted technically; identity "
-        "misrepresentation is rejected. Routes: unknown/similar=Semble, structure/"
-        "impact=CodeGraph, exact=rg, shell=rtk; verify semantic/structural identity. "
+        "misrepresentation is rejected. Lanes: unknown/similar=Semble, known="
+        "compiler-derived semantic gateway, exact=source/Git/compiler/build/test/benchmark; "
+        "verify provider and repository identity. "
         "Adaptive recovery never repeats a no-progress strategy. STRICT alone uses "
         "$v19-strict-proof and --strict-maintenance."
     )
@@ -194,7 +194,7 @@ if __name__ == "__main__":
         )
         mode = current_mode()
         intake_context = (
-            "V19 INTAKE. Adaptive default; missing optional receipts stay advisory. "
+            "V21 INTAKE. Adaptive default; missing optional receipts stay advisory. "
             + lineage
             + " STRICT only: use $v19-strict-proof and record once: rtk python3 "
             "\"${CODEX_HOME:-$HOME/.codex}/bin/toolchain-auto.py\" "

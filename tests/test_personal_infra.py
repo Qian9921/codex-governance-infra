@@ -1,3 +1,4 @@
+import json
 import pathlib
 import re
 import unittest
@@ -50,6 +51,67 @@ class PersonalInfra(unittest.TestCase):
             self.assertIn(skill, kernel)
         for role in ("luna_execution", "sol_contract", "sol_reviewer", "terra_triage"):
             self.assertIn(role, kernel)
+
+    def test_v21_standard_contract_extends_compatibility_owners(self):
+        kernel = (ROOT / "codex" / "AGENTS.md").read_text(encoding="utf-8")
+        skill = (ROOT / "codex" / "skills" / "v19-engineering" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        architecture = (ROOT / "docs" / "architecture.md").read_text(encoding="utf-8")
+        for document in (kernel, skill, architecture):
+            for term in (
+                "STANDARD",
+                "acceptance",
+                "likelihood",
+                "recoverability",
+                "complexity",
+                "FOLLOW_UP",
+                "replan",
+            ):
+                self.assertIn(term, document)
+        self.assertIn("$v19-*", kernel)
+        self.assertIn("stable v19-engineering", skill)
+        self.assertIn("one initial review plus at most one delta review", architecture)
+
+    def test_product_version_is_v21(self):
+        manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["version"], "21.0.0")
+
+    def test_active_identity_and_communication_contract_are_v21(self):
+        root_policy = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        architecture = (ROOT / "docs" / "architecture.md").read_text(encoding="utf-8")
+        deployment = (ROOT / "docs" / "deployment.md").read_text(encoding="utf-8")
+        session_context = (ROOT / "codex" / "hooks" / "session_context.py").read_text(
+            encoding="utf-8"
+        )
+        strict_skill = (ROOT / "codex" / "skills" / "v19-strict-proof" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        github_skill = (ROOT / "codex" / "skills" / "v19-github-delivery" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("Public release is Codex Governance Infra V21 (21.0.0)", root_policy)
+        self.assertNotIn("Public release is Codex Governance Infra V19", root_policy)
+        self.assertIn("V21.0.0 personal overlay", deployment)
+        self.assertIn("V21 PERSONAL KERNEL", session_context)
+        self.assertIn("V21 INTAKE", session_context)
+        self.assertNotIn("V19 PERSONAL KERNEL", session_context)
+        self.assertNotIn("V19 INTAKE", session_context)
+        self.assertIn("# V21 Strict Proof (stable ID: v19-strict-proof)", strict_skill)
+        self.assertIn("# V21 GitHub Delivery (stable ID: v19-github-delivery)", github_skill)
+
+        strict_row = next(
+            line for line in architecture.splitlines() if line.startswith("| `STRICT` |")
+        )
+        self.assertNotIn("hooks/installers", strict_row)
+        self.assertIn("explicit strict selection", strict_row)
+        communication = architecture.split("## Communication contract", 1)[1]
+        template = communication.split("```text\n", 1)[1].split("```", 1)[0].splitlines()
+        self.assertEqual(
+            template,
+            ["Conclusion", "Status and evidence", "Risk or next action"],
+        )
 
     def test_strict_profile_does_not_replace_model_or_provider(self):
         path = ROOT / "codex" / "governance-strict.config.toml"

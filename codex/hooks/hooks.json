@@ -1,5 +1,5 @@
 {
-  "version": "16.0.0",
+  "version": "21.0.0",
   "session_start": "session_context.py",
   "pre_tool_use": "pre_tool_use_policy.py",
   "receipt": "hook_receipt.py",
@@ -7,13 +7,12 @@
   "spawn_observable": true,
   "spawn_enforcement": "parent-pre-dispatch+subagent-lock+post-result+dispatch-transcript",
   "tool_routing": {
-    "preflight": "tool-preflight.v16 status=ready before repository work",
-    "known_structure": "codegraph",
-    "semantic_discovery": "semble",
-    "shell_context_output": "rtk",
-    "exact_text": "rg",
+    "lanes": ["discovery", "semantic_gateway", "exact_evidence"],
+    "discovery": "Semble unknown or similar implementation discovery",
+    "semantic_gateway": "compiler-derived clangd/Pyright semantics for known symbols and impact",
+    "exact_evidence": "bounded source/Git/compiler/build/test/benchmark evidence",
     "fallback_requires": ["preferred_attempt", "reason_code", "evidence_ref"],
-    "semantic_inference": "brief-declared-not-blanket-denied",
-    "actual_usage": "tool-usage.v16 receipt-backed and task-relevant"
+    "strict_compatibility": "codex/v16 tool-preflight and CodeGraph/rg/rtk remain explicit STRICT compatibility only",
+    "actual_usage": "semantic-gateway.v1 receipt-backed and task-relevant"
   }
 }

@@ -1,4 +1,4 @@
-# Personal V19 safety net for commands requested outside the sandbox.
+# Personal V21 safety net; v19-safety.rules remains the stable compatibility path.
 # The user can still authorize recoverable operations; catastrophic root deletion
 # remains forbidden. More specific repository behavior belongs to Hooks/AGENTS.
 

@@ -1,5 +1,5 @@
 name = "terra_triage"
-description = "Short read-only V19 R0/R1 TERRA_REPLAN or TERRA_TRIAGE bridge, used only by a Luna parent."
+description = "Short read-only V21 R0/R1 TERRA_REPLAN or TERRA_TRIAGE bridge (stable V19 role ID), used only by a Luna parent."
 model = "gpt-5.6-terra"
 model_reasoning_effort = "medium"
 sandbox_mode = "read-only"

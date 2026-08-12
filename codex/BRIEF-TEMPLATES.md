@@ -43,16 +43,16 @@ integrates the work. Parallel writers require exclusive path leases.
 
 ```text
 Unknown semantics or similar implementation: Semble | N/A
-Known structure, dependency, or impact: CodeGraph | N/A
-Exact text, error, config, or log: rg | N/A
-Shell output shown to model: rtk | N/A
+Known C++/Python semantics, dependency, or impact: semantic gateway | N/A
+Exact source/Git/compiler/build/test/benchmark fact: bounded exact evidence | N/A
 Essential decision if a preferred tool fails:
 ```
 
-Calls must be task-relevant. Verify CodeGraph/Semble identity before relying on
-their answers. The execution lead owns one exact-repo repair and recheck. In
-adaptive mode, lost optional coverage is reported but does not stop unrelated
-work. Strict receipt-backed enforcement is reserved for `STRICT` missions.
+Calls must be task-relevant. Verify Semble and compiler/provider/repository
+identity before relying on their answers. A missing gateway provider routes one
+named fact to bounded exact evidence; it does not stop unrelated STANDARD work.
+The old CodeGraph/rg/rtk routes and receipt-backed enforcement are reserved for
+explicit `STRICT` compatibility missions.
 
 ## Reuse decision
 

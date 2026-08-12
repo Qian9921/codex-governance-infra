@@ -39,6 +39,9 @@ from v16.tool_runtime import (  # noqa: E402
 
 FORBIDDEN_CHILD = frozenset({"git", "github", "merge", "review", "approve"})
 ROUTE_BY_TOOL = {
+    "semantic-gateway": "semantic_gateway",
+    "semantic_gateway": "semantic_gateway",
+    "semantic-gateway-mcp": "semantic_gateway",
     "toolchain-doctor": "preflight",
     "toolchain_doctor": "preflight",
     "tool_preflight": "preflight",
@@ -61,7 +64,7 @@ REPO_ACTIVITY_TOOLS = frozenset({
     "bash", "exec_command", "functions.exec_command", "apply_patch", "edit", "write",
 })
 REPOSITORY_ONLY_ROUTES = frozenset({
-    "preflight", "maintenance", "codegraph", "semble",
+    "preflight", "maintenance", "codegraph", "semble", "semantic_gateway",
 })
 REPOSITORY_MUTATION_TOOLS = frozenset({"apply_patch", "edit", "write"})
 
@@ -96,6 +99,8 @@ def _direct_shell_route(tool: Any, args: Any) -> str | None:
     nested = pathlib.PurePosixPath(tokens[1]).name.lower()
     if nested in {"python", "python3"} and len(tokens) >= 3:
         script = pathlib.PurePosixPath(tokens[2]).name.lower()
+        if script in {"semantic-gateway.py", "semantic-gateway-mcp.py"}:
+            return "semantic_gateway"
         if script in {"toolchain-auto.py", "toolchain_auto.py"}:
             return "contract" if "--record-task-contract" in tokens else "maintenance"
         if script in {"toolchain-doctor.py", "tool_preflight.py"}:

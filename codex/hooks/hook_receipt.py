@@ -33,8 +33,8 @@ _SENSITIVE_LABEL = re.compile(
     re.IGNORECASE,
 )
 _ROUTE_CODES = frozenset({
-    "preflight", "maintenance", "codegraph", "semble", "rtk", "rg",
-    "contract", "unspecified",
+    "preflight", "maintenance", "codegraph", "semble", "semantic_gateway",
+    "exact_evidence", "rtk", "rg", "contract", "unspecified",
 })
 _ROUTE_ALIASES = {"CodeGraph": "codegraph", "Semble": "semble"}
 _DECISIONS = frozenset({"allow", "deny"})
