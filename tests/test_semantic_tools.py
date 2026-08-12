@@ -164,7 +164,9 @@ class SemanticToolsTest(unittest.TestCase):
             installer._write_registration(codex_home, tools_home)
             installer._upsert_mcp_config(codex_home, tools_home)
             first_registration = json.loads((codex_home / installer.REGISTRATION).read_text(encoding="utf-8"))
-            self.assertEqual(first_registration["args"], ["--config", str(tools_home / "semantic-gateway-config.json")])
+            self.assertEqual(first_registration["command"], str(pathlib.Path(sys.executable).resolve()))
+            self.assertEqual(first_registration["args"], [str(codex_home / "bin/semantic-gateway-mcp.py"),
+                                                           "--config", str(tools_home / "semantic-gateway-config.json")])
             registered = config.read_text(encoding="utf-8")
             self.assertIn("[mcp_servers.other]", registered)
             self.assertIn("[mcp_servers.codex-semantic-gateway]", registered)
