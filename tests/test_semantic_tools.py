@@ -17,6 +17,41 @@ _LAUNCHER_SPEC.loader.exec_module(semantic_backend_launcher)
 
 
 class SemanticToolsTest(unittest.TestCase):
+    def test_run_accepts_build_environment_for_ttsc_go_plugin(self):
+        spec = importlib.util.spec_from_file_location(
+            "semantic_tools_installer_run", ROOT / "scripts/install-semantic-tools.py")
+        installer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(installer)
+        env = dict(os.environ, GOFLAGS="-buildvcs=false", V21_ENV_PROBE="present")
+        code, output = installer._run(
+            [sys.executable, "-c", "import os; print(os.environ['V21_ENV_PROBE'])"], env=env)
+        self.assertEqual(code, 0)
+        self.assertEqual(output, "present")
+
+    def test_cold_build_uses_offline_resource_profile(self):
+        spec = importlib.util.spec_from_file_location(
+            "semantic_tools_installer_build", ROOT / "scripts/install-semantic-tools.py")
+        installer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(installer)
+        command = installer._bounded_build_command(["pnpm", "run", "build"])
+        self.assertIn("semantic-backend-launcher.py", command[1])
+        self.assertEqual(command[command.index("--profile") + 1], "cpp_offline")
+        self.assertEqual(command[-3:], ["pnpm", "run", "build"])
+
+    def test_backend_selects_python_langserver_for_python_workset(self):
+        spec = importlib.util.spec_from_file_location(
+            "semantic_tools_installer_lane", ROOT / "scripts/install-semantic-tools.py")
+        installer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(installer)
+        with tempfile.TemporaryDirectory() as directory:
+            tools_home = pathlib.Path(directory)
+            entrypoint = tools_home / "bin.js"
+            command = installer._backend_command(tools_home, entrypoint, tools_home, ("module.py",))
+            self.assertEqual(command[command.index("--profile") + 1], "python_resident")
+            self.assertIn("python", command)
+            self.assertIn(str(tools_home / "pyright/bin/pyright-langserver"), command)
+            self.assertIn("--stdio", command)
+
     def test_dry_run_is_idempotent_and_does_not_write(self):
         with tempfile.TemporaryDirectory() as directory:
             home = pathlib.Path(directory) / "tools"
@@ -64,10 +99,13 @@ class SemanticToolsTest(unittest.TestCase):
         self.assertIn("--wait", command)
         self.assertIn("--pipe", command)
         self.assertIn("--collect", command)
+        self.assertIn("--same-dir", command)
         self.assertNotIn("--scope", command)
         self.assertIn("CPUQuota=400%", command)
         self.assertIn("MemoryMax=4G", command)
         self.assertIn("RuntimeMaxSec=180s", command)
+        self.assertIn("--setenv", command)
+        self.assertTrue(any(item.startswith("PATH=") for item in command))
 
     def test_launcher_executes_compatible_systemd_transient_service_arguments(self):
         with tempfile.TemporaryDirectory() as directory:

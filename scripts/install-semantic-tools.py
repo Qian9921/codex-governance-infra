@@ -36,10 +36,11 @@ def _sha(path: pathlib.Path) -> str:
     return digest.hexdigest()
 
 
-def _run(command: list[str], cwd: pathlib.Path | None = None, timeout: int = 900) -> tuple[int, str]:
+def _run(command: list[str], cwd: pathlib.Path | None = None, timeout: int = 900,
+         env: dict[str, str] | None = None) -> tuple[int, str]:
     try:
         result = subprocess.run(command, cwd=str(cwd) if cwd else None, capture_output=True,
-                                text=True, timeout=timeout, check=False)
+                                text=True, timeout=timeout, check=False, env=env)
     except (OSError, subprocess.TimeoutExpired) as exc:
         return 127, type(exc).__name__
     return result.returncode, (result.stdout or result.stderr).strip()[-600:]
@@ -48,6 +49,12 @@ def _run(command: list[str], cwd: pathlib.Path | None = None, timeout: int = 900
 def _git(path: pathlib.Path, *args: str) -> str | None:
     code, value = _run(["git", *args], path, timeout=30)
     return value if code == 0 and value else None
+
+
+def _bounded_build_command(command: list[str]) -> list[str]:
+    launcher = pathlib.Path(__file__).resolve().parents[1] / "codex/bin/semantic-backend-launcher.py"
+    return [sys.executable, str(launcher), "--profile", "cpp_offline",
+            "--timeout-sec", "900", "--", *command]
 
 
 def _derive_workset(repo: pathlib.Path, explicit: tuple[str, ...] = ()) -> tuple[str, ...]:
@@ -95,14 +102,25 @@ def _backend_entrypoint(checkout: pathlib.Path) -> pathlib.Path | None:
     return next((path for path in candidates if path.is_file() and not path.is_symlink()), None)
 
 
+def _semantic_lane(workset: tuple[str, ...], tools_home: pathlib.Path) -> tuple[str, str, str, tuple[str, ...]]:
+    cpp = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"}
+    if any(pathlib.Path(item).suffix.lower() in cpp for item in workset):
+        return "cpp", "cpp_resident", shutil.which("clangd") or "clangd", ()
+    langserver = tools_home / "pyright" / "bin" / "pyright-langserver"
+    return "python", "python_resident", str(langserver), ("--stdio",)
+
+
 def _backend_command(checkout: pathlib.Path, entrypoint: pathlib.Path | None,
-                     tools_home: pathlib.Path) -> list[str] | None:
+                     tools_home: pathlib.Path, workset: tuple[str, ...]) -> list[str] | None:
     if not entrypoint:
         return None
     runner = pathlib.Path(__file__).resolve().parents[1] / "codex" / "bin" / "semantic-backend-launcher.py"
-    if entrypoint.suffix == ".js":
-        return ["python3", str(runner), "--profile", "cpp_resident", "--", "node", str(entrypoint)]
-    return ["python3", str(runner), "--profile", "cpp_resident", "--", str(entrypoint)]
+    language, profile, server, server_args = _semantic_lane(workset, tools_home)
+    backend = ["node", str(entrypoint)] if entrypoint.suffix == ".js" else [str(entrypoint)]
+    backend.extend(["--mode", "lsp", "--language", language, "--server", server])
+    for argument in server_args:
+        backend.extend(["--server-arg", argument])
+    return ["python3", str(runner), "--profile", profile, "--", *backend]
 
 
 def _pyright_executable(tools_home: pathlib.Path | None) -> pathlib.Path | None:
@@ -120,6 +138,11 @@ def _write_pyright_launcher(tools_home: pathlib.Path) -> pathlib.Path:
     temporary.write_text("#!/usr/bin/env python3\nimport os, pathlib, sys\nroot = pathlib.Path(__file__).resolve().parents[1]\nos.environ['PYTHONPATH'] = str(root) + os.pathsep + os.environ.get('PYTHONPATH', '')\nos.execv(sys.executable, [sys.executable, '-m', 'pyright', *sys.argv[1:]])\n", encoding="utf-8")
     temporary.chmod(0o700)
     os.replace(temporary, target)
+    langserver = target.with_name("pyright-langserver")
+    temporary = langserver.with_name(langserver.name + ".tmp")
+    temporary.write_text("#!/usr/bin/env python3\nimport os, pathlib, sys\nroot = pathlib.Path(__file__).resolve().parents[1]\nos.environ['PYTHONPATH'] = str(root) + os.pathsep + os.environ.get('PYTHONPATH', '')\nos.execv(sys.executable, [sys.executable, '-m', 'pyright.langserver', *sys.argv[1:]])\n", encoding="utf-8")
+    temporary.chmod(0o700)
+    os.replace(temporary, langserver)
     return target
 
 
@@ -129,7 +152,8 @@ def _write_backend_config(tools_home: pathlib.Path, command: list[str] | None,
                           entrypoint: pathlib.Path | None = None,
                           workset: tuple[str, ...] = ()) -> pathlib.Path:
     target = tools_home / "semantic-gateway-config.json"
-    value = {"version": VERSION, "upstream": UPSTREAM, "profile": "cpp_resident",
+    _, profile, _, _ = _semantic_lane(workset, tools_home)
+    value = {"version": VERSION, "upstream": UPSTREAM, "profile": profile,
              "workset": list(workset),
              "backend_command": command or [],
              "provider_commands": {"cpp": clangd.get("path", "clangd"),
@@ -170,7 +194,7 @@ def inspect(tools_home: pathlib.Path | None, codex_home: pathlib.Path | None = N
     result = {"schema": MANIFEST, "version": VERSION, "status": status,
             "upstream": {**UPSTREAM, "url": UPSTREAM_URL, "checkout": upstream, "pinned": pinned},
             "build": build, "providers": providers,
-            "backend": {"command": _backend_command(checkout, entrypoint, tools_home) if checkout else None,
+            "backend": {"command": _backend_command(checkout, entrypoint, tools_home, selected_workset) if checkout else None,
                          "identity": {"checkout_head": upstream.get("head") if upstream else None,
                                        "checkout_tree": upstream.get("tree") if upstream else None,
                                        "binary_sha256": build["entrypoint_sha256"]}},
@@ -319,16 +343,27 @@ def install(tools_home: pathlib.Path, *, dry_run: bool, codex_home: pathlib.Path
         raise SystemExit("pinned upstream tree mismatch")
     if not (checkout / "pnpm-lock.yaml").is_file():
         raise SystemExit("pinned upstream pnpm-lock.yaml is missing")
+    build_env = dict(os.environ)
+    # The pinned ttsc plugin is compiled from pnpm's content-addressed cache,
+    # which is not a Git worktree. Disable only Go's VCS stamp lookup; module
+    # contents and the upstream Git tree remain hash-verified above.
+    goflags = build_env.get("GOFLAGS", "").split()
+    for flag in ("-buildvcs=false", "-p=4"):
+        if flag not in goflags:
+            goflags.append(flag)
+    build_env["GOFLAGS"] = " ".join(goflags)
+    build_env["GOMAXPROCS"] = "4"
     for command in (("pnpm", "install", "--frozen-lockfile"), ("pnpm", "run", "build")):
-        code, output = _run(list(command), checkout, 900)
+        invocation = _bounded_build_command(list(command)) if command[-1] == "build" else list(command)
+        code, output = _run(invocation, checkout, 930, env=build_env)
         if code != 0: raise SystemExit("semantic backend build failed:" + output)
     pyright_dir = tools_home / "pyright"
     code, output = _run(["python3", "-m", "pip", "install", "--disable-pip-version-check", "--target", str(pyright_dir), f"pyright=={PYRIGHT_VERSION}"], tools_home, 900)
     if code != 0: raise SystemExit("pyright installation failed:" + output)
     pyright_executable = _write_pyright_launcher(tools_home)
     entrypoint = _backend_entrypoint(checkout)
-    backend_command = _backend_command(checkout, entrypoint, tools_home)
     selected_workset = _derive_workset(repo, workset) if repo else tuple(workset)
+    backend_command = _backend_command(checkout, entrypoint, tools_home, selected_workset)
     config_path = _write_backend_config(tools_home, backend_command, pyright_executable,
                                         _provider("clangd"), checkout, entrypoint, selected_workset)
     result = inspect(tools_home, codex_home, repo, selected_workset, known_answer_symbol)

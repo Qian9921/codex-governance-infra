@@ -5,7 +5,7 @@ import sys
 import tempfile
 import unittest
 
-from codex.semantic_gateway.gateway import Gateway, GatewayConfig, OPERATIONS, close, doctor, query, sync
+from codex.semantic_gateway.gateway import BackendClient, Gateway, GatewayConfig, OPERATIONS, close, doctor, query, sync
 
 
 class SemanticGatewayTest(unittest.TestCase):
@@ -85,6 +85,19 @@ class SemanticGatewayTest(unittest.TestCase):
         self.assertEqual(result["status"], "READY")
         self.assertEqual(result["result"]["facts"][0]["operation"], "definition")
         self.assertEqual(result["provenance"]["backend"], "fake-pinned")
+
+    def test_backend_accepts_standard_mcp_structured_content(self):
+        holder, root = self.repo(); self.addCleanup(holder.cleanup)
+        client = BackendClient(GatewayConfig(repo=root, backend_command=("unused",),
+                                             workset=("sample.cpp",)))
+        client.start = lambda: {"status": "READY"}
+        client._request = lambda *_args, **_kwargs: {
+            "content": [],
+            "structuredContent": {"audit": "checked", "next": {"action": "answer"},
+                                  "result": {"type": "lookup", "hits": [{"name": "answer"}]}}}
+        result = client.inspect("definition", "answer", "cpp")
+        self.assertEqual(result["result"]["hits"][0]["name"], "answer")
+        self.assertEqual(result["audit"], "checked")
 
     def test_content_config_build_and_workset_identity_make_snapshot_stale(self):
         holder, root = self.repo(); self.addCleanup(holder.cleanup)

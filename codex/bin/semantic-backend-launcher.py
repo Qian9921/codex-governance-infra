@@ -23,12 +23,17 @@ def build_limited_command(command: Sequence[str], *, profile: str, use_systemd: 
         "python_resident": ("4", "2560M", "180s"),
     }
     cpus, memory, duration = limits[profile]
+    inherited = []
+    for name in ("PATH", "HOME", "GOFLAGS", "GOMAXPROCS"):
+        value = os.environ.get(name)
+        if value:
+            inherited.extend(["--setenv", f"{name}={value}"])
     # systemd 249 rejects --scope together with --wait.  A transient service
     # owns the complete process tree, --pipe preserves the MCP stdio channel,
     # and --wait keeps this launcher synchronous for the gateway client.
-    return ["systemd-run", "--user", "--quiet", "--wait", "--pipe", "--collect",
+    return ["systemd-run", "--user", "--quiet", "--wait", "--pipe", "--collect", "--same-dir",
             "-p", f"CPUQuota={int(cpus) * 100}%", "-p", f"MemoryMax={memory}",
-            "-p", f"RuntimeMaxSec={duration}", "--", *command]
+            "-p", f"RuntimeMaxSec={duration}", *inherited, "--", *command]
 
 
 def main(argv: list[str] | None = None) -> int:

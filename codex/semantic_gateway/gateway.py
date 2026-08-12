@@ -358,6 +358,9 @@ class BackendClient:
                     if isinstance(parsed, dict):
                         result = parsed
                         break
+        structured = result.get("structuredContent")
+        if isinstance(structured, dict):
+            result = dict(structured)
         facts = result.get("facts", result.get("result"))
         if facts in (None, [], {}, ""):
             raise GatewayError("BACKEND_EMPTY_FACT")
