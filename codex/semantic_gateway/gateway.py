@@ -1256,6 +1256,9 @@ def _broker_main(argv: list[str]) -> int:
     os.chmod(state, 0o700)
     socket_path = _broker_socket_path(state)
     starting = _broker_starting_path(state)
+    lock_handle = _broker_lock_path(state).open("a+")
+    os.chmod(_broker_lock_path(state), 0o600)
+    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
     gateway = Gateway(load_config(args.config, repo, args.language, persistent=True,
                                   state_dir=state))
     gateway.enable_persistent(state)
@@ -1269,12 +1272,16 @@ def _broker_main(argv: list[str]) -> int:
         # removed after the namespace lock is held.
         server.close()
         if _socket_is_live(socket_path):
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+            lock_handle.close()
             return 0
         socket_path.unlink()
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         server.bind(str(socket_path))
     os.chmod(socket_path, 0o600)
     server.listen(8)
+    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+    lock_handle.close()
     server.settimeout(max(0.1, args.idle_ttl))
     last_request = time.monotonic()
     try:
@@ -1323,6 +1330,8 @@ def _broker_main(argv: list[str]) -> int:
             starting.unlink()
         except FileNotFoundError:
             pass
+        if not lock_handle.closed:
+            lock_handle.close()
     return 0
 
 
