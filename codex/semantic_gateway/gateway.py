@@ -9,6 +9,7 @@ as semantic proof.
 from __future__ import annotations
 
 import argparse
+import errno
 import fcntl
 import hashlib
 import json
@@ -156,6 +157,32 @@ def _broker_socket_path(state: pathlib.Path) -> pathlib.Path:
     # Linux AF_UNIX paths are capped at 108 bytes. Keep the socket beside the
     # full persistent namespace while retaining a collision-resistant prefix.
     return state.parent / ("." + state.name[:20] + ".sock")
+
+
+def _broker_lock_path(state: pathlib.Path) -> pathlib.Path:
+    return state / "broker.lock"
+
+
+def _broker_starting_path(state: pathlib.Path) -> pathlib.Path:
+    return state / "broker.starting"
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _socket_is_live(socket_path: pathlib.Path) -> bool:
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+            probe.settimeout(0.5)
+            probe.connect(str(socket_path))
+            return True
+    except OSError:
+        return False
 
 
 def _atomic_json(path: pathlib.Path, value: Mapping[str, Any]) -> None:
@@ -925,6 +952,19 @@ class Gateway:
         changed = graph_stale or graph_changed or (
             self._build_graph_signature is not None and signature != self._build_graph_signature)
         self._build_graph_signature = signature
+        # A source/header-only workset delta must never invoke the build route.
+        # Only the first graph observation or a changed build-graph identity may
+        # refresh compile commands; an incomplete DB then remains truthfully
+        # PARTIAL until the graph route is explicitly eligible.
+        initial_bootstrap = previous_signature is None
+        graph_refresh_allowed = initial_bootstrap or graph_stale or graph_changed
+        if absent and not graph_refresh_allowed:
+            self._build_refresh = {"status": "PARTIAL", "command": None,
+                                   "reason": "COMPILE_COMMANDS_INCOMPLETE"}
+            if self.config.state_dir:
+                _atomic_json(self.config.state_dir / "build-graph.json", {"signature": signature,
+                                                                            "refresh": self._build_refresh})
+            return
         if not absent and not changed:
             if self._build_refresh.get("status") not in {"READY", "FAILED"}:
                 self._build_refresh = {"status": "NOT_NEEDED", "command": None}
@@ -996,7 +1036,7 @@ class Gateway:
         requested = list(OPERATIONS)
         proved = list(extra.get("result", {}).get("proved_families", [])) if isinstance(extra.get("result"), dict) else []
         missing = [] if status == "READY" else ["backend_handshake", "backend_query_facts"]
-        fallback = None if status == "READY" else "exact_evidence"
+        fallback = None if status == "READY" else "bounded_exact_evidence"
         receipt.update({"status": status, "requested_families": requested, "proved_families": proved,
                         "facts": extra.get("result", {}).get("facts", []) if isinstance(extra.get("result"), dict) else [],
                         "missing": missing, "fallback": fallback, "resources": PROFILES[self.config.profile]})
@@ -1129,7 +1169,7 @@ def broker_request(config: GatewayConfig, operation: str, symbol: str, language:
     def request_once() -> dict[str, Any] | None:
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-                client.settimeout(3.0)
+                client.settimeout(15.0)
                 client.connect(str(socket_path))
                 client.sendall((json.dumps(payload, separators=(",", ":")) + "\n").encode())
                 data = b""
@@ -1148,18 +1188,50 @@ def broker_request(config: GatewayConfig, operation: str, symbol: str, language:
     result = request_once()
     if result is not None:
         return result
-    try:
-        socket_path.unlink()
-    except FileNotFoundError:
-        pass
-    command = [sys.executable, str(pathlib.Path(__file__).resolve()), "--broker",
-               "--state-dir", str(state), "--repo", str(config.repo), "--language", language,
-               "--idle-ttl", str(config.idle_ttl_sec)]
-    if config.config_path:
-        command.extend(["--config", str(config.config_path)])
-    subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL, start_new_session=True)
-    deadline = time.monotonic() + 3.0
+    # The lock is the namespace-scoped startup election. Every contender
+    # rechecks the socket while holding it; no contender unlinks a live socket.
+    state.mkdir(mode=0o700, parents=True, exist_ok=True)
+    lock_handle = _broker_lock_path(state).open("a+")
+    os.chmod(_broker_lock_path(state), 0o600)
+    with lock_handle:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        result = request_once()
+        if result is None and not _socket_is_live(socket_path):
+            starting = _broker_starting_path(state)
+            can_start = True
+            if starting.exists():
+                try:
+                    owner = int(starting.read_text(encoding="ascii").strip())
+                except (OSError, ValueError):
+                    owner = 0
+                if owner and _pid_alive(owner):
+                    can_start = False
+                elif time.time() - starting.stat().st_mtime < 15.0:
+                    can_start = False
+                else:
+                    starting.unlink(missing_ok=True)
+            if can_start:
+                try:
+                    marker_fd = os.open(starting, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                except FileExistsError:
+                    marker_fd = None
+                if marker_fd is None:
+                    can_start = False
+                else:
+                    os.write(marker_fd, b"starting")
+                    os.close(marker_fd)
+            if can_start:
+                command = [sys.executable, str(pathlib.Path(__file__).resolve()), "--broker",
+                           "--state-dir", str(state), "--repo", str(config.repo), "--language", language,
+                           "--idle-ttl", str(config.idle_ttl_sec)]
+                if config.config_path:
+                    command.extend(["--config", str(config.config_path)])
+                process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                           stderr=subprocess.DEVNULL, start_new_session=True)
+                starting.write_text(str(process.pid), encoding="ascii")
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+    lock_handle.close()
+    deadline = time.monotonic() + 15.0
     while time.monotonic() < deadline:
         result = request_once()
         if result is not None:
@@ -1183,15 +1255,24 @@ def _broker_main(argv: list[str]) -> int:
     state.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(state, 0o700)
     socket_path = _broker_socket_path(state)
-    try:
-        socket_path.unlink()
-    except FileNotFoundError:
-        pass
+    starting = _broker_starting_path(state)
     gateway = Gateway(load_config(args.config, repo, args.language, persistent=True,
                                   state_dir=state))
     gateway.enable_persistent(state)
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    server.bind(str(socket_path))
+    try:
+        server.bind(str(socket_path))
+    except OSError as exc:
+        if exc.errno != errno.EADDRINUSE:
+            raise
+        # A live owner wins. Only a provably stale filesystem entry may be
+        # removed after the namespace lock is held.
+        server.close()
+        if _socket_is_live(socket_path):
+            return 0
+        socket_path.unlink()
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(str(socket_path))
     os.chmod(socket_path, 0o600)
     server.listen(8)
     server.settimeout(max(0.1, args.idle_ttl))
@@ -1236,6 +1317,10 @@ def _broker_main(argv: list[str]) -> int:
         server.close()
         try:
             socket_path.unlink()
+        except FileNotFoundError:
+            pass
+        try:
+            starting.unlink()
         except FileNotFoundError:
             pass
     return 0
