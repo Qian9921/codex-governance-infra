@@ -21,6 +21,9 @@ class SemanticGatewayTest(unittest.TestCase):
         self.assertFalse(_backend_identity_matches(expected, actual))
         self.assertFalse(_backend_identity_matches({"binary_sha256": "artifact"},
                                                    {"artifact_sha256": ["artifact"]}))
+        self.assertFalse(_backend_identity_matches({"checkout_tree": "tree"},
+                                                   {"artifact_sha256": ["artifact"]},
+                                                   {"tree": "tree"}))
 
     def test_backend_identity_positive_matches_frozen_command(self):
         expected = {"executable_path": "/usr/bin/backend", "executable_sha256": "exec",
@@ -46,6 +49,28 @@ class SemanticGatewayTest(unittest.TestCase):
         self.assertEqual(result["facts"], [])
         self.assertEqual(result["proved_families"], [])
         self.assertEqual(result["fallback"], "bounded_exact_evidence")
+
+    def test_invalid_identity_blocks_doctor_sync_query_with_zero_facts(self):
+        holder, root = self.repo(); self.addCleanup(holder.cleanup)
+        build = root / "build"; build.mkdir()
+        (build / "compile_commands.json").write_text(
+            json.dumps([{"file": "sample.cpp", "directory": str(root)}]), encoding="utf-8")
+        gateway = Gateway(GatewayConfig(
+            repo=root, build_dir=build, workset=("sample.cpp",), target_paths=("sample.cpp",),
+            backend_command=(sys.executable, str(self.fake_backend(root))),
+            provider_commands={"cpp": "/bin/true", "python": "/bin/true"}))
+        for result in (gateway.doctor(), gateway.sync()):
+            self.assertEqual(result["status"], "PARTIAL")
+            self.assertEqual(result["reason"], "BACKEND_IDENTITY_MISMATCH")
+            self.assertEqual(result["facts"], [])
+            self.assertEqual(result["proved_families"], [])
+            self.assertEqual(result["fallback"], "bounded_exact_evidence")
+        queried = gateway.query(result["snapshot_id"], "definition", "answer")
+        self.assertEqual(queried["status"], "PARTIAL")
+        self.assertEqual(queried["reason"], "BACKEND_IDENTITY_MISMATCH")
+        self.assertEqual(queried["facts"], [])
+        self.assertEqual(queried["proved_families"], [])
+        self.assertEqual(queried["fallback"], "bounded_exact_evidence")
 
     def test_reviewer_counterexample_nonempty_wrong_fact_is_not_ready(self):
         payload = {"facts": [{"symbol": "other", "file": "target.cpp"}],
@@ -100,9 +125,11 @@ class SemanticGatewayTest(unittest.TestCase):
         counter = root / "refresh-count"
         command = (sys.executable, "-c",
                    "import pathlib; p=pathlib.Path('refresh-count'); p.write_text(str(int(p.read_text())+1) if p.exists() else '1')")
+        script = self.fake_backend(root)
         gateway = Gateway(GatewayConfig(repo=root, build_dir=build, workset=("sample.cpp",),
                                         auto_refresh_build=True, build_refresh_command=command,
-                                        backend_command=(sys.executable, str(self.fake_backend(root))),
+                                        backend_command=(sys.executable, str(script)),
+                                        backend_identity=self.backend_identity((sys.executable, str(script)), script),
                                         provider_commands={"cpp": "/bin/true", "python": "/bin/true"}))
         baseline = gateway.sync()
         self.assertFalse(counter.exists())
@@ -137,8 +164,10 @@ class SemanticGatewayTest(unittest.TestCase):
         (root / "other/sample.cpp").write_text("int other() { return 1; }\n", encoding="utf-8")
         compile_db = build / "compile_commands.json"
         compile_db.write_text(json.dumps([{"file": "other/sample.cpp", "directory": str(root)}]), encoding="utf-8")
+        script = self.fake_backend(root)
         gateway = Gateway(GatewayConfig(repo=root, build_dir=build, workset=("src/sample.cpp",),
-                                        backend_command=(sys.executable, str(self.fake_backend(root))),
+                                        backend_command=(sys.executable, str(script)),
+                                        backend_identity=self.backend_identity((sys.executable, str(script)), script),
                                         provider_commands={"cpp": "/bin/true", "python": "/bin/true"}))
         result = gateway.sync()
         self.assertEqual(result["status"], "PARTIAL")
@@ -204,14 +233,18 @@ class SemanticGatewayTest(unittest.TestCase):
         compile_db = build / "compile_commands.json"
         compile_db.write_text(json.dumps([{"file": "sample.cpp"}]), encoding="utf-8")
         command = (sys.executable, "-c", "import pathlib; pathlib.Path('build/compile_commands.json').write_text('[]')")
+        script = self.fake_backend(root)
         first = Gateway(GatewayConfig(repo=root, build_dir=build, workset=("sample.cpp",),
-                                      backend_command=(sys.executable, str(self.fake_backend(root))),
+                                      backend_command=(sys.executable, str(script)),
+                                      backend_identity=self.backend_identity((sys.executable, str(script)), script),
                                       provider_commands={"cpp": "/bin/true", "python": "/bin/true"},
                                       build_refresh_command=command))
         first.sync()
         cmake.write_text("project(sample)\nset(REFRESHED ON)\n", encoding="utf-8")
+        script = self.fake_backend(root)
         second = Gateway(GatewayConfig(repo=root, build_dir=build, workset=("sample.cpp",),
-                                       backend_command=(sys.executable, str(self.fake_backend(root))),
+                                       backend_command=(sys.executable, str(script)),
+                                       backend_identity=self.backend_identity((sys.executable, str(script)), script),
                                        provider_commands={"cpp": "/bin/true", "python": "/bin/true"},
                                        build_refresh_command=command))
         result = second.sync()
@@ -231,9 +264,11 @@ class SemanticGatewayTest(unittest.TestCase):
         build = root / "build"; build.mkdir()
         (root / "CMakeLists.txt").write_text("project(sample)\n", encoding="utf-8")
         command = (sys.executable, "-c", "import pathlib; pathlib.Path('build/compile_commands.json').write_text('[]')")
+        script = self.fake_backend(root)
         gateway = Gateway(GatewayConfig(repo=root, build_dir=build, workset=("sample.cpp",),
                                         auto_refresh_build=True, build_refresh_command=command,
-                                        backend_command=(sys.executable, str(self.fake_backend(root))),
+                                        backend_command=(sys.executable, str(script)),
+                                        backend_identity=self.backend_identity((sys.executable, str(script)), script),
                                         provider_commands={"cpp": "/bin/true", "python": "/bin/true"}))
         snapshot = gateway.sync()["snapshot_id"]
         result = gateway.query(snapshot, "definition", "answer")
@@ -303,6 +338,7 @@ class SemanticGatewayTest(unittest.TestCase):
         script = self.fake_backend(root)
         return Gateway(GatewayConfig(repo=root, backend_command=(sys.executable, str(script)),
                                      provider_commands={"cpp": "/bin/true", "python": "/bin/true"},
+                                     backend_identity=self.backend_identity((sys.executable, str(script)), script),
                                      workset=("sample.cpp",), config_path=config_path))
 
     def live_scope_backend(self, root):
@@ -417,7 +453,10 @@ class SemanticGatewayTest(unittest.TestCase):
         self.assertIn("fallback", unavailable)
         (root / "sample.cpp").write_text("int answer() { return 43; }\n", encoding="utf-8")
         stale = query(result["snapshot_id"], "impact", "answer")
-        self.assertEqual(stale["status"], "STALE")
+        self.assertEqual(stale["status"], "PARTIAL")
+        self.assertEqual(stale["reason"], "BACKEND_IDENTITY_MISMATCH")
+        self.assertEqual(stale["facts"], [])
+        self.assertEqual(stale["proved_families"], [])
         self.assertEqual(stale["fallback"], "bounded_exact_evidence")
 
     def test_operation_set_and_close(self):

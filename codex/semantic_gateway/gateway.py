@@ -518,26 +518,25 @@ def _backend_identity_matches(expected: Mapping[str, Any], actual: Mapping[str, 
     """Compare only stable identity fields; arbitrary or empty identities fail."""
     if not expected or not actual:
         return False
-    for key in ("executable_path", "executable_sha256", "version", "command_sha256"):
-        if key in expected and expected.get(key) != actual.get(key):
+    required_command = ("executable_path", "executable_sha256", "command_sha256", "version")
+    if not all(expected.get(key) for key in required_command):
+        return False
+    for key in required_command:
+        if expected.get(key) != actual.get(key):
             return False
     expected_binary = expected.get("binary_sha256")
     artifacts = actual.get("artifact_sha256", [])
     if expected_binary is not None and expected_binary not in artifacts:
         return False
-    if expected.get("checkout_head") is not None:
+    checkout_keys = ("checkout_head", "checkout_tree", "binary_sha256")
+    if any(expected.get(key) is not None for key in ("checkout_head", "checkout_tree")):
+        if not all(expected.get(key) for key in checkout_keys):
+            return False
         if not upstream or expected.get("checkout_head") != upstream.get("head"):
             return False
-    if expected.get("checkout_tree") is not None:
-        if not upstream or expected.get("checkout_tree") != upstream.get("tree"):
+        if expected.get("checkout_tree") != upstream.get("tree"):
             return False
-    strong = any(expected.get(key) for key in (
-        "executable_path", "executable_sha256", "version", "command_sha256",
-        "binary_sha256", "checkout_head", "checkout_tree"))
-    executable_complete = all(expected.get(key) for key in
-                               ("executable_path", "executable_sha256", "version"))
-    pinned_checkout = bool(expected.get("checkout_tree") or expected.get("checkout_head"))
-    return bool(strong and (executable_complete or pinned_checkout))
+    return True
 
 
 def _backend_identity_issue(config: GatewayConfig, providers: Mapping[str, Any]) -> str | None:
@@ -556,6 +555,19 @@ def _backend_identity_issue(config: GatewayConfig, providers: Mapping[str, Any])
                 if expected.get(key) != observed.get(key):
                     return "PROVIDER_IDENTITY_MISMATCH"
     return None
+
+
+def _identity_gate(config: GatewayConfig, providers: Mapping[str, Any], language: str) -> str | None:
+    """One READY gate shared by doctor, sync/query, and persistent queries."""
+    expected_profile = "python_resident" if language == "python" else "cpp_resident"
+    if language not in {"cpp", "python"} or config.profile != expected_profile:
+        return "LANGUAGE_IDENTITY_MISMATCH"
+    if config.config_version != VERSION or config.installed_version != VERSION:
+        return "SEMANTIC_VERSION_MISMATCH"
+    required_provider = providers.get(language)
+    if not isinstance(required_provider, Mapping) or required_provider.get("status") != "READY":
+        return "LANGUAGE_PROVIDER_UNAVAILABLE"
+    return _backend_identity_issue(config, providers)
 
 
 def _canonical_compile_entry(entry: Mapping[str, Any], compile_db: pathlib.Path,
@@ -1098,18 +1110,7 @@ class Gateway:
         if self._target_scope_issue:
             return self._result("PARTIAL", self._target_scope_issue, self._persistent_receipt(receipt, {}),
                                 operation=operation, query={"symbol": symbol, "language": language}, result=None)
-        required_provider = receipt["providers"].get(language)
-        if language not in {"cpp", "python"} or self.config.profile != (
-                "python_resident" if language == "python" else "cpp_resident"):
-            return self._result("PARTIAL", "LANGUAGE_IDENTITY_MISMATCH", self._persistent_receipt(receipt, {}),
-                                operation=operation, query={"symbol": symbol, "language": language}, result=None)
-        if self.config.config_version != VERSION or self.config.installed_version != VERSION:
-            return self._result("PARTIAL", "SEMANTIC_VERSION_MISMATCH", self._persistent_receipt(receipt, {}),
-                                operation=operation, query={"symbol": symbol, "language": language}, result=None)
-        if not isinstance(required_provider, dict) or required_provider.get("status") != "READY":
-            return self._result("PARTIAL", "LANGUAGE_PROVIDER_UNAVAILABLE", self._persistent_receipt(receipt, {}),
-                                operation=operation, query={"symbol": symbol, "language": language}, result=None)
-        identity_issue = _backend_identity_issue(self.config, receipt["providers"])
+        identity_issue = _identity_gate(self.config, receipt["providers"], language)
         if identity_issue:
             return self._result("PARTIAL", identity_issue, self._persistent_receipt(receipt, {}),
                                 operation=operation, query={"symbol": symbol, "language": language}, result=None)
@@ -1398,9 +1399,9 @@ class Gateway:
         self._refresh_build_if_needed()
         receipt = self._receipt()
         language = "python" if self.config.profile.startswith("python") else "cpp"
-        required = receipt["providers"][language]
-        if required["status"] != "READY":
-            return self._result("PARTIAL", "LANGUAGE_PROVIDER_UNAVAILABLE", receipt, truthful=True)
+        identity_issue = _identity_gate(self.config, receipt["providers"], language)
+        if identity_issue:
+            return self._result("PARTIAL", identity_issue, receipt, truthful=True)
         refresh_status = self._build_refresh.get("status")
         if refresh_status in {"FAILED", "PARTIAL", "NOT_CONFIGURED"}:
             reason = {"FAILED": "COMPILE_COMMANDS_REFRESH_FAILED",
@@ -1453,6 +1454,11 @@ class Gateway:
         gateway._refresh_workset()
         gateway._refresh_build_if_needed()
         receipt = gateway._receipt()
+        identity_issue = _identity_gate(gateway.config, receipt["providers"], language)
+        if identity_issue:
+            return gateway._result("PARTIAL", identity_issue, receipt, snapshot_id=snapshot_id,
+                                   operation=operation, query={"symbol": symbol, "language": language},
+                                   result=None, truthful=True)
         refresh_status = gateway._build_refresh.get("status")
         if refresh_status in {"FAILED", "PARTIAL", "NOT_CONFIGURED"}:
             reason = {"FAILED": "COMPILE_COMMANDS_REFRESH_FAILED",
@@ -1463,10 +1469,6 @@ class Gateway:
                                    result=None, truthful=True)
         if snapshot_id != "sgw-" + receipt["generation"]:
             return gateway._result("STALE", "SNAPSHOT_IDENTITY_CHANGED", receipt, snapshot_id=snapshot_id,
-                                   operation=operation, query={"symbol": symbol, "language": language}, result=None)
-        required = receipt["providers"]["python" if language == "python" else "cpp"]
-        if required["status"] != "READY":
-            return gateway._result("NOT_READY", "LANGUAGE_PROVIDER_UNAVAILABLE", receipt, snapshot_id=snapshot_id,
                                    operation=operation, query={"symbol": symbol, "language": language}, result=None)
         client = BackendClient(gateway.config)
         try:
