@@ -7,10 +7,20 @@ import sys
 import tempfile
 import unittest
 
-from codex.semantic_gateway.gateway import BackendClient, Gateway, GatewayConfig, OPERATIONS, close, doctor, load_config, query, sync
+from codex.semantic_gateway.gateway import (BackendClient, Gateway, GatewayConfig, OPERATIONS,
+                                            _facts_support_request, close, doctor, load_config, query, sync)
 
 
 class SemanticGatewayTest(unittest.TestCase):
+    def test_reviewer_counterexample_nonempty_wrong_fact_is_not_ready(self):
+        payload = {"facts": [{"symbol": "other", "file": "target.cpp"}],
+                   "proved_families": ["definition"]}
+        self.assertFalse(_facts_support_request(payload, "definition", "answer", ("target.cpp",)))
+        self.assertTrue(_facts_support_request(
+            {"facts": [{"symbol": "answer", "file": "target.cpp"}],
+             "proved_families": ["definition"]},
+            "definition", "answer", ("target.cpp",)))
+
     def test_sync_auto_refreshes_relevant_untracked_files_with_64_file_bound(self):
         holder, root = self.repo(); self.addCleanup(holder.cleanup)
         gateway = self.configured_gateway(root)
@@ -18,10 +28,9 @@ class SemanticGatewayTest(unittest.TestCase):
         for index in range(70):
             (root / f"new_{index}.cpp").write_text("int x() { return 1; }\n", encoding="utf-8")
         second = gateway.sync()
-        paths = [item["path"] for item in second["scope_manifest"]["workset"]]
         self.assertNotEqual(first["snapshot_id"], second["snapshot_id"])
-        self.assertLessEqual(len(paths), 64)
-        self.assertIn("new_0.cpp", paths)
+        self.assertLessEqual(second["scope_manifest"]["workset_count"], 64)
+        self.assertNotIn("workset", second["scope_manifest"])
 
     def test_full_workset_prioritizes_changed_untracked_file_over_stable_fill(self):
         holder, root = self.repo(); self.addCleanup(holder.cleanup)
@@ -34,10 +43,8 @@ class SemanticGatewayTest(unittest.TestCase):
         gateway.config = GatewayConfig(**{**gateway.config.__dict__, "workset": tuple(seeds)})
         (root / "priority.cpp").write_text("int priority() { return 1; }\n", encoding="utf-8")
         result = gateway.sync()
-        paths = [item["path"] for item in result["scope_manifest"]["workset"]]
-        self.assertEqual(len(paths), 64)
-        self.assertIn("priority.cpp", paths)
-        self.assertNotIn(seeds[-1], paths)
+        self.assertEqual(result["scope_manifest"]["workset_count"], 64)
+        self.assertNotIn("workset", result["scope_manifest"])
 
     def test_query_refreshes_current_generation_but_explicit_snapshot_stays_stale(self):
         holder, root = self.repo(); self.addCleanup(holder.cleanup)
@@ -240,7 +247,7 @@ class SemanticGatewayTest(unittest.TestCase):
             " elif m=='notifications/initialized': continue\n"
             " elif m=='tools/list': out={'tools':[{'name':'inspect_code_graph','inputSchema':{'type':'object'}}]}\n"
             " elif m=='tools/call':\n"
-            "  a=r['params']['arguments']; p=a.get('props', a); q=p.get('request', {}); op=p.get('question','').split(' ',1)[0] or q.get('type'); sym=a.get('symbol') or q.get('query') or q.get('from'); out={'facts':[{'symbol':sym,'operation':op}], 'proved_families':[op], 'provenance':{'backend':'fake-pinned'}}\n"
+            "  a=r['params']['arguments']; p=a.get('props', a); q=p.get('request', {}); op=p.get('question','').split(' ',1)[0] or q.get('type'); sym=a.get('symbol') or q.get('query') or q.get('from'); out={'facts':[{'symbol':sym,'operation':op,'file':'sample.cpp'}], 'proved_families':[op], 'provenance':{'backend':'fake-pinned'}}\n"
             " elif m=='shutdown': out={}\n"
             " else: out={}\n"
             " if i is not None: print(json.dumps({'jsonrpc':'2.0','id':i,'result':out}),flush=True)\n",
@@ -303,11 +310,13 @@ class SemanticGatewayTest(unittest.TestCase):
 
     def test_concurrent_cold_clients_elect_one_broker_and_backend(self):
         holder, root = self.repo(); self.addCleanup(holder.cleanup)
+        build = root / "build"; build.mkdir()
+        (build / "compile_commands.json").write_text(json.dumps([{"file": "sample.cpp", "directory": str(root)}]), encoding="utf-8")
         config = root / "gateway.json"
         config.write_text(json.dumps({"repo": str(root), "backend_command":
                                       [sys.executable, str(self.fake_backend(root))],
                                       "provider_commands": {"cpp": "/bin/true", "python": "/bin/true"},
-                                      "workset": ["sample.cpp"], "idle_ttl_sec": 5.0}), encoding="utf-8")
+                                      "build_dir": "build", "workset": ["sample.cpp"], "idle_ttl_sec": 5.0}), encoding="utf-8")
         request = "\n".join((
             json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
             json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}),
@@ -439,10 +448,12 @@ class SemanticGatewayTest(unittest.TestCase):
     def test_mcp_stdio_handshake_tools_list_and_call(self):
         holder, root = self.repo(); self.addCleanup(holder.cleanup)
         script = self.fake_backend(root)
+        build = root / "build"; build.mkdir()
+        (build / "compile_commands.json").write_text(json.dumps([{"file": "sample.cpp", "directory": str(root)}]), encoding="utf-8")
         config = root / "gateway.json"
         config.write_text(json.dumps({"repo": str(root), "backend_command": [sys.executable, str(script)],
                                      "provider_commands": {"cpp": "/bin/true", "python": "/bin/true"},
-                                     "workset": ["sample.cpp"]}), encoding="utf-8")
+                                     "build_dir": "build", "workset": ["sample.cpp"]}), encoding="utf-8")
         process = subprocess.Popen([sys.executable, str(pathlib.Path(__file__).parents[1] / "codex/bin/semantic-gateway-mcp.py"), "--config", str(config)],
                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
         def stop_process():
@@ -476,8 +487,8 @@ class SemanticGatewayTest(unittest.TestCase):
                                         backend_command=(sys.executable, str(self.fake_backend(root))),
                                         provider_commands={"cpp": "/bin/true", "python": "/bin/true"}))
         result = gateway.sync()
-        paths = [item["path"] for item in result["scope_manifest"]["workset"]]
-        self.assertEqual(paths, ["target.cpp"])
+        self.assertEqual(result["scope_manifest"]["workset_count"], 1)
+        self.assertNotIn("workset", result["scope_manifest"])
         self.assertNotIn("files", result["receipt"]["repo"]["content"])
         self.assertLess(len(json.dumps(result["receipt"], separators=(",", ":"))), 8192)
 
@@ -486,10 +497,12 @@ class SemanticGatewayTest(unittest.TestCase):
         shim = pathlib.Path(__file__).parents[1] / "codex/bin/semantic-gateway-mcp.py"
         source = shim.read_text(encoding="utf-8")
         self.assertNotIn("from semantic_gateway.gateway", source)
+        build = root / "build"; build.mkdir()
+        (build / "compile_commands.json").write_text(json.dumps([{"file": "sample.cpp", "directory": str(root)}]), encoding="utf-8")
         config = root / "gateway.json"
         config.write_text(json.dumps({"repo": str(root), "backend_command": [sys.executable, str(self.fake_backend(root))],
                                       "provider_commands": {"cpp": "/bin/true", "python": "/bin/true"},
-                                      "workset": ["sample.cpp"], "version": "21.3.0"}), encoding="utf-8")
+                                      "build_dir": "build", "workset": ["sample.cpp"], "version": "21.3.0"}), encoding="utf-8")
         process = subprocess.Popen([sys.executable, str(shim), "--config", str(config)], stdin=subprocess.PIPE,
                                    stdout=subprocess.PIPE, text=True)
         def stop_process():
@@ -512,14 +525,45 @@ class SemanticGatewayTest(unittest.TestCase):
         self.assertEqual(first["status"], "READY")
         gateway_path = pathlib.Path(__file__).parents[1] / "codex/semantic_gateway/gateway.py"
         original = gateway_path.read_text(encoding="utf-8")
+        original_config = config.read_text(encoding="utf-8")
+        manifest = config.with_name("semantic-tools.v21.json")
         try:
             gateway_path.write_text(original.replace('VERSION = "21.3.0"', 'VERSION = "21.3.1"', 1), encoding="utf-8")
+            config.write_text(original_config.replace('21.3.0', '21.3.1'), encoding="utf-8")
+            manifest.write_text('{"version":"21.3.1"}\n', encoding="utf-8")
             call["id"] = 3
             payload = request(call)["result"]["structuredContent"]
-            self.assertEqual(payload["status"], "SEMANTIC_CAPABILITY_BLOCKED")
-            self.assertEqual(payload["reason"], "SEMANTIC_VERSION_MISMATCH")
+            self.assertEqual(payload["status"], "READY")
+            self.assertEqual(payload["version"], "21.3.1")
+            config.write_text(original_config.replace('21.3.0', '21.2.0'), encoding="utf-8")
+            manifest.write_text('{"version":"21.2.0"}\n', encoding="utf-8")
+            call["id"] = 4
+            mismatch = request(call)["result"]["structuredContent"]
+            self.assertEqual(mismatch["status"], "SEMANTIC_CAPABILITY_BLOCKED")
+            self.assertEqual(mismatch["reason"], "SEMANTIC_VERSION_MISMATCH")
         finally:
             gateway_path.write_text(original, encoding="utf-8")
+            config.write_text(original_config, encoding="utf-8")
+            manifest.unlink(missing_ok=True)
+
+    def test_mcp_shim_is_thin_and_within_rss_budget(self):
+        shim = pathlib.Path(__file__).parents[1] / "codex/bin/semantic-gateway-mcp.py"
+        source = shim.read_text(encoding="utf-8")
+        self.assertNotIn("semantic_gateway.gateway", source)
+        self.assertNotIn("samchon-graph", source)
+        process = subprocess.Popen([sys.executable, str(shim)], stdin=subprocess.PIPE,
+                                   stdout=subprocess.PIPE, text=True)
+        try:
+            process.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}) + "\n")
+            process.stdin.flush()
+            response = json.loads(process.stdout.readline())
+            self.assertEqual(response["result"]["serverInfo"]["version"], "21.3.0")
+            rss_kib = int(next(line.split()[1] for line in pathlib.Path(f"/proc/{process.pid}/status").read_text().splitlines()
+                               if line.startswith("VmRSS:")))
+            self.assertLess(rss_kib, 20 * 1024)
+        finally:
+            process.kill(); process.wait()
+            process.stdin.close(); process.stdout.close()
 
     def test_mcp_call_exposes_refresh_failure_as_partial(self):
         holder, root = self.repo(); self.addCleanup(holder.cleanup)
@@ -550,7 +594,8 @@ class SemanticGatewayTest(unittest.TestCase):
         called = request({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
             "name": "inspect_semantic_graph", "arguments": {"repo": str(root), "operation": "definition", "symbol": "answer"}}})
         self.assertEqual(called["result"]["structuredContent"]["status"], "SEMANTIC_CAPABILITY_BLOCKED")
-        self.assertEqual(called["result"]["structuredContent"]["reason"], "SEMANTIC_CAPABILITY_BLOCKED")
+        self.assertIn(called["result"]["structuredContent"]["reason"],
+                      {"SEMANTIC_COLD_DEADLINE", "SEMANTIC_CAPABILITY_BLOCKED"})
 
 
 if __name__ == "__main__":

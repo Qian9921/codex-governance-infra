@@ -5,19 +5,65 @@ from __future__ import annotations
 
 import json
 import argparse
-import os
+import re
 import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import Any
 
 DEFAULT_CONFIG: str | None = None
-SHIM_VERSION = "21.3.0"
+DEFAULT_VERSION = "21.3.0"
 IMPLEMENTATION = Path(__file__).resolve().parents[1] / "semantic_gateway" / "gateway.py"
 
 
 PROTOCOL_VERSION = "2025-06-18"
+
+
+class GatewayError(ValueError):
+    """Invalid MCP shim request."""
+
+
+def _disk_gateway_version() -> str | None:
+    match = re.search(r'^VERSION\s*=\s*["\']([^"\']+)["\']',
+                      IMPLEMENTATION.read_text(encoding="utf-8"), re.MULTILINE)
+    return match.group(1) if match else None
+
+
+def _installed_version(config_path: str | None) -> str | None:
+    """Read the active install identity without importing the gateway."""
+    values: list[str] = []
+    if config_path:
+        path = Path(config_path).expanduser().resolve()
+        try:
+            config = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if isinstance(config, dict) and isinstance(config.get("version"), str):
+            values.append(config["version"])
+        manifest = path.with_name("semantic-tools.v21.json")
+        try:
+            installed = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            installed = None
+        if isinstance(installed, dict) and isinstance(installed.get("version"), str):
+            values.append(installed["version"])
+    gateway_version = _disk_gateway_version()
+    if gateway_version:
+        values.append(gateway_version)
+    return values[0] if values and all(value == values[0] for value in values) else None
+
+
+def _blocked(version: str, reason: str) -> dict[str, Any]:
+    return {"schema": "semantic-gateway.v1", "version": version,
+            "status": "SEMANTIC_CAPABILITY_BLOCKED", "reason": reason,
+            "facts": [], "proved_families": [], "fallback": "bounded_exact_evidence",
+            "usage_allowed": False, "dependent_only": True, "truthful": True}
+
+
+def _advertised_version() -> str:
+    return _installed_version(DEFAULT_CONFIG) or _disk_gateway_version() or DEFAULT_VERSION
+
+
 TOOL = {
     "name": "inspect_semantic_graph",
     "description": "Inspect compiler-derived C++/Python graph facts via pinned @samchon/graph.",
@@ -55,31 +101,29 @@ def _call_tool(arguments: dict[str, Any]) -> dict[str, Any]:
     request = dict(arguments)
     request["repo"] = repo
     request["config"] = arguments.get("config") or DEFAULT_CONFIG
+    expected_version = _installed_version(request["config"])
+    if expected_version is None:
+        result = _blocked(_disk_gateway_version() or DEFAULT_VERSION, "SEMANTIC_VERSION_MISMATCH")
+        return {"content": [{"type": "text", "text": json.dumps(result, sort_keys=True, separators=(",", ":"))}],
+                "structuredContent": result, "isError": True}
     # The shim deliberately imports no gateway implementation. Each call
     # executes the current installed file, making an upgrade effective while
     # the long-lived MCP stdio process remains alive.
     try:
         completed = subprocess.run([sys.executable, str(IMPLEMENTATION), "--mcp-call"],
                                    input=json.dumps(request), text=True, capture_output=True,
-                                   timeout=55.0, check=False)
+                                   timeout=60.0, check=False)
     except subprocess.TimeoutExpired:
-        result = {"schema": "semantic-gateway.v1", "version": SHIM_VERSION,
-                  "status": "SEMANTIC_CAPABILITY_BLOCKED", "reason": "SEMANTIC_CAPABILITY_BLOCKED",
-                  "facts": [], "proved_families": [], "usage_allowed": False,
-                  "dependent_only": True, "truthful": True}
+        result = _blocked(expected_version, "SEMANTIC_COLD_DEADLINE")
     else:
         try:
             result = json.loads(completed.stdout.strip().splitlines()[-1])
         except (IndexError, json.JSONDecodeError):
-            result = {"schema": "semantic-gateway.v1", "version": SHIM_VERSION,
-                      "status": "SEMANTIC_CAPABILITY_BLOCKED", "reason": "IMPLEMENTATION_INVALID_RESPONSE",
-                      "facts": [], "proved_families": [], "usage_allowed": False,
-                      "dependent_only": True, "truthful": True}
-    if result.get("version") != SHIM_VERSION:
-        result = {"schema": "semantic-gateway.v1", "version": SHIM_VERSION,
-                  "status": "SEMANTIC_CAPABILITY_BLOCKED", "reason": "SEMANTIC_VERSION_MISMATCH",
-                  "facts": [], "proved_families": [], "usage_allowed": False,
-                  "dependent_only": True, "truthful": True}
+            result = _blocked(expected_version, "IMPLEMENTATION_INVALID_RESPONSE")
+    if result.get("schema") != "semantic-gateway.v1":
+        result = _blocked(expected_version, "SEMANTIC_PROTOCOL_MISMATCH")
+    elif result.get("version") != expected_version:
+        result = _blocked(expected_version, "SEMANTIC_VERSION_MISMATCH")
     return {"content": [{"type": "text", "text": json.dumps(result, sort_keys=True, separators=(",", ":"))}],
             "structuredContent": result, "isError": result.get("status") != "READY"}
 
@@ -105,7 +149,7 @@ def main() -> int:
                 initialized = True
                 result = {"protocolVersion": PROTOCOL_VERSION,
                           "capabilities": {"tools": {"listChanged": False}},
-                          "serverInfo": {"name": "codex-semantic-gateway", "version": SHIM_VERSION}}
+                          "serverInfo": {"name": "codex-semantic-gateway", "version": _advertised_version()}}
                 print(json.dumps(_response(request_id, result), separators=(",", ":")), flush=True)
             elif method == "tools/list":
                 if not initialized:

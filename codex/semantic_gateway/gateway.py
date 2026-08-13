@@ -272,7 +272,7 @@ class GatewayConfig:
     target_paths: tuple[str, ...] = ()
     config_version: str = VERSION
     installed_version: str = VERSION
-    semantic_timeout_sec: float = 60.0
+    semantic_timeout_sec: float = 45.0
 
     def __post_init__(self) -> None:
         if self.profile not in PROFILES:
@@ -443,7 +443,7 @@ def load_config(path: str | os.PathLike[str] | None,
         target_paths=requested_targets,
         config_version=str(raw.get("version", VERSION)),
         installed_version=str(raw.get("installed_version", raw.get("version", VERSION))),
-        semantic_timeout_sec=float(raw.get("semantic_timeout_sec", 60.0)),
+        semantic_timeout_sec=float(raw.get("semantic_timeout_sec", 45.0)),
     )
 
 
@@ -500,6 +500,37 @@ def _canonical_compile_entry(entry: Mapping[str, Any], compile_db: pathlib.Path,
         return candidate.resolve(strict=False).as_posix()
     except OSError:
         return None
+
+
+def _facts_support_request(payload: Mapping[str, Any], operation: str, symbol: str,
+                           target_paths: Sequence[str]) -> bool:
+    """Reject a nonempty backend response that proves a different request."""
+    facts = payload.get("facts", payload.get("result"))
+    if isinstance(facts, dict):
+        facts = facts.get("hits", facts.get("nodes", facts.get("reached", [])))
+    proved = payload.get("proved_families", [])
+    if not isinstance(facts, list) or not facts or not all(isinstance(item, dict) for item in facts):
+        return False
+    if not isinstance(proved, list) or operation not in proved:
+        return False
+    leaf = symbol.rsplit("::", 1)[-1]
+    needle = symbol if symbol in json.dumps(facts, sort_keys=True) else leaf
+    if not needle or needle not in json.dumps(facts, sort_keys=True):
+        return False
+    targets = tuple(path.replace("\\", "/") for path in target_paths)
+    located = False
+    for fact in facts:
+        fact_location = False
+        for key in ("file", "path", "uri", "location"):
+            value = fact.get(key)
+            if isinstance(value, str) and targets:
+                fact_location = True
+                if not any(target in value for target in targets):
+                    return False
+        located = located or fact_location
+    if targets and not located:
+        return False
+    return True
 
 
 class BackendClient:
@@ -895,6 +926,7 @@ class Gateway:
         self._persistent_scope: pathlib.Path | None = None
         self._persistent_manifest: pathlib.Path | None = None
         self._ready_receipt_path: pathlib.Path | None = None
+        self._target_scope_issue: str | None = None
         self._reuse_mode = "cold_start"
 
     def enable_persistent(self, state_dir: pathlib.Path) -> None:
@@ -914,11 +946,18 @@ class Gateway:
         self._persistent_client = BackendClient(self.config, self._persistent_scope)
 
     def _persistent_receipt(self, receipt: dict[str, Any], delta: dict[str, Any]) -> dict[str, Any]:
+        compact_delta = {
+            "added_count": len(delta.get("added", [])) if isinstance(delta.get("added"), list) else 0,
+            "edited_count": len(delta.get("edited", [])) if isinstance(delta.get("edited"), list) else 0,
+            "deleted_count": len(delta.get("deleted", [])) if isinstance(delta.get("deleted"), list) else 0,
+            "changed": bool(delta.get("changed")),
+            "delta_hash": _sha256(json.dumps(delta, sort_keys=True, separators=(",", ":")).encode()),
+        }
         receipt["persistent"] = {"schema": PERSISTENT_SCHEMA,
                                  "state_dir": str(self.config.state_dir),
                                  "scope": str(self._persistent_scope),
                                  "manifest": str(self._persistent_manifest),
-                                 "reuse_mode": self._reuse_mode, "delta": delta}
+                                 "reuse_mode": self._reuse_mode, "delta": compact_delta}
         return receipt
 
     def _write_ready_receipt(self, receipt: Mapping[str, Any], output: Mapping[str, Any]) -> None:
@@ -960,6 +999,17 @@ class Gateway:
             return None
         if cached.get("targets_sha256") != expected_targets or not isinstance(cached.get("providers"), dict):
             return None
+        for provider in cached["providers"].values():
+            if not isinstance(provider, dict) or provider.get("status") != "READY":
+                return None
+            path = provider.get("path")
+            if not isinstance(path, str) or not pathlib.Path(path).is_file():
+                return None
+            try:
+                if provider.get("binary_sha256") != _sha256(pathlib.Path(path).read_bytes()):
+                    return None
+            except OSError:
+                return None
         return cached["providers"]
 
     def persistent_query(self, operation: str, symbol: str, language: str = "cpp") -> dict[str, Any]:
@@ -971,6 +1021,20 @@ class Gateway:
         self._refresh_workset()
         self._refresh_build_if_needed()
         receipt = self._receipt()
+        if self._target_scope_issue:
+            return self._result("PARTIAL", self._target_scope_issue, self._persistent_receipt(receipt, {}),
+                                operation=operation, query={"symbol": symbol, "language": language}, result=None)
+        required_provider = receipt["providers"].get(language)
+        if language not in {"cpp", "python"} or self.config.profile != (
+                "python_resident" if language == "python" else "cpp_resident"):
+            return self._result("PARTIAL", "LANGUAGE_IDENTITY_MISMATCH", self._persistent_receipt(receipt, {}),
+                                operation=operation, query={"symbol": symbol, "language": language}, result=None)
+        if self.config.config_version != VERSION or self.config.installed_version != VERSION:
+            return self._result("PARTIAL", "SEMANTIC_VERSION_MISMATCH", self._persistent_receipt(receipt, {}),
+                                operation=operation, query={"symbol": symbol, "language": language}, result=None)
+        if not isinstance(required_provider, dict) or required_provider.get("status") != "READY":
+            return self._result("PARTIAL", "LANGUAGE_PROVIDER_UNAVAILABLE", self._persistent_receipt(receipt, {}),
+                                operation=operation, query={"symbol": symbol, "language": language}, result=None)
         if self._persistent_client is None:
             return self._result("NOT_READY", "PERSISTENT_BACKEND_NOT_CONFIGURED", receipt,
                                 operation=operation, query={"symbol": symbol, "language": language},
@@ -987,18 +1051,25 @@ class Gateway:
             delta = self._persistent_client.reconcile_scope(desired)
             handshake = self._persistent_client.start()
             facts = self._persistent_client.inspect(operation, symbol, language)
+            normalized_facts = facts.get("facts")
+            if not isinstance(normalized_facts, list) and isinstance(facts.get("result"), dict):
+                normalized_facts = facts["result"].get("hits", facts["result"].get("nodes", []))
+            checked = dict(facts)
+            checked["facts"] = normalized_facts
+            if not _facts_support_request(checked, operation, symbol, self.config.target_paths):
+                raise GatewayError("BACKEND_FACT_NOT_TASK_RELEVANT")
             receipt = self._persistent_receipt(self._receipt(), delta)
             backend = receipt.get("backend", {})
             backend["runtime"] = {"pid": self._persistent_client.process.pid if self._persistent_client.process else None,
                                    "session_id": self._persistent_client.session_id}
             receipt["backend"] = backend
-            result = {"facts": facts.get("facts", facts), "proved_families": facts.get("proved_families", [operation]),
+            result = {"facts": normalized_facts, "proved_families": facts.get("proved_families", [operation]),
                       "provenance": facts.get("provenance", {"backend": "@samchon/graph"})}
             output = self._result("READY", "BACKEND_FACTS", receipt,
                                   operation=operation, query={"symbol": symbol, "language": language},
                                   result=result, handshake=handshake, truthfully_proved=True,
                                   snapshot_id="sgw-" + receipt["generation"],
-                                  reuse_mode=self._reuse_mode)
+                                  reuse_mode=self._reuse_mode, delta=delta)
             self._write_ready_receipt(receipt, output)
             self._reuse_mode = "warm_reuse"
             return output
@@ -1048,6 +1119,14 @@ class Gateway:
             selected = selected[: self.config.workset_limit]
             if tuple(selected) != self.config.workset:
                 self.config = GatewayConfig(**{**self.config.__dict__, "workset": tuple(selected)})
+            self._target_scope_issue = None
+            if self.config.profile.startswith("cpp"):
+                source_targets = [item for item in targets if pathlib.Path(item).suffix.lower() in {
+                    ".c", ".cc", ".cpp", ".cxx"}]
+                missing_tus = [item for item in source_targets
+                               if pathlib.Path(item).as_posix() not in compile_tus]
+                if missing_tus:
+                    self._target_scope_issue = "COMPILE_COMMANDS_TARGET_TU_MISSING"
             return
         status_lines = (_git_full(self.config.repo, "status", "--porcelain=v1") or "").splitlines()
         changed = sorted({line[3:] for line in status_lines if len(line) >= 4 and line[3:] in relevant})
@@ -1184,9 +1263,11 @@ class Gateway:
                                               "sha256": _sha256(compile_db.read_bytes()) if compile_db and compile_db.is_file() else None}}
         build_inputs["sha256"] = _sha256(json.dumps(build_inputs, sort_keys=True).encode())
         build_inputs["refresh"] = dict(self._build_refresh)
+        workset_hash = _sha256(json.dumps(list(self.config.workset), separators=(",", ":")).encode())
         scope = {"profile": self.config.profile, "resources": PROFILES[self.config.profile],
-                 "workset": [{"path": item, "sha256": _sha256((self.config.repo / item).read_bytes())
-                              if (self.config.repo / item).is_file() else None} for item in self.config.workset]}
+                 "target_count": len(self.config.target_paths), "workset_count": len(self.config.workset),
+                 "target_hash": _sha256(json.dumps(list(self.config.target_paths), separators=(",", ":")).encode()),
+                 "workset_hash": workset_hash}
         providers = self._cached_providers(identity, build_inputs)
         if providers is None:
             providers = {"cpp": _provider(self.config.cpp_provider, self.config.provider_commands.get("cpp"), self.config.repo),
@@ -1195,6 +1276,7 @@ class Gateway:
                    "identity": dict(self.config.backend_identity)}
         config_hash = _sha256(self.config.config_path.read_bytes()) if self.config.config_path and self.config.config_path.is_file() else None
         generation = _sha256(json.dumps({"content": identity, "build": build_inputs, "scope": scope,
+                                         "providers": providers,
                                          "backend": backend, "config": {"path": str(self.config.config_path), "sha256": config_hash}}, sort_keys=True).encode())
         return {"repo": {"path": str(self.config.repo), "head": _git(self.config.repo, "rev-parse", "HEAD"),
                           "tree": _git(self.config.repo, "rev-parse", "HEAD^{tree}"),
@@ -1337,7 +1419,8 @@ def _broker_config_path(value: str | None) -> str | None:
 
 def broker_request(config: GatewayConfig, operation: str, symbol: str, language: str,
                    state_dir: pathlib.Path | None = None,
-                   target_paths: Sequence[str] = ()) -> dict[str, Any]:
+                   target_paths: Sequence[str] = (), *, recovery: str = "reuse",
+                   deadline: float | None = None) -> dict[str, Any]:
     """Call the owner-private on-demand broker, starting it only when absent."""
     state = state_dir or persistent_state_dir(config.repo, language, config.state_dir)
     socket_path = _broker_socket_path(state)
@@ -1347,7 +1430,8 @@ def broker_request(config: GatewayConfig, operation: str, symbol: str, language:
     def request_once() -> dict[str, Any] | None:
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-                client.settimeout(15.0)
+                remaining = 15.0 if deadline is None else max(0.01, deadline - time.monotonic())
+                client.settimeout(min(15.0, remaining))
                 client.connect(str(socket_path))
                 client.sendall((json.dumps(payload, separators=(",", ":")) + "\n").encode())
                 data = b""
@@ -1363,7 +1447,7 @@ def broker_request(config: GatewayConfig, operation: str, symbol: str, language:
         except (OSError, json.JSONDecodeError):
             return None
 
-    result = request_once()
+    result = None if recovery == "restart" else request_once()
     force_restart = result is not None and result.get("version") != VERSION
     if result is not None and not force_restart:
         return result
@@ -1374,6 +1458,8 @@ def broker_request(config: GatewayConfig, operation: str, symbol: str, language:
     os.chmod(_broker_lock_path(state), 0o600)
     with lock_handle:
         fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        if recovery == "restart":
+            _stop_stale_broker(state, socket_path)
         result = request_once()
         if force_restart and result is not None and result.get("version") != VERSION:
             _stop_stale_broker(state, socket_path)
@@ -1388,7 +1474,7 @@ def broker_request(config: GatewayConfig, operation: str, symbol: str, language:
                     owner = 0
                 if owner and _pid_alive(owner):
                     can_start = False
-                elif time.time() - starting.stat().st_mtime < 15.0:
+                elif owner == 0 and time.time() - starting.stat().st_mtime < 2.0:
                     can_start = False
                 else:
                     starting.unlink(missing_ok=True)
@@ -1413,8 +1499,8 @@ def broker_request(config: GatewayConfig, operation: str, symbol: str, language:
                 starting.write_text(str(process.pid), encoding="ascii")
         fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
     lock_handle.close()
-    deadline = time.monotonic() + 15.0
-    while time.monotonic() < deadline:
+    wait_deadline = deadline if deadline is not None else time.monotonic() + 15.0
+    while time.monotonic() < wait_deadline:
         result = request_once()
         if result is not None:
             return result
@@ -1564,12 +1650,13 @@ def _version_manifest(config_path: pathlib.Path | None) -> str:
     return VERSION
 
 
-def _blocked_capability(config: GatewayConfig, reason: str, *, attempts: int = 0) -> dict[str, Any]:
+def _blocked_capability(config: GatewayConfig, reason: str, *, attempts: int = 0,
+                        last_reason: str | None = None) -> dict[str, Any]:
     return {"schema": SCHEMA, "version": VERSION, "status": "SEMANTIC_CAPABILITY_BLOCKED",
             "reason": reason, "facts": [], "proved_families": [], "missing": ["semantic_capability"],
-            "fallback": None, "usage_allowed": False, "dependent_only": True,
+            "fallback": "bounded_exact_evidence", "usage_allowed": False, "dependent_only": True,
             "recovery_attempts": attempts, "current_version": VERSION,
-            "installed_version": config.installed_version, "truthful": True}
+            "installed_version": config.installed_version, "last_reason": last_reason, "truthful": True}
 
 
 def _mcp_call(request: Mapping[str, Any]) -> dict[str, Any]:
@@ -1590,22 +1677,29 @@ def _mcp_call(request: Mapping[str, Any]) -> dict[str, Any]:
     config = GatewayConfig(**{**config.__dict__, "installed_version": _version_manifest(config.config_path)})
     if config.config_version != VERSION or config.installed_version != VERSION:
         return _blocked_capability(config, "SEMANTIC_VERSION_MISMATCH")
-    result = broker_request(config, operation, symbol, language, target_paths=target_paths)
+    # Reserve one second for the child process and MCP framing; the complete
+    # cold envelope remains <=60s including both bounded recovery strategies.
+    deadline = time.monotonic() + 59.0
+    result = broker_request(config, operation, symbol, language, target_paths=target_paths,
+                            recovery="reuse", deadline=deadline)
+    first_reason = result.get("reason")
     if result.get("version") != VERSION:
         result = {"schema": SCHEMA, "version": VERSION, "status": "PARTIAL",
                   "reason": "BROKER_VERSION_MISMATCH", "facts": [], "proved_families": []}
     if result.get("status") != "READY":
-        # Two materially distinct bounded strategies: reuse/reload, then one
-        # reconnect/restart attempt. The broker itself owns the lifecycle;
-        # this shim never grows a retry state machine.
-        second = broker_request(config, operation, symbol, language, target_paths=target_paths)
+        # Two materially distinct bounded strategies: A reuse/reconnect, then
+        # B one owner-private broker restart. There is no third retry state.
+        second = broker_request(config, operation, symbol, language, target_paths=target_paths,
+                                recovery="restart", deadline=deadline)
         if second.get("status") == "READY":
             result = second
         else:
-            return _blocked_capability(config, "SEMANTIC_CAPABILITY_BLOCKED", attempts=2)
+            return _blocked_capability(config, "SEMANTIC_CAPABILITY_BLOCKED", attempts=2,
+                                       last_reason=second.get("reason") or first_reason)
     facts = result.get("facts")
     if not isinstance(facts, list) or not facts:
-        return _blocked_capability(config, "SEMANTIC_FACT_EMPTY", attempts=2)
+        return _blocked_capability(config, "SEMANTIC_FACT_EMPTY", attempts=2,
+                                   last_reason="BACKEND_FACT_EMPTY")
     result["current_version"] = VERSION
     result["installed_version"] = config.installed_version
     result["usage_allowed"] = True
