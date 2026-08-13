@@ -18,7 +18,7 @@ from typing import Any
 UPSTREAM_URL = "https://github.com/samchon/graph.git"
 UPSTREAM = {"name": "@samchon/graph", "head": "95e20c9540e85fef542466172484229356d3d0d8",
             "tree": "e9ce033e380d77265c601579e436218502a6ccbd"}
-VERSION = "21.2.0"
+VERSION = "21.3.0"
 MANIFEST = "semantic-tools.v21.json"
 PYRIGHT_VERSION = "1.1.390"
 REGISTRATION = "semantic-gateway-mcp.json"
@@ -59,17 +59,8 @@ def _bounded_build_command(command: list[str]) -> list[str]:
 
 
 def _derive_workset(repo: pathlib.Path, explicit: tuple[str, ...] = ()) -> tuple[str, ...]:
-    """Select a deterministic resident input, capped at the C++ contract."""
-    if explicit:
-        candidates = list(explicit)
-    else:
-        try:
-            raw = subprocess.check_output(["git", "ls-files", "-z"], cwd=repo)
-            candidates = [item for item in raw.decode("utf-8", errors="surrogateescape").split("\0") if item]
-        except (OSError, subprocess.CalledProcessError):
-            candidates = []
-        candidates = [item for item in candidates if pathlib.Path(item).suffix.lower() in
-                      {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".py"}]
+    """Validate only caller-resolved targets; never fill an arbitrary first-64 set."""
+    candidates = list(explicit)
     selected: list[str] = []
     for item in candidates:
         path = (repo / item).resolve()

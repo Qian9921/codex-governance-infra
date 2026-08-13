@@ -14,4 +14,7 @@ delta-only follow-up; a third round requires explicit replan. Do not reopen the
 frozen scope without documented escalation. Map blockers to acceptance, user
 impact, likelihood, recoverability, repair cost, and complexity cost; theoretical
 counterexamples default to FOLLOW_UP.
+For semantic C++/Python claims, require READY, current installed/runtime version
+equality, and a target-relevant nonempty fact; PARTIAL cannot be represented as
+usage. Check the two-recovery dependent-only block boundary.
 """

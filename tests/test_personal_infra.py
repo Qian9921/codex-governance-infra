@@ -81,7 +81,7 @@ class PersonalInfra(unittest.TestCase):
 
     def test_product_version_is_v21(self):
         manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "21.2.0")
+        self.assertEqual(manifest["version"], "21.3.0")
 
     def test_active_identity_and_communication_contract_are_v21(self):
         root_policy = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
@@ -97,9 +97,9 @@ class PersonalInfra(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn("Public release is Codex Governance Infra V21.2.0", root_policy)
+        self.assertIn("Public release is Codex Governance Infra V21.3.0", root_policy)
         self.assertNotIn("Public release is Codex Governance Infra V19", root_policy)
-        self.assertIn("V21.2.0 personal overlay", deployment)
+        self.assertIn("V21.3.0 personal overlay", deployment)
         self.assertIn("V21 PERSONAL KERNEL", session_context)
         self.assertIn("V21 INTAKE", session_context)
         self.assertNotIn("V19 PERSONAL KERNEL", session_context)

@@ -132,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
         status = "READY"
     else:
         status = "PARTIAL"
-    print(json.dumps({"status": status, "version": "21.2.0", "actions": actions,
+    print(json.dumps({"status": status, "version": "21.3.0", "actions": actions,
                       "dependency_actions": dependency_actions, "dependencies": dependencies,
                       "rollback": "bootstrap.py --uninstall ...",
                       "truthful": True}, sort_keys=True))

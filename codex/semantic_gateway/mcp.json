@@ -1,5 +1,6 @@
 {
   "name": "codex-semantic-gateway",
+  "version": "21.3.0",
   "command": "${CODEX_HOME}/bin/semantic-gateway-mcp.py",
   "transport": "stdio",
   "methods": ["doctor", "sync", "query", "close"],

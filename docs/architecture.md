@@ -1,8 +1,8 @@
-# V21.2 balanced-standard governance architecture
+# V21.3 balanced-standard governance architecture
 
 ## Persistent semantic gateway
 
-V21.2 extends the existing gateway owner with an owner-private, on-demand
+V21.3 extends the existing gateway owner with an owner-private, on-demand
 Unix-socket broker. Its namespace is the canonical worktree, Git directory,
 Git common directory, and language, so separate MCP stdio client processes
 share one live upstream `BackendClient` process and session. Persistent scope
@@ -42,6 +42,17 @@ language facts to clangd/Pyright and uses the pinned `@samchon/graph` identity
 `e9ce033e380d77265c601579e436218502a6ccbd`). Its receipt freezes repository
 HEAD/tree/parent/dirty diff, build inputs, provider versions and binary hashes,
 scope/resource limits, generation, and stable-versus-ephemeral identity rules.
+
+V21.3 adds a thin hot-updateable stdio shim: it does not import the gateway at
+startup, and each tools/call executes the current installed gateway child. Shim,
+gateway, installed config, and manifest versions must match. Semantic C++/Python
+use requires READY, current version equality, and a target-relevant nonempty
+fact; PARTIAL is never usage. Two distinct bounded recovery strategies may be
+attempted before returning `SEMANTIC_CAPABILITY_BLOCKED` for the dependent claim
+only. Explicit targets drive a <=64 scope; relevant canonical compile TUs may be
+added, while cache/build/CMakeFiles/output/generated paths are excluded. READY
+receipts contain compact hashes/counts/generation keys rather than file lists or
+raw backend output.
 
 ## Design goal
 

@@ -10,4 +10,7 @@ retry, review, approve, merge, issue a final verdict, or become the controller.
 Record requested model, actual model, role, elapsed/tool/output budgets, and a
 literal fallback reason. A continuity fallback is a separate route and must not
 reuse this role silently.
+Semantic capability triage is bounded to two distinct recovery strategies and
+must return SEMANTIC_CAPABILITY_BLOCKED for the dependent claim only when they
+fail; do not block docs, Git, config, or exact-only work.
 """

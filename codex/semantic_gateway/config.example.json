@@ -1,8 +1,11 @@
 {
+  "version": "21.3.0",
   "repo": ".",
   "profile": "cpp_resident",
   "build_dir": "build",
   "workset": [],
+  "target_paths": [],
+  "semantic_timeout_sec": 45,
   "upstream": {
     "name": "@samchon/graph",
     "head": "95e20c9540e85fef542466172484229356d3d0d8",
