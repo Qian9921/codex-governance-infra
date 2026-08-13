@@ -64,7 +64,7 @@ dry-run-capable installer/doctor for the pinned source checkout and host
 provider observations. Missing tools are truthful PARTIAL/NOT_READY states,
 not fake compiler proof.
 
-V21.2 MCP calls use an owner-private on-demand Unix-socket broker. Separate
+V21.3 MCP calls use a thin hot-updatable stdio shim and an owner-private on-demand Unix-socket broker. Separate
 stdio client processes in the same canonical worktree/Git/language namespace
 reuse one live backend PID and session. The bounded scope and atomic manifest
 are kept under `${XDG_CACHE_HOME:-~/.cache}/codex-semantic-gateway`; foreground

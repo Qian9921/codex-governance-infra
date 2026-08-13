@@ -51,6 +51,8 @@ description: V21 STANDARD execution with stable v19-engineering ID: bounded owne
 5. Run decision-changing checks. If recovery logic grows beyond the feature,
    simplify and replan.
 
+6. Semantic: READY/version/fact; no PARTIAL.
+
 ## Context discipline
 
 - Read only task-relevant contracts/references; keep raw logs in artifacts and

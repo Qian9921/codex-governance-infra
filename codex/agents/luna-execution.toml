@@ -12,4 +12,8 @@ changed paths, checks, limitations, and identity evidence. Do not review or
 approve your own work. For STANDARD, freeze time and evidence budgets, run only
 decision-changing checks, and simplify when recovery logic outgrows the core
 feature or keeps creating state problems.
+For semantic C++/Python work, require a current READY receipt, exact installed/runtime
+version equality, and a nonempty target-relevant fact before analysis or edits; after
+two distinct bounded recoveries return SEMANTIC_CAPABILITY_BLOCKED for that dependent
+claim only. Docs, Git, config, and exact-only work continue.
 """

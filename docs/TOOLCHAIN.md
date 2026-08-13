@@ -8,7 +8,7 @@ evidence. CodeGraph, `rg`, and `rtk` are retained only for explicit V16
 The short path is in [README.md](../README.md).
 
 The gateway launcher is `codex/bin/semantic-gateway.py`; its normalized
-receipt is `semantic-gateway.v1`. V21.2 MCP calls use an owner-private
+receipt is `semantic-gateway.v1`. V21.3 MCP calls use a hot-updateable thin shim and an owner-private
 persistent broker keyed by worktree/Git identity/language; its scope manifest
 is atomic and its idle TTL is configurable. `doctor` and `sync` may be PARTIAL or
 NOT_READY when clangd/Pyright or the configured workset are absent. That state

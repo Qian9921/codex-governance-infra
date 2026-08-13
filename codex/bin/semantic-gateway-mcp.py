@@ -5,19 +5,16 @@ from __future__ import annotations
 
 import json
 import argparse
+import os
+import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-if str(PACKAGE_ROOT) not in sys.path:
-    sys.path.insert(0, str(PACKAGE_ROOT))
-
-from semantic_gateway.gateway import (GatewayError, broker_request, load_config,
-                                      persistent_state_dir)  # noqa: E402
-
-
 DEFAULT_CONFIG: str | None = None
+SHIM_VERSION = "21.3.0"
+IMPLEMENTATION = Path(__file__).resolve().parents[1] / "semantic_gateway" / "gateway.py"
 
 
 PROTOCOL_VERSION = "2025-06-18"
@@ -33,6 +30,7 @@ TOOL = {
                 "resolve_symbol", "definition", "declaration", "references", "callers",
                 "callees", "inheritance", "type_relations", "impact"]},
             "symbol": {"type": "string"}, "language": {"type": "string", "default": "cpp"},
+            "target_paths": {"type": "array", "items": {"type": "string"}},
             "profile": {"type": "string", "default": "cpp_resident"},
             "config": {"type": "string"}, "snapshot_id": {"type": "string"},
         },
@@ -52,20 +50,38 @@ def _call_tool(arguments: dict[str, Any]) -> dict[str, Any]:
     repo = arguments.get("repo")
     if not isinstance(repo, str):
         raise GatewayError("repo is required")
-    profile = arguments.get("profile")
-    operation = arguments.get("operation")
-    symbol = arguments.get("symbol", "")
-    language = arguments.get("language", "cpp")
-    if not isinstance(operation, str) or not isinstance(symbol, str) or not isinstance(language, str):
-        raise GatewayError("operation, symbol, and language are required")
-    config = load_config(arguments.get("config") or DEFAULT_CONFIG, repo, language)
-    if profile is not None and profile != config.profile:
-        config = type(config)(**{**config.__dict__, "profile": profile})
-    # The stdio process is deliberately only a client. The owner-private
-    # broker holds the live BackendClient and persistent scope.
-    result = broker_request(config, operation, symbol, language)
+    if not isinstance(arguments.get("operation"), str) or not isinstance(arguments.get("symbol", ""), str):
+        raise ValueError("operation and symbol are required")
+    request = dict(arguments)
+    request["repo"] = repo
+    request["config"] = arguments.get("config") or DEFAULT_CONFIG
+    # The shim deliberately imports no gateway implementation. Each call
+    # executes the current installed file, making an upgrade effective while
+    # the long-lived MCP stdio process remains alive.
+    try:
+        completed = subprocess.run([sys.executable, str(IMPLEMENTATION), "--mcp-call"],
+                                   input=json.dumps(request), text=True, capture_output=True,
+                                   timeout=55.0, check=False)
+    except subprocess.TimeoutExpired:
+        result = {"schema": "semantic-gateway.v1", "version": SHIM_VERSION,
+                  "status": "SEMANTIC_CAPABILITY_BLOCKED", "reason": "SEMANTIC_CAPABILITY_BLOCKED",
+                  "facts": [], "proved_families": [], "usage_allowed": False,
+                  "dependent_only": True, "truthful": True}
+    else:
+        try:
+            result = json.loads(completed.stdout.strip().splitlines()[-1])
+        except (IndexError, json.JSONDecodeError):
+            result = {"schema": "semantic-gateway.v1", "version": SHIM_VERSION,
+                      "status": "SEMANTIC_CAPABILITY_BLOCKED", "reason": "IMPLEMENTATION_INVALID_RESPONSE",
+                      "facts": [], "proved_families": [], "usage_allowed": False,
+                      "dependent_only": True, "truthful": True}
+    if result.get("version") != SHIM_VERSION:
+        result = {"schema": "semantic-gateway.v1", "version": SHIM_VERSION,
+                  "status": "SEMANTIC_CAPABILITY_BLOCKED", "reason": "SEMANTIC_VERSION_MISMATCH",
+                  "facts": [], "proved_families": [], "usage_allowed": False,
+                  "dependent_only": True, "truthful": True}
     return {"content": [{"type": "text", "text": json.dumps(result, sort_keys=True, separators=(",", ":"))}],
-            "structuredContent": result, "isError": result.get("status") not in {"READY", "PARTIAL"}}
+            "structuredContent": result, "isError": result.get("status") != "READY"}
 
 
 def main() -> int:
@@ -89,7 +105,7 @@ def main() -> int:
                 initialized = True
                 result = {"protocolVersion": PROTOCOL_VERSION,
                           "capabilities": {"tools": {"listChanged": False}},
-                          "serverInfo": {"name": "codex-semantic-gateway", "version": "21.2.0"}}
+                          "serverInfo": {"name": "codex-semantic-gateway", "version": SHIM_VERSION}}
                 print(json.dumps(_response(request_id, result), separators=(",", ":")), flush=True)
             elif method == "tools/list":
                 if not initialized:

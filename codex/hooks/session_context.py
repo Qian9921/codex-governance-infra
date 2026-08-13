@@ -40,7 +40,10 @@ ROUTING_GUIDANCE = {
 }
 TOOL_PREFLIGHT_GUIDANCE = {
     "required_before_repo_work": False,
-    "required_before_relying_on_semantic_or_structural_tool": False,
+    "required_before_relying_on_semantic_or_structural_tool": True,
+    "semantic_capability_required_before_relying": True,
+    "semantic_block_reason": "SEMANTIC_CAPABILITY_BLOCKED",
+    "semantic_recovery_max": 2,
     "schema": "semantic-gateway.v1",
     "strict_ready_status": "READY",
     "mandatory_lanes": ["discovery", "semantic_gateway", "exact_evidence"],

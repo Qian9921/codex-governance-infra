@@ -9,4 +9,7 @@ invariants, reference identity, domain, tolerance, counterexample, non-goals,
 and decisive evidence. Do not edit files, run Git mutations, approve, merge, or
 expand the mission. You are in the author lineage and cannot serve as the fresh
 independent final reviewer for the same change.
+Semantic C++/Python claims require READY, current installed/runtime version
+equality, and a target-relevant nonempty fact; at most two distinct recoveries
+are allowed before blocking only the dependent claim.
 """

@@ -179,3 +179,7 @@ Never commit credentials, auth state, sessions, prompts, raw transcripts or
 receipts, connection/plugin/model caches, or private machine paths. Preserve
 unrelated state. Installers are allowlisted, dry-run capable, atomic, backed up,
 hash-verified, and rollback-capable.
+
+Semantic C++/Python work requires `READY`, version equality, and a nonempty
+target fact; `PARTIAL` is never usage. After two bounded recoveries, block only
+the dependent claim as `SEMANTIC_CAPABILITY_BLOCKED`; docs/Git/config/exact-only continue.

@@ -264,7 +264,7 @@ class SemanticToolsTest(unittest.TestCase):
             installer._remove_mcp_config(codex_home)
             self.assertFalse(config.exists())
 
-    def test_doctor_workset_is_derived_and_capped_or_explicit(self):
+    def test_doctor_workset_requires_explicit_targets(self):
         spec = importlib.util.spec_from_file_location(
             "semantic_tools_workset", ROOT / "scripts/install-semantic-tools.py")
         installer = importlib.util.module_from_spec(spec)
@@ -276,7 +276,7 @@ class SemanticToolsTest(unittest.TestCase):
                 (repo / f"unit_{index:02d}.cpp").write_text("int x;\n", encoding="utf-8")
             subprocess.check_call(["git", "add", "."], cwd=repo)
             derived = installer._derive_workset(repo)
-            self.assertEqual(len(derived), 64)
+            self.assertEqual(derived, ())
             self.assertEqual(derived, tuple(sorted(derived)))
             explicit = installer._derive_workset(repo, ("unit_69.cpp",))
             self.assertEqual(explicit, ("unit_69.cpp",))

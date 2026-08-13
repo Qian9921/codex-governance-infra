@@ -1,6 +1,6 @@
 # Deployment
 
-The active semantic gateway product is V21.2.0. `install-governance.py` remains the atomic
+The active semantic gateway product is V21.3.0. `install-governance.py` remains the atomic
 governance installer; `install-semantic-tools.py` is a separate idempotent,
 dry-run-capable dependency installer/doctor. The latter clones and verifies the
 pinned @samchon/graph commit/tree, runs its frozen-lockfile pnpm install/build,
@@ -61,7 +61,7 @@ and removes managed files that did not previously exist. Live global Codex-home
 deployment requires the exact manifest/hash review and the applicable
 authorization lane.
 
-The V21.2.0 personal overlay has two disjoint destinations: normal package files
+The V21.3.0 personal overlay has two disjoint destinations: normal package files
 under the selected `CODEX_HOME`, and stable V19 compatibility skills under the sibling
 `.agents/skills` root required by current Codex discovery. One backup generation
 inside `CODEX_HOME` covers both roots. A custom `--agents-home` must be supplied

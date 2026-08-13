@@ -29,7 +29,7 @@ from typing import Any, Mapping, Sequence
 
 
 SCHEMA = "semantic-gateway.v1"
-VERSION = "21.2.0"
+VERSION = "21.3.0"
 PERSISTENT_SCHEMA = "semantic-gateway-persistent.v1"
 UPSTREAM = {
     "name": "@samchon/graph",
@@ -185,6 +185,39 @@ def _socket_is_live(socket_path: pathlib.Path) -> bool:
         return False
 
 
+def _broker_processes(state: pathlib.Path) -> list[int]:
+    """Find only the owner-private broker for this namespace."""
+    needle = str(state)
+    found: list[int] = []
+    for entry in pathlib.Path("/proc").glob("[0-9]*"):
+        try:
+            command = (entry / "cmdline").read_bytes().decode("utf-8", errors="ignore").replace("\0", " ")
+        except OSError:
+            continue
+        if "--broker" in command and needle in command:
+            try:
+                found.append(int(entry.name))
+            except ValueError:
+                pass
+    return found
+
+
+def _stop_stale_broker(state: pathlib.Path, socket_path: pathlib.Path) -> None:
+    """Bounded upgrade action; never unlink a socket while it is live."""
+    for pid in _broker_processes(state):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            continue
+    deadline = time.monotonic() + 2.0
+    while _socket_is_live(socket_path) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    if _socket_is_live(socket_path):
+        return
+    if socket_path.exists():
+        socket_path.unlink()
+
+
 def _atomic_json(path: pathlib.Path, value: Mapping[str, Any]) -> None:
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     temporary = path.with_name(path.name + f".{os.getpid()}.tmp")
@@ -236,6 +269,10 @@ class GatewayConfig:
     persistent: bool = False
     state_dir: pathlib.Path | None = None
     idle_ttl_sec: float = 30.0
+    target_paths: tuple[str, ...] = ()
+    config_version: str = VERSION
+    installed_version: str = VERSION
+    semantic_timeout_sec: float = 60.0
 
     def __post_init__(self) -> None:
         if self.profile not in PROFILES:
@@ -252,13 +289,69 @@ class GatewayConfig:
             raise GatewayError("build_refresh_command contains an empty argument")
         if self.idle_ttl_sec < 0:
             raise GatewayError("idle_ttl_sec must be non-negative")
+        if self.semantic_timeout_sec <= 0 or self.semantic_timeout_sec > 60:
+            raise GatewayError("semantic_timeout_sec must be between 0 and 60 seconds")
+        if any(not item for item in self.target_paths):
+            raise GatewayError("target_paths contains an empty path")
+
+
+_EXCLUDED_SOURCE_DIRS = frozenset({".cache", "CMakeFiles", "output", "generated"})
+
+
+def _excluded_source_path(relative: str) -> bool:
+    parts = pathlib.PurePosixPath(relative).parts
+    return any(part in _EXCLUDED_SOURCE_DIRS or part.startswith("build") for part in parts)
+
+
+def _safe_relative_targets(root: pathlib.Path, values: Sequence[str]) -> tuple[str, ...]:
+    selected: list[str] = []
+    for value in values:
+        path = pathlib.Path(value)
+        if path.is_absolute():
+            try:
+                value = path.resolve(strict=False).relative_to(root).as_posix()
+            except ValueError as exc:
+                raise GatewayError("target path escapes repository") from exc
+        else:
+            value = path.as_posix()
+        try:
+            (root / value).resolve(strict=False).relative_to(root)
+        except ValueError as exc:
+            raise GatewayError("target path escapes repository") from exc
+        if _excluded_source_path(value):
+            continue
+        if value not in selected:
+            selected.append(value)
+    return tuple(selected)
+
+
+def _infer_symbol_targets(root: pathlib.Path, symbol: str, language: str) -> tuple[str, ...]:
+    """Resolve a bounded target set from the requested symbol before loading scope."""
+    suffixes = ("*.py", "*.pyi") if language == "python" else (
+        "*.c", "*.cc", "*.cpp", "*.cxx", "*.h", "*.hh", "*.hpp", "*.hxx")
+    leaf = symbol.rsplit("::", 1)[-1].strip()
+    patterns = tuple(dict.fromkeys(item for item in (symbol.strip(), leaf) if item))
+    found: list[str] = []
+    for pattern in patterns:
+        command = ["git", "grep", "-l", "-I"]
+        for value in patterns:
+            command.extend(("-e", value))
+        command.extend(("--", *suffixes))
+        output = _git_full(root, *command[1:]) or ""
+        for item in output.splitlines():
+            if item and not _excluded_source_path(item) and item not in found:
+                found.append(item)
+        if found:
+            break
+    return tuple(found[:64])
 
 
 def load_config(path: str | os.PathLike[str] | None,
                 repo: str | os.PathLike[str] | None = None,
                 language: str | None = None,
                 *, persistent: bool = False,
-                state_dir: pathlib.Path | None = None) -> GatewayConfig:
+                state_dir: pathlib.Path | None = None,
+                target_paths: Sequence[str] = ()) -> GatewayConfig:
     raw: dict[str, Any] = {}
     config_path = pathlib.Path(path).expanduser().resolve(strict=True) if path else None
     if config_path:
@@ -287,12 +380,12 @@ def load_config(path: str | os.PathLike[str] | None,
             (root / item).resolve().relative_to(root)
         except ValueError as exc:
             raise GatewayError("workset escapes repository") from exc
-    if not workset:
-        suffixes = {".py", ".pyi"} if selected_language == "python" else {
-            ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"}
-        tracked = (_git_full(root, "ls-files", "-z") or "").split("\0")
-        workset = [item for item in tracked if item and pathlib.Path(item).suffix.lower() in suffixes
-                   and (root / item).is_file()][:64]
+    configured_targets = raw.get("target_paths", [])
+    if not isinstance(configured_targets, list) or not all(isinstance(item, str) for item in configured_targets):
+        raise GatewayError("target_paths must be a list of relative paths")
+    requested_targets = _safe_relative_targets(root, tuple(configured_targets) + tuple(target_paths))
+    if requested_targets:
+        workset = list(requested_targets)
     upstream = raw.get("upstream", UPSTREAM)
     if not isinstance(upstream, dict) or any(upstream.get(k) != UPSTREAM[k] for k in UPSTREAM):
         raise GatewayError("upstream identity must match the pinned @samchon/graph revision")
@@ -347,6 +440,10 @@ def load_config(path: str | os.PathLike[str] | None,
         workset_limit=workset_limit, persistent=persistent,
         state_dir=state_dir,
         idle_ttl_sec=float(raw.get("idle_ttl_sec", 30.0)),
+        target_paths=requested_targets,
+        config_version=str(raw.get("version", VERSION)),
+        installed_version=str(raw.get("installed_version", raw.get("version", VERSION))),
+        semantic_timeout_sec=float(raw.get("semantic_timeout_sec", 60.0)),
     )
 
 
@@ -357,15 +454,18 @@ def _content_identity(root: pathlib.Path) -> dict[str, Any]:
     untracked_paths = [item for item in untracked_raw.split("\0") if item]
     entries: list[dict[str, str]] = []
     for item in sorted(set(tracked_paths + untracked_paths)):
+        if _excluded_source_path(item):
+            continue
         path = root / item
         if path.is_file() and not path.is_symlink():
             entries.append({"path": item, "sha256": _sha256(path.read_bytes())})
     diff = _git_full(root, "diff", "HEAD", "--binary") or ""
     status = _git_full(root, "status", "--porcelain=v1") or ""
-    return {"files": entries, "tracked_unstaged_staged_diff_sha256": _sha256(diff.encode()),
+    entry_bytes = json.dumps(entries, sort_keys=True).encode()
+    return {"file_count": len(entries), "tracked_unstaged_staged_diff_sha256": _sha256(diff.encode()),
             "status_sha256": _sha256(status.encode()),
-            "untracked_paths": sorted(untracked_paths),
-            "digest": _sha256(json.dumps(entries, sort_keys=True).encode() + diff.encode() + status.encode())}
+            "untracked_count": sum(not _excluded_source_path(item) for item in untracked_paths),
+            "digest": _sha256(entry_bytes + diff.encode() + status.encode())}
 
 
 def _provider(name: str, command: str | None, cwd: pathlib.Path) -> dict[str, Any]:
@@ -689,7 +789,8 @@ class BackendClient:
                                              "method": method, "params": params or {}}) + "\n")
         self.process.stdin.flush()
         while True:
-            response = self._read(PROFILES[self.config.profile]["timeout_sec"])
+            response = self._read(min(PROFILES[self.config.profile]["timeout_sec"],
+                                      self.config.semantic_timeout_sec))
             if response.get("id") == self._request_id:
                 if "error" in response:
                     raise GatewayError("BACKEND_RPC_ERROR:" + str(response["error"]))
@@ -793,6 +894,7 @@ class Gateway:
         self._persistent_client: BackendClient | None = None
         self._persistent_scope: pathlib.Path | None = None
         self._persistent_manifest: pathlib.Path | None = None
+        self._ready_receipt_path: pathlib.Path | None = None
         self._reuse_mode = "cold_start"
 
     def enable_persistent(self, state_dir: pathlib.Path) -> None:
@@ -806,6 +908,7 @@ class Gateway:
         self._persistent_scope.mkdir(mode=0o700, exist_ok=True)
         os.chmod(self._persistent_scope, 0o700)
         self._persistent_manifest = manifest
+        self._ready_receipt_path = state_dir / "ready-receipt.json"
         self.config = GatewayConfig(**{**self.config.__dict__, "persistent": True,
                                        "state_dir": state_dir})
         self._persistent_client = BackendClient(self.config, self._persistent_scope)
@@ -817,6 +920,47 @@ class Gateway:
                                  "manifest": str(self._persistent_manifest),
                                  "reuse_mode": self._reuse_mode, "delta": delta}
         return receipt
+
+    def _write_ready_receipt(self, receipt: Mapping[str, Any], output: Mapping[str, Any]) -> None:
+        """Persist only compact identity/fact counts; never raw scope or backend output."""
+        if not self._ready_receipt_path:
+            return
+        backend = receipt.get("backend", {}) if isinstance(receipt.get("backend"), dict) else {}
+        facts = output.get("result", {}).get("facts", []) if isinstance(output.get("result"), dict) else []
+        payload = {
+            "schema": "semantic-gateway-ready-receipt.v1", "status": "READY", "version": VERSION,
+            "key": _sha256(json.dumps({
+                "repo": str(self.config.repo), "git": receipt.get("repo"),
+                "language": self.config.profile, "targets": list(self.config.target_paths),
+                "source": receipt.get("repo_digest"), "build": receipt.get("build_inputs", {}).get("sha256"),
+                "generation": receipt.get("generation"), "backend": backend.get("identity", {}),
+            }, sort_keys=True, separators=(",", ":")).encode()),
+            "generation": receipt.get("generation"), "repo_digest": receipt.get("repo_digest"),
+            "build_sha256": receipt.get("build_inputs", {}).get("sha256"),
+            "targets_sha256": _sha256(json.dumps(list(self.config.target_paths), separators=(",", ":")).encode()),
+            "providers": receipt.get("providers", {}),
+            "target_count": len(self.config.target_paths), "fact_count": len(facts) if isinstance(facts, list) else 0,
+            "proved_families": output.get("proved_families", []),
+            "backend_pid": backend.get("runtime", {}).get("pid") if isinstance(backend.get("runtime"), dict) else None,
+            "session_id": backend.get("runtime", {}).get("session_id") if isinstance(backend.get("runtime"), dict) else None,
+        }
+        _atomic_json(self._ready_receipt_path, payload)
+
+    def _cached_providers(self, identity: Mapping[str, Any], build_inputs: Mapping[str, Any]) -> dict[str, Any] | None:
+        if not self._ready_receipt_path:
+            return None
+        try:
+            cached = json.loads(self._ready_receipt_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        expected_targets = _sha256(json.dumps(list(self.config.target_paths), separators=(",", ":")).encode())
+        if not isinstance(cached, dict) or cached.get("status") != "READY" or cached.get("version") != VERSION:
+            return None
+        if cached.get("repo_digest") != identity.get("digest") or cached.get("build_sha256") != build_inputs.get("sha256"):
+            return None
+        if cached.get("targets_sha256") != expected_targets or not isinstance(cached.get("providers"), dict):
+            return None
+        return cached["providers"]
 
     def persistent_query(self, operation: str, symbol: str, language: str = "cpp") -> dict[str, Any]:
         """Reconcile and inspect through the one broker-resident backend."""
@@ -855,6 +999,7 @@ class Gateway:
                                   result=result, handshake=handshake, truthfully_proved=True,
                                   snapshot_id="sgw-" + receipt["generation"],
                                   reuse_mode=self._reuse_mode)
+            self._write_ready_receipt(receipt, output)
             self._reuse_mode = "warm_reuse"
             return output
         except GatewayError as exc:
@@ -875,13 +1020,42 @@ class Gateway:
         suffixes = self._language_suffixes()
         tracked = (_git_full(self.config.repo, "ls-files", "-z") or "").split("\0")
         untracked = (_git_full(self.config.repo, "ls-files", "--others", "--exclude-standard", "-z") or "").split("\0")
-        relevant = sorted({item for item in tracked + untracked if item and pathlib.Path(item).suffix.lower() in suffixes
+        relevant = sorted({item for item in tracked + untracked if item and not _excluded_source_path(item)
+                           and pathlib.Path(item).suffix.lower() in suffixes
                            and (self.config.repo / item).is_file()})
+        if self.config.target_paths:
+            targets = _safe_relative_targets(self.config.repo, self.config.target_paths)
+            compile_tus: set[str] = set()
+            compile_db = self.config.build_dir / "compile_commands.json" if self.config.build_dir else None
+            if compile_db and compile_db.is_file():
+                try:
+                    raw = json.loads(compile_db.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    raw = []
+                if isinstance(raw, list):
+                    for entry in raw:
+                        if isinstance(entry, dict):
+                            canonical = self._canonical_compile_entry(entry, compile_db)
+                            if canonical and any(canonical == self._canonical_selected_tu(target) for target in targets):
+                                try:
+                                    compile_tus.add(pathlib.Path(canonical).resolve().relative_to(self.config.repo).as_posix())
+                                except ValueError:
+                                    continue
+            selected = [item for item in targets if item in relevant]
+            selected.extend(item for item in sorted(compile_tus) if item not in selected)
+            if not selected:
+                selected = list(targets)
+            selected = selected[: self.config.workset_limit]
+            if tuple(selected) != self.config.workset:
+                self.config = GatewayConfig(**{**self.config.__dict__, "workset": tuple(selected)})
+            return
         status_lines = (_git_full(self.config.repo, "status", "--porcelain=v1") or "").splitlines()
         changed = sorted({line[3:] for line in status_lines if len(line) >= 4 and line[3:] in relevant})
         configured = [item for item in self.config.workset if item in relevant and item not in changed]
+        # Without explicit targets, retain only configured or changed files.
+        # Alphabetic first-64 filling is intentionally forbidden: the MCP
+        # request resolves targets from its symbol before entering this path.
         selected = changed + configured
-        selected.extend(item for item in relevant if item not in selected)
         selected = selected[: self.config.workset_limit]
         if tuple(selected) != self.config.workset:
             self.config = GatewayConfig(**{**self.config.__dict__, "workset": tuple(selected)})
@@ -1013,8 +1187,10 @@ class Gateway:
         scope = {"profile": self.config.profile, "resources": PROFILES[self.config.profile],
                  "workset": [{"path": item, "sha256": _sha256((self.config.repo / item).read_bytes())
                               if (self.config.repo / item).is_file() else None} for item in self.config.workset]}
-        providers = {"cpp": _provider(self.config.cpp_provider, self.config.provider_commands.get("cpp"), self.config.repo),
-                     "python": _provider(self.config.python_provider, self.config.provider_commands.get("python"), self.config.repo)}
+        providers = self._cached_providers(identity, build_inputs)
+        if providers is None:
+            providers = {"cpp": _provider(self.config.cpp_provider, self.config.provider_commands.get("cpp"), self.config.repo),
+                         "python": _provider(self.config.python_provider, self.config.provider_commands.get("python"), self.config.repo)}
         backend = {"command": list(self.config.backend_command), "configured": bool(self.config.backend_command),
                    "identity": dict(self.config.backend_identity)}
         config_hash = _sha256(self.config.config_path.read_bytes()) if self.config.config_path and self.config.config_path.is_file() else None
@@ -1160,11 +1336,13 @@ def _broker_config_path(value: str | None) -> str | None:
 
 
 def broker_request(config: GatewayConfig, operation: str, symbol: str, language: str,
-                   state_dir: pathlib.Path | None = None) -> dict[str, Any]:
+                   state_dir: pathlib.Path | None = None,
+                   target_paths: Sequence[str] = ()) -> dict[str, Any]:
     """Call the owner-private on-demand broker, starting it only when absent."""
     state = state_dir or persistent_state_dir(config.repo, language, config.state_dir)
     socket_path = _broker_socket_path(state)
-    payload = {"operation": operation, "symbol": symbol, "language": language}
+    payload = {"operation": operation, "symbol": symbol, "language": language,
+               "target_paths": list(target_paths), "expected_version": VERSION}
 
     def request_once() -> dict[str, Any] | None:
         try:
@@ -1186,7 +1364,8 @@ def broker_request(config: GatewayConfig, operation: str, symbol: str, language:
             return None
 
     result = request_once()
-    if result is not None:
+    force_restart = result is not None and result.get("version") != VERSION
+    if result is not None and not force_restart:
         return result
     # The lock is the namespace-scoped startup election. Every contender
     # rechecks the socket while holding it; no contender unlinks a live socket.
@@ -1196,6 +1375,9 @@ def broker_request(config: GatewayConfig, operation: str, symbol: str, language:
     with lock_handle:
         fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
         result = request_once()
+        if force_restart and result is not None and result.get("version") != VERSION:
+            _stop_stale_broker(state, socket_path)
+            result = None
         if result is None and not _socket_is_live(socket_path):
             starting = _broker_starting_path(state)
             can_start = True
@@ -1297,6 +1479,7 @@ def _broker_main(argv: list[str]) -> int:
             last_request = time.monotonic()
             with connection:
                 raw = b""
+                restart_after_response = False
                 while not raw.endswith(b"\n"):
                     chunk = connection.recv(65536)
                     if not chunk:
@@ -1308,10 +1491,23 @@ def _broker_main(argv: list[str]) -> int:
                         raise GatewayError("broker request must be an object")
                     # flock is deliberately per namespace, so distinct repositories
                     # never serialize through a global lock.
+                    restart_after_response = request.get("expected_version") not in (None, VERSION)
+                    if restart_after_response:
+                        result = {"schema": SCHEMA, "version": VERSION,
+                                  "status": "PARTIAL", "reason": "BROKER_VERSION_MISMATCH",
+                                  "facts": [], "proved_families": []}
                     with (state / "namespace.lock").open("a+") as lock:
                         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-                        result = gateway.persistent_query(request["operation"], request["symbol"],
-                                                          request.get("language", args.language))
+                        if not restart_after_response:
+                            target_paths = request.get("target_paths", [])
+                            if not isinstance(target_paths, list) or not all(isinstance(item, str) for item in target_paths):
+                                raise GatewayError("target_paths must be a list of strings")
+                            if target_paths:
+                                gateway.config = GatewayConfig(**{**gateway.config.__dict__,
+                                                                  "target_paths": tuple(target_paths),
+                                                                  "workset": tuple(target_paths)})
+                            result = gateway.persistent_query(request["operation"], request["symbol"],
+                                                              request.get("language", args.language))
                         fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
                 except Exception as exc:
                     result = gateway._result("PARTIAL", type(exc).__name__, gateway._receipt(),
@@ -1319,6 +1515,13 @@ def _broker_main(argv: list[str]) -> int:
                                               query={"symbol": request.get("symbol", "") if isinstance(locals().get("request"), dict) else ""},
                                               result=None, truthful=True)
                 connection.sendall((json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n").encode())
+                if restart_after_response:
+                    gateway.close()
+                    server.close()
+                    os.execv(sys.executable, [sys.executable, str(pathlib.Path(__file__).resolve()),
+                                               "--broker", "--state-dir", str(state), "--repo", str(repo),
+                                               "--language", args.language, "--idle-ttl", str(args.idle_ttl),
+                                               *( ["--config", args.config] if args.config else [] )])
     finally:
         gateway.close()
         server.close()
@@ -1342,11 +1545,86 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--snapshot-id"); parser.add_argument("--language", default="cpp")
     parser.add_argument("--broker", action="store_true"); parser.add_argument("--state-dir")
     parser.add_argument("--idle-ttl", type=float, default=30.0)
+    parser.add_argument("--mcp-call", action="store_true")
     return parser
+
+
+def _version_manifest(config_path: pathlib.Path | None) -> str:
+    if not config_path:
+        return VERSION
+    candidates = (config_path.with_name("semantic-tools.v21.json"),
+                  config_path.parent / "semantic-tools.v21.json")
+    for candidate in candidates:
+        try:
+            value = json.loads(candidate.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(value, dict) and isinstance(value.get("version"), str):
+            return value["version"]
+    return VERSION
+
+
+def _blocked_capability(config: GatewayConfig, reason: str, *, attempts: int = 0) -> dict[str, Any]:
+    return {"schema": SCHEMA, "version": VERSION, "status": "SEMANTIC_CAPABILITY_BLOCKED",
+            "reason": reason, "facts": [], "proved_families": [], "missing": ["semantic_capability"],
+            "fallback": None, "usage_allowed": False, "dependent_only": True,
+            "recovery_attempts": attempts, "current_version": VERSION,
+            "installed_version": config.installed_version, "truthful": True}
+
+
+def _mcp_call(request: Mapping[str, Any]) -> dict[str, Any]:
+    repo = request.get("repo")
+    operation = request.get("operation")
+    symbol = request.get("symbol", "")
+    language = request.get("language", "cpp")
+    config_path = request.get("config")
+    target_paths = request.get("target_paths", [])
+    if not isinstance(repo, str) or not isinstance(operation, str) or not isinstance(symbol, str):
+        raise GatewayError("repo, operation, and symbol are required")
+    if not isinstance(language, str) or not isinstance(target_paths, list) or not all(isinstance(item, str) for item in target_paths):
+        raise GatewayError("language and target_paths are invalid")
+    if not target_paths:
+        target_paths = list(_infer_symbol_targets(_canonical_repo(repo), symbol, language))
+    config = load_config(config_path if isinstance(config_path, str) else None, repo, language,
+                         target_paths=target_paths)
+    config = GatewayConfig(**{**config.__dict__, "installed_version": _version_manifest(config.config_path)})
+    if config.config_version != VERSION or config.installed_version != VERSION:
+        return _blocked_capability(config, "SEMANTIC_VERSION_MISMATCH")
+    result = broker_request(config, operation, symbol, language, target_paths=target_paths)
+    if result.get("version") != VERSION:
+        result = {"schema": SCHEMA, "version": VERSION, "status": "PARTIAL",
+                  "reason": "BROKER_VERSION_MISMATCH", "facts": [], "proved_families": []}
+    if result.get("status") != "READY":
+        # Two materially distinct bounded strategies: reuse/reload, then one
+        # reconnect/restart attempt. The broker itself owns the lifecycle;
+        # this shim never grows a retry state machine.
+        second = broker_request(config, operation, symbol, language, target_paths=target_paths)
+        if second.get("status") == "READY":
+            result = second
+        else:
+            return _blocked_capability(config, "SEMANTIC_CAPABILITY_BLOCKED", attempts=2)
+    facts = result.get("facts")
+    if not isinstance(facts, list) or not facts:
+        return _blocked_capability(config, "SEMANTIC_FACT_EMPTY", attempts=2)
+    result["current_version"] = VERSION
+    result["installed_version"] = config.installed_version
+    result["usage_allowed"] = True
+    result["target_paths"] = list(config.target_paths)
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.mcp_call:
+        try:
+            request = json.loads(sys.stdin.read())
+            result = _mcp_call(request)
+        except Exception as exc:
+            result = {"schema": SCHEMA, "version": VERSION, "status": "SEMANTIC_CAPABILITY_BLOCKED",
+                      "reason": type(exc).__name__, "facts": [], "proved_families": [],
+                      "usage_allowed": False, "dependent_only": True, "truthful": True}
+        print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+        return 0 if result.get("status") == "READY" else 2
     if args.broker:
         broker_args = ["--state-dir", args.state_dir, "--repo", args.repo,
                        "--language", args.language, "--idle-ttl", str(args.idle_ttl)]

@@ -37,7 +37,7 @@
 时不会猜测符号。工具安装/诊断使用独立的
 `scripts/install-semantic-tools.py --tools-home PATH --dry-run`。
 
-V21.2 的 MCP stdio adapter 使用 owner-private、按需启动的 Unix socket broker。
+V21.3 的 MCP stdio shim 使用按调用加载的当前实现和 owner-private、按需启动的 Unix socket broker。
 同一 canonical worktree/Git/language namespace 的不同 client 进程复用同一个
 live backend PID/session；有界 scope 和原子 manifest 保存在
 `${XDG_CACHE_HOME:-~/.cache}/codex-semantic-gateway`。前台只应用 add/edit/delete

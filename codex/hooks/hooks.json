@@ -1,5 +1,5 @@
 {
-  "version": "21.2.0",
+  "version": "21.3.0",
   "session_start": "session_context.py",
   "pre_tool_use": "pre_tool_use_policy.py",
   "receipt": "hook_receipt.py",

@@ -3,7 +3,7 @@
 - Keep governance portable and privacy-safe. Never commit credentials, live
   sessions, prompts, receipts, private paths, or machine-specific state.
 - Python implementation uses the standard library only.
-- Public release is Codex Governance Infra V21.2.0. Preserve the existing V16 strict contracts as an explicit-user opt-in compatibility
+- Public release is Codex Governance Infra V21.3.0. Preserve the existing V16 strict contracts as an explicit-user opt-in compatibility
   proof engine. STRICT is never inferred from risk, production, or release context; the default adaptive path must remain non-blocking for missing
   ceremony while preserving real safety, correctness, and privacy blockers. Terra
   may be used only through bounded TERRA_REPLAN/TERRA_TRIAGE bridges or as a
@@ -20,3 +20,9 @@
   delta-only follow-up; do not duplicate full evidence or full-scope review.
 - your-developer-account authors repository changes. your-reviewer-account independently reviews,
   approves, and merges the exact reviewed head.
+- Semantic-related C++/Python work requires `READY`, current installed/runtime
+  version equality, and a target-relevant nonempty fact before semantic analysis
+  or edits proceed. `PARTIAL` is never usage. After at most two materially
+  distinct bounded recovery strategies, return `SEMANTIC_CAPABILITY_BLOCKED`
+  for the dependent semantic claim/edit only; docs, Git, configuration, and
+  exact-only work continue. This is not a global prompt block.
