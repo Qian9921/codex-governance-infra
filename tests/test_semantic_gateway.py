@@ -1,5 +1,6 @@
 import pathlib
 import json
+import hashlib
 import concurrent.futures
 import shutil
 import subprocess
@@ -8,10 +9,44 @@ import tempfile
 import unittest
 
 from codex.semantic_gateway.gateway import (BackendClient, Gateway, GatewayConfig, OPERATIONS,
-                                            _facts_support_request, close, doctor, load_config, query, sync)
+                                            _backend_identity_matches, _facts_support_request, close, doctor,
+                                            load_config, query, sync)
 
 
 class SemanticGatewayTest(unittest.TestCase):
+    def test_backend_identity_counterexample_rejects_wrong_hash(self):
+        expected = {"executable_path": "/usr/bin/backend", "executable_sha256": "exec",
+                    "version": "backend 1", "command_sha256": "command", "binary_sha256": "artifact"}
+        actual = {**expected, "artifact_sha256": ["different"]}
+        self.assertFalse(_backend_identity_matches(expected, actual))
+        self.assertFalse(_backend_identity_matches({"binary_sha256": "artifact"},
+                                                   {"artifact_sha256": ["artifact"]}))
+
+    def test_backend_identity_positive_matches_frozen_command(self):
+        expected = {"executable_path": "/usr/bin/backend", "executable_sha256": "exec",
+                    "version": "backend 1", "command_sha256": "command", "binary_sha256": "artifact"}
+        actual = {**expected, "artifact_sha256": ["artifact"]}
+        self.assertTrue(_backend_identity_matches(expected, actual))
+
+    def test_persistent_query_empty_backend_identity_blocks_with_zero_facts(self):
+        holder, root = self.repo(); self.addCleanup(holder.cleanup)
+        build = root / "build"; build.mkdir()
+        (build / "compile_commands.json").write_text(
+            json.dumps([{"file": "sample.cpp", "directory": str(root)}]), encoding="utf-8")
+        state = pathlib.Path(tempfile.mkdtemp(prefix="identity-state-"))
+        self.addCleanup(shutil.rmtree, state, True)
+        gateway = Gateway(GatewayConfig(
+            repo=root, build_dir=build, workset=("sample.cpp",), target_paths=("sample.cpp",),
+            backend_command=(sys.executable, str(self.fake_backend(root))),
+            provider_commands={"cpp": "/bin/true", "python": "/bin/true"}, state_dir=state))
+        gateway.enable_persistent(state)
+        result = gateway.persistent_query("definition", "answer")
+        self.assertEqual(result["status"], "PARTIAL")
+        self.assertEqual(result["reason"], "BACKEND_IDENTITY_MISMATCH")
+        self.assertEqual(result["facts"], [])
+        self.assertEqual(result["proved_families"], [])
+        self.assertEqual(result["fallback"], "bounded_exact_evidence")
+
     def test_reviewer_counterexample_nonempty_wrong_fact_is_not_ready(self):
         payload = {"facts": [{"symbol": "other", "file": "target.cpp"}],
                    "proved_families": ["definition"]}
@@ -254,6 +289,16 @@ class SemanticGatewayTest(unittest.TestCase):
             encoding="utf-8")
         return script
 
+    def backend_identity(self, command, artifact):
+        executable = pathlib.Path(shutil.which(command[0]) or command[0]).resolve()
+        version = subprocess.run([str(executable), "--version"], capture_output=True, text=True,
+                                  check=True).stdout.strip()
+        command_sha = hashlib.sha256(json.dumps(list(command), separators=(",", ":")).encode()).hexdigest()
+        artifact_sha = hashlib.sha256(pathlib.Path(artifact).read_bytes()).hexdigest()
+        executable_sha = hashlib.sha256(executable.read_bytes()).hexdigest()
+        return {"executable_path": str(executable), "executable_sha256": executable_sha,
+                "version": version, "command_sha256": command_sha, "binary_sha256": artifact_sha}
+
     def configured_gateway(self, root, config_path=None):
         script = self.fake_backend(root)
         return Gateway(GatewayConfig(repo=root, backend_command=(sys.executable, str(script)),
@@ -313,9 +358,11 @@ class SemanticGatewayTest(unittest.TestCase):
         build = root / "build"; build.mkdir()
         (build / "compile_commands.json").write_text(json.dumps([{"file": "sample.cpp", "directory": str(root)}]), encoding="utf-8")
         config = root / "gateway.json"
+        backend_command = [sys.executable, str(self.fake_backend(root))]
         config.write_text(json.dumps({"repo": str(root), "backend_command":
-                                      [sys.executable, str(self.fake_backend(root))],
+                                      backend_command,
                                       "provider_commands": {"cpp": "/bin/true", "python": "/bin/true"},
+                                      "backend_identity": self.backend_identity(backend_command, backend_command[1]),
                                       "build_dir": "build", "workset": ["sample.cpp"], "idle_ttl_sec": 5.0}), encoding="utf-8")
         request = "\n".join((
             json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
@@ -451,8 +498,10 @@ class SemanticGatewayTest(unittest.TestCase):
         build = root / "build"; build.mkdir()
         (build / "compile_commands.json").write_text(json.dumps([{"file": "sample.cpp", "directory": str(root)}]), encoding="utf-8")
         config = root / "gateway.json"
+        backend_command = [sys.executable, str(script)]
         config.write_text(json.dumps({"repo": str(root), "backend_command": [sys.executable, str(script)],
                                      "provider_commands": {"cpp": "/bin/true", "python": "/bin/true"},
+                                     "backend_identity": self.backend_identity(backend_command, script),
                                      "build_dir": "build", "workset": ["sample.cpp"]}), encoding="utf-8")
         process = subprocess.Popen([sys.executable, str(pathlib.Path(__file__).parents[1] / "codex/bin/semantic-gateway-mcp.py"), "--config", str(config)],
                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
@@ -500,8 +549,10 @@ class SemanticGatewayTest(unittest.TestCase):
         build = root / "build"; build.mkdir()
         (build / "compile_commands.json").write_text(json.dumps([{"file": "sample.cpp", "directory": str(root)}]), encoding="utf-8")
         config = root / "gateway.json"
-        config.write_text(json.dumps({"repo": str(root), "backend_command": [sys.executable, str(self.fake_backend(root))],
+        backend_command = [sys.executable, str(self.fake_backend(root))]
+        config.write_text(json.dumps({"repo": str(root), "backend_command": backend_command,
                                       "provider_commands": {"cpp": "/bin/true", "python": "/bin/true"},
+                                      "backend_identity": self.backend_identity(backend_command, backend_command[1]),
                                       "build_dir": "build", "workset": ["sample.cpp"], "version": "21.3.0"}), encoding="utf-8")
         process = subprocess.Popen([sys.executable, str(shim), "--config", str(config)], stdin=subprocess.PIPE,
                                    stdout=subprocess.PIPE, text=True)

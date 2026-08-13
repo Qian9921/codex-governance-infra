@@ -484,6 +484,80 @@ def _provider(name: str, command: str | None, cwd: pathlib.Path) -> dict[str, An
             "binary_sha256": binary_hash}
 
 
+def _backend_command_identity(command: Sequence[str], cwd: pathlib.Path) -> dict[str, Any] | None:
+    """Resolve the configured backend command into a compact frozen identity."""
+    if not command:
+        return None
+    resolved = shutil.which(command[0]) or command[0]
+    executable = pathlib.Path(resolved).expanduser().resolve(strict=False)
+    if not executable.is_file() or executable.is_symlink():
+        return None
+    code, version = _run([str(executable), "--version"], cwd)
+    if code != 0:
+        return None
+    artifacts: list[str] = []
+    for token in command:
+        candidate = pathlib.Path(token).expanduser()
+        if not candidate.is_absolute():
+            candidate = cwd / candidate
+        candidate = candidate.resolve(strict=False)
+        if candidate.is_file() and not candidate.is_symlink():
+            try:
+                artifacts.append(_sha256(candidate.read_bytes()))
+            except OSError:
+                continue
+    return {"executable_path": str(executable),
+            "executable_sha256": _sha256(executable.read_bytes()),
+            "version": version, "command_sha256": _sha256(
+                json.dumps(list(command), separators=(",", ":")).encode()),
+            "artifact_sha256": artifacts}
+
+
+def _backend_identity_matches(expected: Mapping[str, Any], actual: Mapping[str, Any],
+                             upstream: Mapping[str, str] | None = None) -> bool:
+    """Compare only stable identity fields; arbitrary or empty identities fail."""
+    if not expected or not actual:
+        return False
+    for key in ("executable_path", "executable_sha256", "version", "command_sha256"):
+        if key in expected and expected.get(key) != actual.get(key):
+            return False
+    expected_binary = expected.get("binary_sha256")
+    artifacts = actual.get("artifact_sha256", [])
+    if expected_binary is not None and expected_binary not in artifacts:
+        return False
+    if expected.get("checkout_head") is not None:
+        if not upstream or expected.get("checkout_head") != upstream.get("head"):
+            return False
+    if expected.get("checkout_tree") is not None:
+        if not upstream or expected.get("checkout_tree") != upstream.get("tree"):
+            return False
+    strong = any(expected.get(key) for key in (
+        "executable_path", "executable_sha256", "version", "command_sha256",
+        "binary_sha256", "checkout_head", "checkout_tree"))
+    executable_complete = all(expected.get(key) for key in
+                               ("executable_path", "executable_sha256", "version"))
+    pinned_checkout = bool(expected.get("checkout_tree") or expected.get("checkout_head"))
+    return bool(strong and (executable_complete or pinned_checkout))
+
+
+def _backend_identity_issue(config: GatewayConfig, providers: Mapping[str, Any]) -> str | None:
+    actual = _backend_command_identity(config.backend_command, config.repo)
+    if not _backend_identity_matches(config.backend_identity, actual or {}, config.upstream):
+        return "BACKEND_IDENTITY_MISMATCH"
+    frozen_providers = config.backend_identity.get("providers") if isinstance(config.backend_identity, Mapping) else None
+    if frozen_providers is not None:
+        if not isinstance(frozen_providers, Mapping):
+            return "PROVIDER_IDENTITY_MISMATCH"
+        for language, expected in frozen_providers.items():
+            observed = providers.get(language)
+            if not isinstance(expected, Mapping) or not isinstance(observed, Mapping):
+                return "PROVIDER_IDENTITY_MISMATCH"
+            for key in ("path", "version", "binary_sha256"):
+                if expected.get(key) != observed.get(key):
+                    return "PROVIDER_IDENTITY_MISMATCH"
+    return None
+
+
 def _canonical_compile_entry(entry: Mapping[str, Any], compile_db: pathlib.Path,
                             repo: pathlib.Path) -> str | None:
     raw_file = entry.get("file")
@@ -1034,6 +1108,10 @@ class Gateway:
                                 operation=operation, query={"symbol": symbol, "language": language}, result=None)
         if not isinstance(required_provider, dict) or required_provider.get("status") != "READY":
             return self._result("PARTIAL", "LANGUAGE_PROVIDER_UNAVAILABLE", self._persistent_receipt(receipt, {}),
+                                operation=operation, query={"symbol": symbol, "language": language}, result=None)
+        identity_issue = _backend_identity_issue(self.config, receipt["providers"])
+        if identity_issue:
+            return self._result("PARTIAL", identity_issue, self._persistent_receipt(receipt, {}),
                                 operation=operation, query={"symbol": symbol, "language": language}, result=None)
         if self._persistent_client is None:
             return self._result("NOT_READY", "PERSISTENT_BACKEND_NOT_CONFIGURED", receipt,
