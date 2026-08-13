@@ -14,6 +14,7 @@ import json
 import os
 import pathlib
 import selectors
+import shlex
 import shutil
 import signal
 import subprocess
@@ -258,6 +259,24 @@ def _provider(name: str, command: str | None, cwd: pathlib.Path) -> dict[str, An
             "binary_sha256": binary_hash}
 
 
+def _canonical_compile_entry(entry: Mapping[str, Any], compile_db: pathlib.Path,
+                            repo: pathlib.Path) -> str | None:
+    raw_file = entry.get("file")
+    if not isinstance(raw_file, str) or not raw_file:
+        return None
+    candidate = pathlib.Path(raw_file)
+    if not candidate.is_absolute():
+        directory = entry.get("directory")
+        base = pathlib.Path(directory) if isinstance(directory, str) and directory else repo
+        if not base.is_absolute():
+            base = compile_db.parent / base
+        candidate = base / candidate
+    try:
+        return candidate.resolve(strict=False).as_posix()
+    except OSError:
+        return None
+
+
 class BackendClient:
     """One bounded MCP lifecycle: initialize, tools/list, tools/call, close."""
 
@@ -273,6 +292,131 @@ class BackendClient:
         if self.config.backend_command:
             return list(self.config.backend_command)
         raise GatewayError("BACKEND_NOT_CONFIGURED")
+
+    @staticmethod
+    def _looks_like_path(value: str) -> bool:
+        return (value in {".", ".."} or value.startswith(("./", "../", "/"))
+                or "/" in value or pathlib.Path(value).suffix.lower() in {
+                    ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx",
+                    ".o", ".obj", ".a", ".so", ".d", ".pch"})
+
+    def _rewrite_scope_path(self, value: str, anchor: pathlib.Path,
+                            scope_root: pathlib.Path, force: bool = False,
+                            preserve_repo: bool = False) -> str:
+        if not isinstance(value, str) or not value or (not force and not self._looks_like_path(value)):
+            return value
+        candidate = pathlib.Path(value)
+        was_absolute = candidate.is_absolute()
+        if not candidate.is_absolute():
+            candidate = anchor / candidate
+        try:
+            relative = candidate.resolve(strict=False).relative_to(self.config.repo)
+        except (OSError, ValueError):
+            return str(candidate.resolve(strict=False)) if preserve_repo and not was_absolute else value
+        if preserve_repo:
+            return value if was_absolute else str(candidate.resolve(strict=False))
+        return str(scope_root / relative)
+
+    def _rewrite_command_arguments(self, arguments: Sequence[str], directory: pathlib.Path,
+                                   scope_root: pathlib.Path) -> list[str]:
+        separate_path_flags = {"-I", "-isystem", "-iquote", "-include", "-imacros", "-o",
+                               "-MF", "-MT", "-MQ", "-L", "-resource-dir"}
+        input_path_flags = separate_path_flags - {"-o", "-MF"}
+        attached_path_prefixes = (("-isystem", True), ("-iquote", True), ("-include", True),
+                                  ("-imacros", True), ("-resource-dir", True), ("-I", True),
+                                  ("-o", False), ("-MF", False), ("-MT", True), ("-MQ", True),
+                                  ("-L", True), ("--sysroot=", True))
+        rewritten: list[str] = []
+        expect_path = False
+        preserve_expected_path = False
+        for index, argument in enumerate(arguments):
+            if not isinstance(argument, str):
+                rewritten.append(argument)
+                expect_path = False
+                continue
+            if expect_path:
+                rewritten.append(self._rewrite_scope_path(
+                    argument, directory, scope_root, force=True,
+                    preserve_repo=preserve_expected_path))
+                expect_path = False
+                continue
+            if argument in separate_path_flags:
+                rewritten.append(argument)
+                expect_path = True
+                preserve_expected_path = argument in input_path_flags
+                continue
+            for prefix, preserve_repo in attached_path_prefixes:
+                if argument.startswith(prefix) and argument != prefix:
+                    value = argument[len(prefix):]
+                    argument = prefix + self._rewrite_scope_path(
+                        value, directory, scope_root, force=True, preserve_repo=preserve_repo)
+                    break
+            else:
+                if argument.startswith("-"):
+                    rewritten.append(argument)
+                    continue
+                argument = self._rewrite_scope_path(
+                    argument, directory, scope_root, preserve_repo=index == 0)
+            rewritten.append(argument)
+        return rewritten
+
+    def _canonical_selected_tu(self, relative: str) -> str:
+        return (self.config.repo / relative).resolve(strict=False).as_posix()
+
+    def _rewrite_compile_database(self, raw: Any, compile_db: pathlib.Path,
+                                 scope_root: pathlib.Path) -> Any:
+        if not isinstance(raw, list):
+            return raw
+        selected = {self._canonical_selected_tu(relative) for relative in self.config.workset}
+        rewritten: list[Any] = []
+        for entry in raw:
+            if not isinstance(entry, dict):
+                rewritten.append(entry)
+                continue
+            if _canonical_compile_entry(entry, compile_db, self.config.repo) not in selected:
+                rewritten.append(entry)
+                continue
+            original_directory = entry.get("directory")
+            directory = pathlib.Path(original_directory) if isinstance(original_directory, str) and original_directory else self.config.repo
+            if not directory.is_absolute():
+                directory = compile_db.parent / directory if original_directory else self.config.repo
+            updated = dict(entry)
+            if isinstance(original_directory, str) and original_directory:
+                updated["directory"] = self._rewrite_scope_path(
+                    original_directory, compile_db.parent, scope_root, force=True)
+            if isinstance(entry.get("file"), str):
+                updated["file"] = self._rewrite_scope_path(entry["file"], directory, scope_root, force=True)
+            if isinstance(entry.get("output"), str):
+                updated["output"] = self._rewrite_scope_path(entry["output"], directory, scope_root, force=True)
+            if isinstance(entry.get("arguments"), list):
+                updated["arguments"] = self._rewrite_command_arguments(entry["arguments"], directory, scope_root)
+            if isinstance(entry.get("command"), str):
+                try:
+                    arguments = shlex.split(entry["command"], posix=True)
+                except ValueError as exc:
+                    raise GatewayError("COMPILE_COMMANDS_INVALID_QUOTING") from exc
+                updated["command"] = shlex.join(
+                    self._rewrite_command_arguments(arguments, directory, scope_root))
+            rewritten.append(updated)
+            rewritten_directory = updated.get("directory")
+            if isinstance(rewritten_directory, str):
+                try:
+                    pathlib.Path(rewritten_directory).resolve(strict=False).relative_to(scope_root.resolve())
+                except (OSError, ValueError):
+                    pass
+                else:
+                    pathlib.Path(rewritten_directory).mkdir(parents=True, exist_ok=True)
+        return rewritten
+
+    def _materialize_compile_database(self, compile_db: pathlib.Path,
+                                      target: pathlib.Path) -> None:
+        try:
+            raw = json.loads(compile_db.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            shutil.copy2(compile_db, target)
+            return
+        target.write_text(json.dumps(self._rewrite_compile_database(raw, compile_db, target.parent),
+                                     indent=2) + "\n", encoding="utf-8")
 
     def _prepare_scope(self) -> pathlib.Path:
         """Materialize a bounded resident input; never index a full large repo."""
@@ -299,7 +443,7 @@ class BackendClient:
         # by clangd to produce compiler-derived facts for a selected TU.
         compile_db = self.config.build_dir / "compile_commands.json" if self.config.build_dir else None
         if compile_db and compile_db.is_file():
-            shutil.copy2(compile_db, root / "compile_commands.json")
+            self._materialize_compile_database(compile_db, root / "compile_commands.json")
         self._scope_root = root
         return root
 
@@ -481,20 +625,7 @@ class Gateway:
             self.config = GatewayConfig(**{**self.config.__dict__, "workset": tuple(selected)})
 
     def _canonical_compile_entry(self, entry: Mapping[str, Any], compile_db: pathlib.Path) -> str | None:
-        raw_file = entry.get("file")
-        if not isinstance(raw_file, str) or not raw_file:
-            return None
-        candidate = pathlib.Path(raw_file)
-        if not candidate.is_absolute():
-            directory = entry.get("directory")
-            base = pathlib.Path(directory) if isinstance(directory, str) and directory else self.config.repo
-            if not base.is_absolute():
-                base = (compile_db.parent / base)
-            candidate = base / candidate
-        try:
-            return candidate.resolve(strict=False).as_posix()
-        except OSError:
-            return None
+        return _canonical_compile_entry(entry, compile_db, self.config.repo)
 
     def _canonical_selected_tu(self, relative: str) -> str:
         return (self.config.repo / relative).resolve(strict=False).as_posix()

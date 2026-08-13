@@ -1,5 +1,6 @@
 import pathlib
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -85,6 +86,47 @@ class SemanticGatewayTest(unittest.TestCase):
         result = gateway.sync()
         self.assertIn(result["status"], {"READY", "PARTIAL"})
         self.assertNotEqual(result["reason"], "COMPILE_COMMANDS_REFRESH_NOT_CONFIGURED")
+
+    def test_scope_compile_database_rewrites_selected_paths_and_preserves_external_arguments(self):
+        holder, root = self.repo(); self.addCleanup(holder.cleanup)
+        build = root / "build"; build.mkdir()
+        (root / "src").mkdir(); (root / "include").mkdir()
+        source = root / "src/sample.cpp"
+        source.write_text("#include \"header.h\"\nint answer() { return 42; }\n", encoding="utf-8")
+        (root / "include/header.h").write_text("#define ANSWER 42\n", encoding="utf-8")
+        external = pathlib.Path(tempfile.mkdtemp(prefix="semantic-gateway-external-"))
+        self.addCleanup(shutil.rmtree, external)
+        external_include = external / "include with space"; external_include.mkdir(parents=True)
+        missing_external_directory = external / "missing-build"
+        compile_db = build / "compile_commands.json"
+        compile_db.write_text(json.dumps([
+            {"directory": str(root), "file": str(source), "output": str(build / "sample.o"),
+             "command": f"clang++ -I{root / 'include'} -I '{external_include}' -DPROJECT_ROOT={root / 'src'} -o '{build / 'sample.o'}' '{source}'"},
+            {"directory": "..", "file": "src/sample.cpp", "output": "build/sample.o",
+             "arguments": ["clang++", "-I", "include", "-I", str(external_include),
+                           "-o", "build/sample.o", "src/sample.cpp"]},
+            {"directory": str(missing_external_directory), "file": str(source),
+             "output": str(build / "external-dir.o"), "arguments": ["clang++", str(source)]},
+        ]), encoding="utf-8")
+        client = BackendClient(GatewayConfig(repo=root, build_dir=build, workset=("src/sample.cpp",)))
+        scope = client._prepare_scope()
+        self.addCleanup(client.close)
+        self.assertEqual((scope / "src/sample.cpp").read_text(encoding="utf-8"), source.read_text(encoding="utf-8"))
+        scoped_entries = json.loads((scope / "compile_commands.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(scoped_entries), 3)
+        for entry in scoped_entries[:2]:
+            self.assertEqual(entry["file"], str(scope / "src/sample.cpp"))
+            self.assertEqual(entry["directory"], str(scope))
+            self.assertEqual(entry["output"], str(scope / "build/sample.o"))
+        self.assertEqual(scoped_entries[2]["directory"], str(missing_external_directory))
+        self.assertFalse(missing_external_directory.exists())
+        self.assertEqual(scoped_entries[2]["file"], str(scope / "src/sample.cpp"))
+        self.assertEqual(scoped_entries[0]["command"].split(" -DPROJECT_ROOT=", 1)[1].split(" ", 1)[0],
+                         str(root / "src"))
+        self.assertIn(str(scope / "src/sample.cpp"), scoped_entries[0]["command"])
+        self.assertIn(str(root / "include"), scoped_entries[0]["command"])
+        self.assertEqual(scoped_entries[1]["arguments"][2], str(root / "include"))
+        self.assertEqual(scoped_entries[1]["arguments"][4], str(external_include))
 
     def test_fresh_gateway_refreshes_when_cmake_graph_is_newer_than_compile_database(self):
         holder, root = self.repo(); self.addCleanup(holder.cleanup)
