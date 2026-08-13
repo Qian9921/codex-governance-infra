@@ -37,6 +37,14 @@
 时不会猜测符号。工具安装/诊断使用独立的
 `scripts/install-semantic-tools.py --tools-home PATH --dry-run`。
 
+V21.2 的 MCP stdio adapter 使用 owner-private、按需启动的 Unix socket broker。
+同一 canonical worktree/Git/language namespace 的不同 client 进程复用同一个
+live backend PID/session；有界 scope 和原子 manifest 保存在
+`${XDG_CACHE_HOME:-~/.cache}/codex-semantic-gateway`。前台只应用 add/edit/delete
+精确 delta，source/header 修改不触发 build refresh。broker 死亡后会真实返回
+`reuse_mode=cold_rebuild`，不声称磁盘 graph persistence；可用 `idle_ttl_sec`
+配置空闲退出。
+
 本仓库不宣称兼容 Claude Code、Kimi Code、Zcode 或其他 Agent runtime。
 
 ## 三个档位

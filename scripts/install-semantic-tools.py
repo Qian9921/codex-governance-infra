@@ -18,7 +18,7 @@ from typing import Any
 UPSTREAM_URL = "https://github.com/samchon/graph.git"
 UPSTREAM = {"name": "@samchon/graph", "head": "95e20c9540e85fef542466172484229356d3d0d8",
             "tree": "e9ce033e380d77265c601579e436218502a6ccbd"}
-VERSION = "21.1.0"
+VERSION = "21.2.0"
 MANIFEST = "semantic-tools.v21.json"
 PYRIGHT_VERSION = "1.1.390"
 REGISTRATION = "semantic-gateway-mcp.json"
@@ -164,6 +164,7 @@ def _write_backend_config(tools_home: pathlib.Path, command: list[str] | None,
              # still applies the repository-local default and explicit config
              # values remain authoritative.
              "auto_refresh_build": repo is None or (repo / "CMakeLists.txt").is_file(),
+             "persistent_broker": True, "idle_ttl_sec": 30.0,
              "workset": [],
              "backend_command": command or [],
              "backend_commands": {
@@ -338,6 +339,7 @@ def _install(tools_home: pathlib.Path, *, dry_run: bool, codex_home: pathlib.Pat
         "pyright": f"install and verify pyright=={PYRIGHT_VERSION}",
         "clangd": "locate and verify host clangd; portable system installation is not claimed",
         "launcher": "semantic-backend-launcher.py with systemd-run scope or process-group timeout fallback",
+        "persistent_broker": "owner-private Unix-socket broker; XDG cache namespace; foreground atomic scope reconciliation",
         "register": {"json": str(codex_home / REGISTRATION) if codex_home and register and not dry_run else "$CODEX_HOME/semantic-gateway-mcp.json" if register else "guidance-only",
                      "config_toml": str(codex_home / CONFIG_TOML) if codex_home and register and not dry_run else "[mcp_servers.codex-semantic-gateway]" if register else "guidance-only"},
     }})

@@ -9,15 +9,19 @@ as semantic proof.
 from __future__ import annotations
 
 import argparse
+import errno
+import fcntl
 import hashlib
 import json
 import os
 import pathlib
 import selectors
 import shlex
+import socket
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -25,7 +29,8 @@ from typing import Any, Mapping, Sequence
 
 
 SCHEMA = "semantic-gateway.v1"
-VERSION = "21.1.0"
+VERSION = "21.2.0"
+PERSISTENT_SCHEMA = "semantic-gateway-persistent.v1"
 UPSTREAM = {
     "name": "@samchon/graph",
     "head": "95e20c9540e85fef542466172484229356d3d0d8",
@@ -98,6 +103,117 @@ def _canonical_repo(value: str | os.PathLike[str]) -> pathlib.Path:
     return path
 
 
+def _canonical_git_path(repo: pathlib.Path, value: str) -> pathlib.Path:
+    path = pathlib.Path(value)
+    if not path.is_absolute():
+        path = repo / path
+    return path.resolve(strict=False)
+
+
+def namespace_identity(repo: pathlib.Path, language: str) -> dict[str, str]:
+    """Return the stable owner namespace; worktree paths alone are insufficient."""
+    root = _canonical_repo(repo)
+    git_dir_raw = _git(root, "rev-parse", "--git-dir")
+    common_raw = _git(root, "rev-parse", "--git-common-dir")
+    if not git_dir_raw or not common_raw:
+        raise GatewayError("repository Git identity is unavailable")
+    return {"worktree": str(root), "git_dir": str(_canonical_git_path(root, git_dir_raw)),
+            "git_common_dir": str(_canonical_git_path(root, common_raw)),
+            "language": language}
+
+
+def _under(path: pathlib.Path, parent: pathlib.Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def persistent_state_dir(repo: pathlib.Path, language: str,
+                         explicit: pathlib.Path | None = None) -> pathlib.Path:
+    """Choose a private cache state directory outside repository/temp trees."""
+    identity = namespace_identity(repo, language)
+    payload = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
+    namespace = hashlib.sha256(payload).hexdigest()
+    configured = explicit or (pathlib.Path(os.environ["SEMANTIC_GATEWAY_CACHE"]).expanduser()
+                              if os.environ.get("SEMANTIC_GATEWAY_CACHE") else None)
+    base = configured or (pathlib.Path(os.environ.get("XDG_CACHE_HOME", pathlib.Path.home() / ".cache"))
+                          / "codex-semantic-gateway")
+    base = base.resolve()
+    forbidden = {repo.resolve(), pathlib.Path(namespace_identity(repo, language)["git_dir"]),
+                 pathlib.Path(namespace_identity(repo, language)["git_common_dir"]),
+                 pathlib.Path(tempfile.gettempdir()), pathlib.Path(os.sep, "var", "tmp").resolve()}
+    if any(_under(base, item) for item in forbidden):
+        raise GatewayError("persistent state must be outside repository, Git metadata, and temporary roots")
+    state = base / "namespaces" / namespace
+    state.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(base, 0o700)
+    os.chmod(state, 0o700)
+    return state
+
+
+def _broker_socket_path(state: pathlib.Path) -> pathlib.Path:
+    # Linux AF_UNIX paths are capped at 108 bytes. Keep the socket beside the
+    # full persistent namespace while retaining a collision-resistant prefix.
+    return state.parent / ("." + state.name[:20] + ".sock")
+
+
+def _broker_lock_path(state: pathlib.Path) -> pathlib.Path:
+    return state / "broker.lock"
+
+
+def _broker_starting_path(state: pathlib.Path) -> pathlib.Path:
+    return state / "broker.starting"
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _socket_is_live(socket_path: pathlib.Path) -> bool:
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+            probe.settimeout(0.5)
+            probe.connect(str(socket_path))
+            return True
+    except OSError:
+        return False
+
+
+def _atomic_json(path: pathlib.Path, value: Mapping[str, Any]) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + f".{os.getpid()}.tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        json.dump(value, handle, sort_keys=True, separators=(",", ":"))
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, path)
+
+
+def _read_manifest(path: pathlib.Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"schema": PERSISTENT_SCHEMA, "paths": {}, "generation": None,
+                "repair": "manifest_missing_or_invalid"}
+    if not isinstance(value, dict) or value.get("schema") != PERSISTENT_SCHEMA:
+        return {"schema": PERSISTENT_SCHEMA, "paths": {}, "generation": None,
+                "repair": "manifest_mismatch"}
+    paths = value.get("paths")
+    if not isinstance(paths, dict) or any(not isinstance(k, str) or not isinstance(v, str)
+                                           for k, v in paths.items()):
+        return {"schema": PERSISTENT_SCHEMA, "paths": {}, "generation": None,
+                "repair": "manifest_mismatch"}
+    return value
+
+
 @dataclass
 class GatewayConfig:
     repo: pathlib.Path
@@ -117,6 +233,9 @@ class GatewayConfig:
     auto_refresh_build: bool = False
     build_refresh_command: tuple[str, ...] = ()
     workset_limit: int = 64
+    persistent: bool = False
+    state_dir: pathlib.Path | None = None
+    idle_ttl_sec: float = 30.0
 
     def __post_init__(self) -> None:
         if self.profile not in PROFILES:
@@ -131,11 +250,15 @@ class GatewayConfig:
             raise GatewayError("WORKSET_EXCEEDS_RESIDENT_LIMIT")
         if any(not item for item in self.build_refresh_command):
             raise GatewayError("build_refresh_command contains an empty argument")
+        if self.idle_ttl_sec < 0:
+            raise GatewayError("idle_ttl_sec must be non-negative")
 
 
 def load_config(path: str | os.PathLike[str] | None,
                 repo: str | os.PathLike[str] | None = None,
-                language: str | None = None) -> GatewayConfig:
+                language: str | None = None,
+                *, persistent: bool = False,
+                state_dir: pathlib.Path | None = None) -> GatewayConfig:
     raw: dict[str, Any] = {}
     config_path = pathlib.Path(path).expanduser().resolve(strict=True) if path else None
     if config_path:
@@ -221,7 +344,9 @@ def load_config(path: str | os.PathLike[str] | None,
         backend_identity=raw.get("backend_identity", {}), config_path=config_path,
         known_answer_symbol=str(raw.get("known_answer_symbol", "__codex_semantic_gateway_probe__")),
         auto_refresh_build=auto_refresh_build, build_refresh_command=tuple(refresh_command),
-        workset_limit=workset_limit,
+        workset_limit=workset_limit, persistent=persistent,
+        state_dir=state_dir,
+        idle_ttl_sec=float(raw.get("idle_ttl_sec", 30.0)),
     )
 
 
@@ -280,13 +405,15 @@ def _canonical_compile_entry(entry: Mapping[str, Any], compile_db: pathlib.Path,
 class BackendClient:
     """One bounded MCP lifecycle: initialize, tools/list, tools/call, close."""
 
-    def __init__(self, config: GatewayConfig):
+    def __init__(self, config: GatewayConfig, scope_root: pathlib.Path | None = None):
         self.config = config
         self.process: subprocess.Popen[str] | None = None
         self._request_id = 0
         self.tools: list[dict[str, Any]] = []
         self._scope: tempfile.TemporaryDirectory[str] | None = None
         self._scope_root: pathlib.Path | None = None
+        self._persistent_scope = scope_root.resolve() if scope_root else None
+        self.session_id = _sha256(f"{os.getpid()}:{time.time_ns()}".encode())[:24]
 
     def _command(self) -> list[str]:
         if self.config.backend_command:
@@ -420,6 +547,18 @@ class BackendClient:
 
     def _prepare_scope(self) -> pathlib.Path:
         """Materialize a bounded resident input; never index a full large repo."""
+        if self._persistent_scope is not None:
+            self._persistent_scope.mkdir(mode=0o700, parents=True, exist_ok=True)
+            os.chmod(self._persistent_scope, 0o700)
+            compile_db = self.config.build_dir / "compile_commands.json" if self.config.build_dir else None
+            if compile_db and compile_db.is_file():
+                target = self._persistent_scope / "compile_commands.json"
+                temporary = target.with_name(target.name + f".{os.getpid()}.tmp")
+                self._materialize_compile_database(compile_db, temporary)
+                os.chmod(temporary, 0o600)
+                os.replace(temporary, target)
+            self._scope_root = self._persistent_scope
+            return self._persistent_scope
         if PROFILES[self.config.profile]["mode"] == "resident" and not self.config.workset:
             raise GatewayError("WORKSET_REQUIRED_FOR_RESIDENT")
         if PROFILES[self.config.profile]["mode"] != "resident" or not self.config.workset:
@@ -446,6 +585,53 @@ class BackendClient:
             self._materialize_compile_database(compile_db, root / "compile_commands.json")
         self._scope_root = root
         return root
+
+    def reconcile_scope(self, desired: Mapping[str, str]) -> dict[str, Any]:
+        """Apply the exact foreground delta to the persistent resident scope."""
+        if self._persistent_scope is None:
+            return {"added": [], "edited": [], "deleted": [], "changed": False}
+        root = self._persistent_scope
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        manifest_path = root.parent / "manifest.json"
+        old = _read_manifest(manifest_path)
+        old_paths = old.get("paths", {}) if isinstance(old.get("paths"), dict) else {}
+        if old.get("repair"):
+            # A crash can leave a valid file beside an invalid manifest. The
+            # bounded resident scope is the only state we repair; repository
+            # discovery remains request-scoped and there is no watcher.
+            for stale in root.rglob("*"):
+                if stale.is_file() and stale.name != "compile_commands.json":
+                    stale.unlink()
+            old_paths = {}
+        added = sorted(set(desired) - set(old_paths))
+        edited = sorted(path for path in set(desired) & set(old_paths)
+                        if desired[path] != old_paths[path]
+                        or not (root / path).is_file()
+                        or _sha256((root / path).read_bytes()) != old_paths[path])
+        deleted = sorted(set(old_paths) - set(desired))
+        for relative in deleted:
+            target = root / relative
+            if target.exists() and target.is_file():
+                target.unlink()
+        for relative in added + edited:
+            source = (self.config.repo / relative).resolve(strict=True)
+            try:
+                source.relative_to(self.config.repo)
+            except ValueError as exc:
+                raise GatewayError("WORKSET_ESCAPES_REPOSITORY") from exc
+            if source.is_symlink() or not source.is_file():
+                raise GatewayError("WORKSET_FILE_MISSING:" + relative)
+            target = root / relative
+            target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            temporary = target.with_name(target.name + f".{os.getpid()}.tmp")
+            shutil.copy2(source, temporary)
+            os.chmod(temporary, 0o600)
+            os.replace(temporary, target)
+        _atomic_json(manifest_path, {"schema": PERSISTENT_SCHEMA, "paths": dict(sorted(desired.items())),
+                                     "generation": _sha256(json.dumps(desired, sort_keys=True).encode()),
+                                     "delta": {"added": added, "edited": edited, "deleted": deleted}})
+        return {"added": added, "edited": edited, "deleted": deleted,
+                "changed": bool(added or edited or deleted), "manifest": str(manifest_path)}
 
     @staticmethod
     def _upstream_props(operation: str, symbol: str) -> dict[str, Any]:
@@ -529,7 +715,9 @@ class BackendClient:
             self.tools = listed.get("tools", []) if isinstance(listed, dict) else []
             if not any(isinstance(tool, dict) and tool.get("name") == "inspect_code_graph" for tool in self.tools):
                 raise GatewayError("BACKEND_INSPECT_TOOL_MISSING")
-            return {"status": "READY", "initialize": initialize, "tools": self.tools}
+            return {"status": "READY", "initialize": initialize, "tools": self.tools,
+                    "pid": self.process.pid, "session_id": self.session_id,
+                    "scope": str(self._scope_root) if self._scope_root else None}
         except Exception:
             self.close()
             raise
@@ -602,6 +790,80 @@ class Gateway:
         self._closed = False
         self._build_graph_signature: str | None = None
         self._build_refresh: dict[str, Any] = {"status": "NOT_RUN", "command": None}
+        self._persistent_client: BackendClient | None = None
+        self._persistent_scope: pathlib.Path | None = None
+        self._persistent_manifest: pathlib.Path | None = None
+        self._reuse_mode = "cold_start"
+
+    def enable_persistent(self, state_dir: pathlib.Path) -> None:
+        """Attach this gateway to one broker-owned resident backend namespace."""
+        state_dir = state_dir.resolve()
+        state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(state_dir, 0o700)
+        manifest = state_dir / "manifest.json"
+        self._reuse_mode = "cold_rebuild" if manifest.exists() else "cold_start"
+        self._persistent_scope = state_dir / "scope"
+        self._persistent_scope.mkdir(mode=0o700, exist_ok=True)
+        os.chmod(self._persistent_scope, 0o700)
+        self._persistent_manifest = manifest
+        self.config = GatewayConfig(**{**self.config.__dict__, "persistent": True,
+                                       "state_dir": state_dir})
+        self._persistent_client = BackendClient(self.config, self._persistent_scope)
+
+    def _persistent_receipt(self, receipt: dict[str, Any], delta: dict[str, Any]) -> dict[str, Any]:
+        receipt["persistent"] = {"schema": PERSISTENT_SCHEMA,
+                                 "state_dir": str(self.config.state_dir),
+                                 "scope": str(self._persistent_scope),
+                                 "manifest": str(self._persistent_manifest),
+                                 "reuse_mode": self._reuse_mode, "delta": delta}
+        return receipt
+
+    def persistent_query(self, operation: str, symbol: str, language: str = "cpp") -> dict[str, Any]:
+        """Reconcile and inspect through the one broker-resident backend."""
+        if operation not in OPERATIONS:
+            raise GatewayError("unsupported operation:" + operation)
+        if not symbol.strip():
+            raise GatewayError("symbol is required")
+        self._refresh_workset()
+        self._refresh_build_if_needed()
+        receipt = self._receipt()
+        if self._persistent_client is None:
+            return self._result("NOT_READY", "PERSISTENT_BACKEND_NOT_CONFIGURED", receipt,
+                                operation=operation, query={"symbol": symbol, "language": language},
+                                result=None)
+        refresh_status = self._build_refresh.get("status")
+        if refresh_status in {"FAILED", "PARTIAL", "NOT_CONFIGURED"}:
+            reason = {"FAILED": "COMPILE_COMMANDS_REFRESH_FAILED", "PARTIAL": "COMPILE_COMMANDS_INCOMPLETE",
+                      "NOT_CONFIGURED": "COMPILE_COMMANDS_REFRESH_NOT_CONFIGURED"}[refresh_status]
+            return self._result("PARTIAL", reason, self._persistent_receipt(receipt, {}),
+                                operation=operation, query={"symbol": symbol, "language": language}, result=None)
+        desired = {item: _sha256((self.config.repo / item).read_bytes())
+                   for item in self.config.workset if (self.config.repo / item).is_file()}
+        try:
+            delta = self._persistent_client.reconcile_scope(desired)
+            handshake = self._persistent_client.start()
+            facts = self._persistent_client.inspect(operation, symbol, language)
+            receipt = self._persistent_receipt(self._receipt(), delta)
+            backend = receipt.get("backend", {})
+            backend["runtime"] = {"pid": self._persistent_client.process.pid if self._persistent_client.process else None,
+                                   "session_id": self._persistent_client.session_id}
+            receipt["backend"] = backend
+            result = {"facts": facts.get("facts", facts), "proved_families": facts.get("proved_families", [operation]),
+                      "provenance": facts.get("provenance", {"backend": "@samchon/graph"})}
+            output = self._result("READY", "BACKEND_FACTS", receipt,
+                                  operation=operation, query={"symbol": symbol, "language": language},
+                                  result=result, handshake=handshake, truthfully_proved=True,
+                                  snapshot_id="sgw-" + receipt["generation"],
+                                  reuse_mode=self._reuse_mode)
+            self._reuse_mode = "warm_reuse"
+            return output
+        except GatewayError as exc:
+            if self._persistent_client:
+                self._persistent_client.close()
+            receipt = self._persistent_receipt(self._receipt(), locals().get("delta", {}))
+            return self._result("PARTIAL", str(exc), receipt,
+                                operation=operation, query={"symbol": symbol, "language": language}, result=None,
+                                reuse_mode=self._reuse_mode)
 
     def _language_suffixes(self) -> set[str]:
         return {".py", ".pyi"} if self.config.profile.startswith("python") else {
@@ -663,7 +925,15 @@ class Gateway:
             return
         signature, _graph_files, entries, graph_stale = self._build_graph_state()
         evidence_key = str((self.config.repo, self.config.build_dir))
-        previous_signature = _BUILD_GRAPH_EVIDENCE.get(evidence_key)
+        persisted_signature = None
+        if self.config.state_dir:
+            state = self.config.state_dir / "build-graph.json"
+            try:
+                value = json.loads(state.read_text(encoding="utf-8"))
+                persisted_signature = value.get("signature") if isinstance(value, dict) else None
+            except (OSError, json.JSONDecodeError):
+                persisted_signature = None
+        previous_signature = persisted_signature or _BUILD_GRAPH_EVIDENCE.get(evidence_key)
         graph_changed = previous_signature is not None and previous_signature != signature
         _BUILD_GRAPH_EVIDENCE[evidence_key] = signature
         compile_db = self.config.build_dir / "compile_commands.json" if self.config.build_dir else None
@@ -682,9 +952,24 @@ class Gateway:
         changed = graph_stale or graph_changed or (
             self._build_graph_signature is not None and signature != self._build_graph_signature)
         self._build_graph_signature = signature
+        # A source/header-only workset delta must never invoke the build route.
+        # Only the first graph observation or a changed build-graph identity may
+        # refresh compile commands; an incomplete DB then remains truthfully
+        # PARTIAL until the graph route is explicitly eligible.
+        initial_bootstrap = previous_signature is None
+        graph_refresh_allowed = initial_bootstrap or graph_stale or graph_changed
+        if absent and not graph_refresh_allowed:
+            self._build_refresh = {"status": "PARTIAL", "command": None,
+                                   "reason": "COMPILE_COMMANDS_INCOMPLETE"}
+            if self.config.state_dir:
+                _atomic_json(self.config.state_dir / "build-graph.json", {"signature": signature,
+                                                                            "refresh": self._build_refresh})
+            return
         if not absent and not changed:
             if self._build_refresh.get("status") not in {"READY", "FAILED"}:
                 self._build_refresh = {"status": "NOT_NEEDED", "command": None}
+            if self.config.state_dir:
+                _atomic_json(self.config.state_dir / "build-graph.json", {"signature": signature})
             return
         if not self.config.auto_refresh_build and not self.config.build_refresh_command:
             self._build_refresh = {"status": "NOT_CONFIGURED", "command": None,
@@ -710,6 +995,10 @@ class Gateway:
             if still_absent:
                 self._build_refresh.update({"status": "PARTIAL",
                                             "reason": "COMPILE_COMMANDS_INCOMPLETE"})
+        if self.config.state_dir:
+            _atomic_json(self.config.state_dir / "build-graph.json",
+                         {"signature": self._build_graph_signature or signature,
+                          "refresh": self._build_refresh})
 
     def _receipt(self) -> dict[str, Any]:
         identity = _content_identity(self.config.repo)
@@ -747,7 +1036,7 @@ class Gateway:
         requested = list(OPERATIONS)
         proved = list(extra.get("result", {}).get("proved_families", [])) if isinstance(extra.get("result"), dict) else []
         missing = [] if status == "READY" else ["backend_handshake", "backend_query_facts"]
-        fallback = None if status == "READY" else "exact_evidence"
+        fallback = None if status == "READY" else "bounded_exact_evidence"
         receipt.update({"status": status, "requested_families": requested, "proved_families": proved,
                         "facts": extra.get("result", {}).get("facts", []) if isinstance(extra.get("result"), dict) else [],
                         "missing": missing, "fallback": fallback, "resources": PROFILES[self.config.profile]})
@@ -860,19 +1149,210 @@ class Gateway:
 
     def close(self) -> dict[str, Any]:
         self._closed = True
+        if self._persistent_client:
+            self._persistent_client.close()
+            self._persistent_client = None
         return {"schema": SCHEMA, "version": VERSION, "status": "READY", "operation": "close", "closed": True}
+
+
+def _broker_config_path(value: str | None) -> str | None:
+    return value if value else None
+
+
+def broker_request(config: GatewayConfig, operation: str, symbol: str, language: str,
+                   state_dir: pathlib.Path | None = None) -> dict[str, Any]:
+    """Call the owner-private on-demand broker, starting it only when absent."""
+    state = state_dir or persistent_state_dir(config.repo, language, config.state_dir)
+    socket_path = _broker_socket_path(state)
+    payload = {"operation": operation, "symbol": symbol, "language": language}
+
+    def request_once() -> dict[str, Any] | None:
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                client.settimeout(15.0)
+                client.connect(str(socket_path))
+                client.sendall((json.dumps(payload, separators=(",", ":")) + "\n").encode())
+                data = b""
+                while not data.endswith(b"\n"):
+                    chunk = client.recv(65536)
+                    if not chunk:
+                        break
+                    data += chunk
+                if not data:
+                    return None
+                value = json.loads(data.decode())
+                return value if isinstance(value, dict) else None
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    result = request_once()
+    if result is not None:
+        return result
+    # The lock is the namespace-scoped startup election. Every contender
+    # rechecks the socket while holding it; no contender unlinks a live socket.
+    state.mkdir(mode=0o700, parents=True, exist_ok=True)
+    lock_handle = _broker_lock_path(state).open("a+")
+    os.chmod(_broker_lock_path(state), 0o600)
+    with lock_handle:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        result = request_once()
+        if result is None and not _socket_is_live(socket_path):
+            starting = _broker_starting_path(state)
+            can_start = True
+            if starting.exists():
+                try:
+                    owner = int(starting.read_text(encoding="ascii").strip())
+                except (OSError, ValueError):
+                    owner = 0
+                if owner and _pid_alive(owner):
+                    can_start = False
+                elif time.time() - starting.stat().st_mtime < 15.0:
+                    can_start = False
+                else:
+                    starting.unlink(missing_ok=True)
+            if can_start:
+                try:
+                    marker_fd = os.open(starting, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                except FileExistsError:
+                    marker_fd = None
+                if marker_fd is None:
+                    can_start = False
+                else:
+                    os.write(marker_fd, b"starting")
+                    os.close(marker_fd)
+            if can_start:
+                command = [sys.executable, str(pathlib.Path(__file__).resolve()), "--broker",
+                           "--state-dir", str(state), "--repo", str(config.repo), "--language", language,
+                           "--idle-ttl", str(config.idle_ttl_sec)]
+                if config.config_path:
+                    command.extend(["--config", str(config.config_path)])
+                process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                           stderr=subprocess.DEVNULL, start_new_session=True)
+                starting.write_text(str(process.pid), encoding="ascii")
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+    lock_handle.close()
+    deadline = time.monotonic() + 15.0
+    while time.monotonic() < deadline:
+        result = request_once()
+        if result is not None:
+            return result
+        time.sleep(0.02)
+    return {"schema": SCHEMA, "version": VERSION, "status": "PARTIAL",
+            "reason": "BROKER_UNAVAILABLE", "facts": [], "proved_families": [],
+            "missing": ["persistent_broker"], "fallback": "bounded_exact_evidence", "truthful": True}
+
+
+def _broker_main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description="owner-private persistent semantic gateway broker")
+    parser.add_argument("--state-dir", required=True)
+    parser.add_argument("--repo", required=True)
+    parser.add_argument("--language", default="cpp")
+    parser.add_argument("--config")
+    parser.add_argument("--idle-ttl", type=float, default=30.0)
+    args = parser.parse_args(argv)
+    state = pathlib.Path(args.state_dir).resolve()
+    repo = _canonical_repo(args.repo)
+    state.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(state, 0o700)
+    socket_path = _broker_socket_path(state)
+    starting = _broker_starting_path(state)
+    lock_handle = _broker_lock_path(state).open("a+")
+    os.chmod(_broker_lock_path(state), 0o600)
+    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+    gateway = Gateway(load_config(args.config, repo, args.language, persistent=True,
+                                  state_dir=state))
+    gateway.enable_persistent(state)
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        server.bind(str(socket_path))
+    except OSError as exc:
+        if exc.errno != errno.EADDRINUSE:
+            raise
+        # A live owner wins. Only a provably stale filesystem entry may be
+        # removed after the namespace lock is held.
+        server.close()
+        if _socket_is_live(socket_path):
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+            lock_handle.close()
+            return 0
+        socket_path.unlink()
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(str(socket_path))
+    os.chmod(socket_path, 0o600)
+    server.listen(8)
+    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+    lock_handle.close()
+    server.settimeout(max(0.1, args.idle_ttl))
+    last_request = time.monotonic()
+    try:
+        while True:
+            if args.idle_ttl == 0 and time.monotonic() - last_request >= 0:
+                break
+            try:
+                connection, _ = server.accept()
+            except socket.timeout:
+                if time.monotonic() - last_request >= args.idle_ttl:
+                    break
+                continue
+            last_request = time.monotonic()
+            with connection:
+                raw = b""
+                while not raw.endswith(b"\n"):
+                    chunk = connection.recv(65536)
+                    if not chunk:
+                        break
+                    raw += chunk
+                try:
+                    request = json.loads(raw.decode())
+                    if not isinstance(request, dict):
+                        raise GatewayError("broker request must be an object")
+                    # flock is deliberately per namespace, so distinct repositories
+                    # never serialize through a global lock.
+                    with (state / "namespace.lock").open("a+") as lock:
+                        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+                        result = gateway.persistent_query(request["operation"], request["symbol"],
+                                                          request.get("language", args.language))
+                        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+                except Exception as exc:
+                    result = gateway._result("PARTIAL", type(exc).__name__, gateway._receipt(),
+                                              operation=request.get("operation") if isinstance(locals().get("request"), dict) else None,
+                                              query={"symbol": request.get("symbol", "") if isinstance(locals().get("request"), dict) else ""},
+                                              result=None, truthful=True)
+                connection.sendall((json.dumps(result, sort_keys=True, separators=(",", ":")) + "\n").encode())
+    finally:
+        gateway.close()
+        server.close()
+        try:
+            socket_path.unlink()
+        except FileNotFoundError:
+            pass
+        try:
+            starting.unlink()
+        except FileNotFoundError:
+            pass
+        if not lock_handle.closed:
+            lock_handle.close()
+    return 0
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Compiler-derived semantic gateway")
-    parser.add_argument("operation", choices=("doctor", "sync", "close", *OPERATIONS))
+    parser.add_argument("operation", nargs="?", choices=("doctor", "sync", "close", *OPERATIONS))
     parser.add_argument("--repo", default="."); parser.add_argument("--config"); parser.add_argument("--symbol")
     parser.add_argument("--snapshot-id"); parser.add_argument("--language", default="cpp")
+    parser.add_argument("--broker", action="store_true"); parser.add_argument("--state-dir")
+    parser.add_argument("--idle-ttl", type=float, default=30.0)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.broker:
+        broker_args = ["--state-dir", args.state_dir, "--repo", args.repo,
+                       "--language", args.language, "--idle-ttl", str(args.idle_ttl)]
+        if args.config:
+            broker_args.extend(["--config", args.config])
+        return _broker_main(broker_args)
     try:
         gateway = Gateway(load_config(args.config, args.repo, args.language))
         if args.operation == "doctor": result = gateway.doctor()

@@ -1,5 +1,6 @@
 import pathlib
 import json
+import concurrent.futures
 import shutil
 import subprocess
 import sys
@@ -47,6 +48,32 @@ class SemanticGatewayTest(unittest.TestCase):
         self.assertEqual(stale["status"], "STALE")
         fresh = gateway.sync()
         self.assertNotEqual(snapshot, fresh["snapshot_id"])
+
+    def test_source_only_delta_never_refreshes_build_graph_but_graph_edit_does(self):
+        holder, root = self.repo(); self.addCleanup(holder.cleanup)
+        build = root / "build"; build.mkdir()
+        cmake = root / "CMakeLists.txt"; cmake.write_text("project(sample)\n", encoding="utf-8")
+        (build / "compile_commands.json").write_text(
+            json.dumps([{"file": "sample.cpp", "directory": str(root)}]), encoding="utf-8")
+        counter = root / "refresh-count"
+        command = (sys.executable, "-c",
+                   "import pathlib; p=pathlib.Path('refresh-count'); p.write_text(str(int(p.read_text())+1) if p.exists() else '1')")
+        gateway = Gateway(GatewayConfig(repo=root, build_dir=build, workset=("sample.cpp",),
+                                        auto_refresh_build=True, build_refresh_command=command,
+                                        backend_command=(sys.executable, str(self.fake_backend(root))),
+                                        provider_commands={"cpp": "/bin/true", "python": "/bin/true"}))
+        baseline = gateway.sync()
+        self.assertFalse(counter.exists())
+        (root / "added.cpp").write_text("int added() { return 1; }\n", encoding="utf-8")
+        source_only = gateway.sync()
+        self.assertEqual(source_only["status"], "PARTIAL")
+        self.assertEqual(source_only["reason"], "COMPILE_COMMANDS_INCOMPLETE")
+        self.assertFalse(counter.exists())
+        cmake.write_text("project(sample)\nset(REFRESHED ON)\n", encoding="utf-8")
+        cmake.touch()
+        graph_edit = gateway.sync()
+        self.assertEqual(counter.read_text(encoding="utf-8"), "1")
+        self.assertEqual(graph_edit["build_inputs"]["refresh"]["returncode"], 0)
 
     def test_configured_build_refresh_binds_compile_database_or_reports_failure(self):
         holder, root = self.repo(); self.addCleanup(holder.cleanup)
@@ -226,6 +253,91 @@ class SemanticGatewayTest(unittest.TestCase):
                                      provider_commands={"cpp": "/bin/true", "python": "/bin/true"},
                                      workset=("sample.cpp",), config_path=config_path))
 
+    def live_scope_backend(self, root):
+        script = root / "live_scope_backend.py"
+        script.write_text(
+            "import json, pathlib, re, sys, os\n"
+            "def facts():\n"
+            " names=[]\n"
+            " for p in pathlib.Path.cwd().rglob('*.cpp'):\n"
+            "  names += re.findall(r'\\b(?:int|void|float)\\s+([A-Za-z_]\\w*)\\s*\\(', p.read_text())\n"
+            " return names\n"
+            "for line in sys.stdin:\n"
+            " r=json.loads(line); m=r.get('method'); i=r.get('id')\n"
+            " if m=='initialize': out={'protocolVersion':'2025-06-18','capabilities':{},'serverInfo':{'name':'live-fixture','version':'1'}}\n"
+            " elif m=='notifications/initialized': continue\n"
+            " elif m=='tools/list': out={'tools':[{'name':'inspect_code_graph'}]}\n"
+            " elif m=='tools/call': out={'facts':[{'symbols':facts(),'pid':os.getpid()}], 'proved_families':['definition'], 'provenance':{'backend':'live-fixture'}}\n"
+            " elif m=='shutdown': out={}\n"
+            " else: out={}\n"
+            " if i is not None: print(json.dumps({'jsonrpc':'2.0','id':i,'result':out}),flush=True)\n",
+            encoding="utf-8")
+        return script
+
+    def test_live_backend_sees_external_scope_add_edit_delete_same_pid_session(self):
+        holder, root = self.repo(); self.addCleanup(holder.cleanup)
+        cache = pathlib.Path.home() / ".cache" / "codex-semantic-gateway-fixtures"
+        cache.mkdir(mode=0o700, parents=True, exist_ok=True)
+        state = pathlib.Path(tempfile.mkdtemp(prefix="fixture-", dir=str(cache)))
+        self.addCleanup(shutil.rmtree, state, True)
+        scope = state / "scope"; scope.mkdir(mode=0o700)
+        config = GatewayConfig(repo=root, workset=("sample.cpp",),
+                               backend_command=(sys.executable, str(self.live_scope_backend(root))),
+                               provider_commands={"cpp": "/bin/true", "python": "/bin/true"})
+        client = BackendClient(config, scope)
+        self.addCleanup(client.close)
+        shutil.copy2(root / "sample.cpp", scope / "sample.cpp")
+        first = client.inspect("definition", "answer", "cpp")
+        pid, session = client.process.pid, client.session_id
+        self.assertIn("answer", first["facts"][0]["symbols"])
+        (scope / "added.cpp").write_text("int added() { return 1; }\n", encoding="utf-8")
+        (scope / "sample.cpp").write_text("int renamed() { return 2; }\n", encoding="utf-8")
+        (scope / "deleted.cpp").write_text("int deleted() { return 3; }\n", encoding="utf-8")
+        second = client.inspect("definition", "added", "cpp")
+        self.assertEqual(client.process.pid, pid)
+        self.assertEqual(client.session_id, session)
+        self.assertIn("added", second["facts"][0]["symbols"])
+        (scope / "deleted.cpp").unlink()
+        third = client.inspect("definition", "deleted", "cpp")
+        self.assertNotIn("deleted", third["facts"][0]["symbols"])
+
+    def test_concurrent_cold_clients_elect_one_broker_and_backend(self):
+        holder, root = self.repo(); self.addCleanup(holder.cleanup)
+        config = root / "gateway.json"
+        config.write_text(json.dumps({"repo": str(root), "backend_command":
+                                      [sys.executable, str(self.fake_backend(root))],
+                                      "provider_commands": {"cpp": "/bin/true", "python": "/bin/true"},
+                                      "workset": ["sample.cpp"], "idle_ttl_sec": 5.0}), encoding="utf-8")
+        request = "\n".join((
+            json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
+            json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+            json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
+                "name": "inspect_semantic_graph", "arguments": {"repo": str(root),
+                "operation": "definition", "symbol": "answer"}}}), ""))
+
+        def invoke(_index):
+            completed = subprocess.run(
+                [sys.executable, str(pathlib.Path(__file__).parents[1] / "codex/bin/semantic-gateway-mcp.py"),
+                 "--config", str(config)], input=request, text=True, capture_output=True,
+                timeout=20, check=False)
+            lines = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
+            return completed.returncode, lines[-1]["result"]["structuredContent"] if lines else {}
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=24) as pool:
+            results = list(pool.map(invoke, range(24)))
+        self.assertTrue(all(code == 0 for code, _ in results))
+        payloads = [payload for _, payload in results]
+        self.assertTrue(all(payload.get("status") in {"READY", "PARTIAL"} for payload in payloads))
+        partial = [payload for payload in payloads if payload.get("status") == "PARTIAL"]
+        self.assertTrue(all(payload.get("facts") == [] and payload.get("proved_families") == []
+                            and payload.get("fallback") == "bounded_exact_evidence" for payload in partial))
+        ready = [payload for payload in payloads if payload.get("status") == "READY"]
+        if ready:
+            self.assertEqual({payload["backend"]["runtime"]["pid"] for payload in ready},
+                             {ready[0]["backend"]["runtime"]["pid"]})
+            self.assertEqual({payload["backend"]["runtime"]["session_id"] for payload in ready},
+                             {ready[0]["backend"]["runtime"]["session_id"]})
+
     def test_doctor_is_normalized_and_truthful_when_tools_are_missing(self):
         holder, root = self.repo()
         self.addCleanup(holder.cleanup)
@@ -250,7 +362,7 @@ class SemanticGatewayTest(unittest.TestCase):
         (root / "sample.cpp").write_text("int answer() { return 43; }\n", encoding="utf-8")
         stale = query(result["snapshot_id"], "impact", "answer")
         self.assertEqual(stale["status"], "STALE")
-        self.assertEqual(stale["fallback"], "exact_evidence")
+        self.assertEqual(stale["fallback"], "bounded_exact_evidence")
 
     def test_operation_set_and_close(self):
         holder, root = self.repo()

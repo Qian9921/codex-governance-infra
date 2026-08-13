@@ -374,7 +374,7 @@ def main() -> int:
         "status": "DRY_RUN" if args.dry_run else "READY",
         "mode": "managed-overlay",
         "package": "Codex Governance Infra",
-        "version": "21.1.0",
+        "version": "21.2.0",
         "files": len(entries),
         "destination": "$CODEX_HOME" if args.dry_run else str(destination),
         "agents_destination": "$HOME/.agents" if args.dry_run else str(agents_home),

@@ -1,4 +1,24 @@
-# V21 balanced-standard governance architecture
+# V21.2 balanced-standard governance architecture
+
+## Persistent semantic gateway
+
+V21.2 extends the existing gateway owner with an owner-private, on-demand
+Unix-socket broker. Its namespace is the canonical worktree, Git directory,
+Git common directory, and language, so separate MCP stdio client processes
+share one live upstream `BackendClient` process and session. Persistent scope
+and its atomic manifest live under the XDG cache directory (0700 state/scope
+directories and a 0600 socket), never in the repository, Git metadata, or
+temporary directories.
+
+Each foreground tools/call applies only the manifest's exact add/edit/delete
+delta with temporary-file-plus-rename writes. There is no watcher or background
+repository scan. Source/header changes keep the backend PID/session and do not
+refresh the build graph. Build refresh runs only for initial build-graph
+bootstrap or a changed persisted build-graph hash. After broker death the
+manifest and scope remain, but the next response truthfully reports
+`reuse_mode=cold_rebuild`; no disk graph persistence is claimed. Backend EOF,
+timeout, invalid or empty responses invalidate the live session and return zero
+facts with `bounded_exact_evidence` fallback.
 
 V21 is the product policy for ordinary reversible work. The existing `$v19-*`
 skill IDs and paths remain stable compatibility APIs; V21 extends their owners
