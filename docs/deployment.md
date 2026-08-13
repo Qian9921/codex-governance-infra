@@ -1,6 +1,6 @@
 # Deployment
 
-The active overlay is V21.1.0. `install-governance.py` remains the atomic
+The active semantic gateway product is V21.2.0. `install-governance.py` remains the atomic
 governance installer; `install-semantic-tools.py` is a separate idempotent,
 dry-run-capable dependency installer/doctor. The latter clones and verifies the
 pinned @samchon/graph commit/tree, runs its frozen-lockfile pnpm install/build,
@@ -38,13 +38,21 @@ python3 scripts/install-semantic-tools.py --tools-home "$SEMANTIC_TOOLS_HOME" \
 ```
 
 The managed `semantic-gateway-config.json` records the backend checkout, binary
-identity, and bounded workset. Registration writes one
+identity, bounded workset, and persistent broker idle TTL. Registration writes one
 `[mcp_servers.codex-semantic-gateway]` section to `config.toml`, preserving an
 unrelated existing config and retaining a rollback copy. It does not write
 credentials or silently change unrelated sections. Use `--uninstall` to remove
 only the manifest-owned checkout, provider, config, and registration.
 
 Use an isolated `CODEX_HOME` for verification first.
+
+The registered MCP stdio adapter is a client of an owner-private broker. One
+broker namespace is reused across separate client processes, with state under
+`${XDG_CACHE_HOME:-~/.cache}/codex-semantic-gateway`. Scope reconciliation is
+foreground-only and atomic. Set `idle_ttl_sec` in the managed gateway config to
+make broker/backend shutdown deterministic; `0` disables reuse after the current
+request. A broker restart keeps the scope manifest but reports `cold_rebuild`
+unless a separately proven static dump is reopened.
 `install-governance.py --dry-run` prints the allowlisted plan; a real install
 is a manifest-bound managed overlay. It atomically replaces only package-owned
 files, leaves every unrelated destination path untouched, and stores prior
@@ -53,7 +61,7 @@ and removes managed files that did not previously exist. Live global Codex-home
 deployment requires the exact manifest/hash review and the applicable
 authorization lane.
 
-The V21.1.0 personal overlay has two disjoint destinations: normal package files
+The V21.2.0 personal overlay has two disjoint destinations: normal package files
 under the selected `CODEX_HOME`, and stable V19 compatibility skills under the sibling
 `.agents/skills` root required by current Codex discovery. One backup generation
 inside `CODEX_HOME` covers both roots. A custom `--agents-home` must be supplied

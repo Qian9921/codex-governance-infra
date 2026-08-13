@@ -13,8 +13,8 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
-from semantic_gateway.gateway import GatewayError, load_config  # noqa: E402
-from semantic_gateway.gateway import Gateway  # noqa: E402
+from semantic_gateway.gateway import (GatewayError, broker_request, load_config,
+                                      persistent_state_dir)  # noqa: E402
 
 
 DEFAULT_CONFIG: str | None = None
@@ -58,13 +58,12 @@ def _call_tool(arguments: dict[str, Any]) -> dict[str, Any]:
     language = arguments.get("language", "cpp")
     if not isinstance(operation, str) or not isinstance(symbol, str) or not isinstance(language, str):
         raise GatewayError("operation, symbol, and language are required")
-    gateway = Gateway(load_config(arguments.get("config") or DEFAULT_CONFIG, repo, language))
-    if profile is None:
-        profile = gateway.config.profile
-    snapshot_id = arguments.get("snapshot_id")
-    if not isinstance(snapshot_id, str):
-        snapshot_id = gateway.sync(profile=profile).get("snapshot_id")
-    result = gateway.query(snapshot_id, operation, symbol, language)
+    config = load_config(arguments.get("config") or DEFAULT_CONFIG, repo, language)
+    if profile is not None and profile != config.profile:
+        config = type(config)(**{**config.__dict__, "profile": profile})
+    # The stdio process is deliberately only a client. The owner-private
+    # broker holds the live BackendClient and persistent scope.
+    result = broker_request(config, operation, symbol, language)
     return {"content": [{"type": "text", "text": json.dumps(result, sort_keys=True, separators=(",", ":"))}],
             "structuredContent": result, "isError": result.get("status") not in {"READY", "PARTIAL"}}
 
@@ -90,7 +89,7 @@ def main() -> int:
                 initialized = True
                 result = {"protocolVersion": PROTOCOL_VERSION,
                           "capabilities": {"tools": {"listChanged": False}},
-                          "serverInfo": {"name": "codex-semantic-gateway", "version": "21.1.0"}}
+                          "serverInfo": {"name": "codex-semantic-gateway", "version": "21.2.0"}}
                 print(json.dumps(_response(request_id, result), separators=(",", ":")), flush=True)
             elif method == "tools/list":
                 if not initialized:
