@@ -38,7 +38,7 @@ work_kind: discuss | repo_change
 capability: read_only | local_write | github_write | consequential_external
 ```
 
-Discussion normally stays read-only. Ordinary repository delivery may use the GitHub flow. Deletion, production release, credentials, and other irreversible external actions require separate confirmation; PR authorization does not imply them.
+Discussion normally stays read-only. Ordinary repository changes automatically use the GitHub flow unless the user explicitly requests local-only work. Deletion, production release, credentials, and other irreversible external actions require separate confirmation; PR authorization does not imply them.
 
 Use subagents for genuinely independent, bounded work when isolation or parallelism helps. Keep one writer per worktree. The parent owns the request, Git state, permissions, and final result. A spawned agent is not an outcome until it returns an artifact, evidence, test result, or verdict in this format:
 

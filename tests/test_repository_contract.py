@@ -111,6 +111,8 @@ class RepositoryContractTests(unittest.TestCase):
         self.assertIn("RTK", portable)
         self.assertIn("不是可选路由", installed_portable)
         self.assertNotIn("相关性判断", installed_portable)
+        self.assertIn("默认自动进入 GitHub 交付", installed_portable)
+        self.assertIn("2–3 个互斥方案", installed_portable)
         self.assertNotIn("[[hooks.Stop]]", installer)
         self.assertNotIn("/Users/", bootstrap)
         self.assertNotIn("/home/", bootstrap)

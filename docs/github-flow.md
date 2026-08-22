@@ -2,7 +2,7 @@
 
 ## Normal path
 
-For an authorized repository change:
+For every repository change unless the user explicitly requests local-only work:
 
 ```text
 understand → implement → verify → commit → push → Pull Request
