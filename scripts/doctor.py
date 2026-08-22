@@ -13,7 +13,10 @@ import tomllib
 from pathlib import Path
 from typing import Iterable
 
-from scripts.install import CONFIG_KIND, LOCAL_KIND, PORTABLE_KIND, active_global_agents, block_body, read_toml
+try:
+    from scripts.install import CONFIG_KIND, LOCAL_KIND, PORTABLE_KIND, active_global_agents, block_body, read_toml
+except ModuleNotFoundError:  # Support the documented `python scripts/doctor.py` entrypoint.
+    from install import CONFIG_KIND, LOCAL_KIND, PORTABLE_KIND, active_global_agents, block_body, read_toml
 
 
 def _result(name: str, ok: bool, detail: str) -> dict[str, object]:
