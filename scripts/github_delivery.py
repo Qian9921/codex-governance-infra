@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """A small stateless adapter for the V23 GitHub delivery path.
 
 This is intentionally not a scheduler or an approval security boundary. On one
@@ -8,14 +7,22 @@ GitHub branch/ruleset protection remains the server-side merge authority.
 
 from __future__ import annotations
 
+try:
+    from scripts.runtime import ensure_supported_python
+except ModuleNotFoundError:  # Support the documented direct script entrypoint.
+    from runtime import ensure_supported_python
+
+ensure_supported_python(__file__)
+
 import argparse
 import json
 import os
 import subprocess
 import sys
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable
+from urllib.parse import urlsplit
 
 
 class FlowError(RuntimeError):
@@ -38,10 +45,63 @@ class ReviewVerdict:
 
 
 Runner = Callable[[tuple[str, ...], dict[str, str]], subprocess.CompletedProcess[str]]
+_AMBIENT_AUTH_VARIABLES = (
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+    "GH_ENTERPRISE_TOKEN",
+    "GITHUB_ENTERPRISE_TOKEN",
+    "GIT_ASKPASS",
+    "SSH_ASKPASS",
+)
+_GIT_CONFIG_INJECTION_VARIABLES = (
+    "GIT_CONFIG",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
+)
 
 
-def _system_runner(command: tuple[str, ...], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+def _system_runner(
+    command: tuple[str, ...], env: dict[str, str]
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, env=env, text=True, capture_output=True, check=False)
+
+
+def _github_environment(config_dir: Path) -> dict[str, str]:
+    """Select one GH identity without accepting ambient token or askpass overrides."""
+    env = os.environ.copy()
+    for variable in _AMBIENT_AUTH_VARIABLES:
+        env.pop(variable, None)
+    for variable in tuple(env):
+        if variable in _GIT_CONFIG_INJECTION_VARIABLES or variable.startswith(
+            ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")
+        ):
+            env.pop(variable)
+    env["GH_CONFIG_DIR"] = str(config_dir)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    # The author push uses a prevalidated literal URL, so it does not need
+    # repository, global, or system Git configuration. Keeping those sources
+    # out prevents a later URL rewrite or scoped credential override.
+    env["GIT_CONFIG"] = os.devnull
+    env["GIT_CONFIG_GLOBAL"] = os.devnull
+    env["GIT_CONFIG_NOSYSTEM"] = "1"
+    return env
+
+
+def _local_config_environment() -> dict[str, str]:
+    """Read raw local remote configuration without inherited injection."""
+    env = os.environ.copy()
+    env.pop("GH_CONFIG_DIR", None)
+    for variable in _AMBIENT_AUTH_VARIABLES:
+        env.pop(variable, None)
+    for variable in tuple(env):
+        if variable in _GIT_CONFIG_INJECTION_VARIABLES or variable.startswith(
+            ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")
+        ):
+            env.pop(variable)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    return env
 
 
 class GHClient:
@@ -52,9 +112,7 @@ class GHClient:
         self._runner = runner or _system_runner
 
     def _run(self, *parts: str, allow_empty: bool = False) -> str:
-        env = os.environ.copy()
-        env["GH_CONFIG_DIR"] = str(self.config_dir)
-        completed = self._runner(tuple(parts), env)
+        completed = self._runner(tuple(parts), self.environment())
         if completed.returncode:
             detail = completed.stderr.strip() or "GitHub CLI command failed"
             raise FlowError(detail)
@@ -62,6 +120,10 @@ class GHClient:
         if not output and not allow_empty:
             raise FlowError("GitHub CLI returned no data")
         return output
+
+    def environment(self) -> dict[str, str]:
+        """Return the isolated environment used for this GitHub identity."""
+        return _github_environment(self.config_dir)
 
     @staticmethod
     def _json(output: str) -> object:
@@ -95,7 +157,9 @@ class GHClient:
         page = 1
         while True:
             value = self._json(
-                self._run("gh", "api", f"repos/{repo}/pulls/{number}/reviews?per_page=100&page={page}")
+                self._run(
+                    "gh", "api", f"repos/{repo}/pulls/{number}/reviews?per_page=100&page={page}"
+                )
             )
             if not isinstance(value, list):
                 raise FlowError("pull request reviews response is not a list")
@@ -109,7 +173,8 @@ class GHClient:
             (index, review)
             for index, review in enumerate(self.reviews(repo, number))
             if str(review.get("user", {}).get("login", "")).casefold() == reviewer.casefold()
-            and str(review.get("state", "")).upper() in {"APPROVED", "CHANGES_REQUESTED", "DISMISSED"}
+            and str(review.get("state", "")).upper()
+            in {"APPROVED", "CHANGES_REQUESTED", "DISMISSED"}
         ]
         if not matches:
             return None
@@ -120,9 +185,7 @@ class GHClient:
     def has_current_approval(self, repo: str, number: int, reviewer: str, head_sha: str) -> bool:
         review = self.latest_reviewer_review(repo, number, reviewer)
         return bool(
-            review
-            and review.get("state") == "APPROVED"
-            and review.get("commit_id") == head_sha
+            review and review.get("state") == "APPROVED" and review.get("commit_id") == head_sha
         )
 
     def unresolved_threads(self, repo: str, number: int) -> list[dict]:
@@ -139,8 +202,17 @@ class GHClient:
         unresolved: list[dict] = []
         while True:
             command = [
-                "gh", "api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}",
-                "-f", f"name={name}", "-F", f"number={number}",
+                "gh",
+                "api",
+                "graphql",
+                "-f",
+                f"query={query}",
+                "-f",
+                f"owner={owner}",
+                "-f",
+                f"name={name}",
+                "-F",
+                f"number={number}",
             ]
             if cursor:
                 command.extend(("-f", f"cursor={cursor}"))
@@ -150,7 +222,11 @@ class GHClient:
             except (KeyError, TypeError) as error:
                 raise FlowError("review thread response is incomplete") from error
             nodes = threads.get("nodes", []) if isinstance(threads, dict) else []
-            unresolved.extend(node for node in nodes if isinstance(node, dict) and not node.get("isResolved", False))
+            unresolved.extend(
+                node
+                for node in nodes
+                if isinstance(node, dict) and not node.get("isResolved", False)
+            )
             page = threads.get("pageInfo", {}) if isinstance(threads, dict) else {}
             if not page.get("hasNextPage", False):
                 return unresolved
@@ -160,7 +236,15 @@ class GHClient:
 
     def required_checks_pass(self, repo: str, number: int) -> bool:
         output = self._run(
-            "gh", "pr", "checks", str(number), "--repo", repo, "--required", "--json", "name,state",
+            "gh",
+            "pr",
+            "checks",
+            str(number),
+            "--repo",
+            repo,
+            "--required",
+            "--json",
+            "name,state",
             allow_empty=True,
         )
         if not output:
@@ -169,35 +253,77 @@ class GHClient:
             checks = self._json(output)
         except FlowError:
             # Text mode is also accepted by gh; only explicit failing statuses block.
-            return not any(word in output.casefold() for word in ("fail", "pending", "cancel", "error"))
+            return not any(
+                word in output.casefold() for word in ("fail", "pending", "cancel", "error")
+            )
         if not isinstance(checks, list):
             return False
         allowed = {"SUCCESS", "NEUTRAL", "SKIPPED"}
-        return all(str(check.get("state", "")).upper() in allowed for check in checks if isinstance(check, dict))
+        return all(
+            str(check.get("state", "")).upper() in allowed
+            for check in checks
+            if isinstance(check, dict)
+        )
 
     def submit_review(self, repo: str, number: int, verdict: ReviewVerdict) -> None:
         head = self.current_head(repo, number)
         if head != verdict.reviewed_sha:
-            raise FlowError(f"stale review: current head changed from {verdict.reviewed_sha} to {head}")
+            raise FlowError(
+                f"stale review: current head changed from {verdict.reviewed_sha} to {head}"
+            )
         self._run(
-            "gh", "api", "--method", "POST", f"repos/{repo}/pulls/{number}/reviews",
-            "-f", f"commit_id={verdict.reviewed_sha}", "-f", f"event={verdict.event}",
-            "-f", f"body={verdict.body}", allow_empty=True,
+            "gh",
+            "api",
+            "--method",
+            "POST",
+            f"repos/{repo}/pulls/{number}/reviews",
+            "-f",
+            f"commit_id={verdict.reviewed_sha}",
+            "-f",
+            f"event={verdict.event}",
+            "-f",
+            f"body={verdict.body}",
+            allow_empty=True,
         )
 
     def find_or_create_pr(self, repo: str, branch: str, base: str, title: str, body: str) -> int:
         existing = self._json(
-            self._run("gh", "pr", "list", "--repo", repo, "--head", branch, "--state", "open", "--json", "number")
+            self._run(
+                "gh",
+                "pr",
+                "list",
+                "--repo",
+                repo,
+                "--head",
+                branch,
+                "--state",
+                "open",
+                "--json",
+                "number",
+            )
         )
         if isinstance(existing, list) and existing:
             number = existing[0].get("number") if isinstance(existing[0], dict) else None
             if isinstance(number, int):
                 return number
         created_url = self._run(
-            "gh", "pr", "create", "--repo", repo, "--head", branch, "--base", base,
-            "--title", title, "--body", body,
+            "gh",
+            "pr",
+            "create",
+            "--repo",
+            repo,
+            "--head",
+            branch,
+            "--base",
+            base,
+            "--title",
+            title,
+            "--body",
+            body,
         )
-        created = self._json(self._run("gh", "pr", "view", created_url, "--repo", repo, "--json", "number"))
+        created = self._json(
+            self._run("gh", "pr", "view", created_url, "--repo", repo, "--json", "number")
+        )
         if not isinstance(created, dict) or not isinstance(created.get("number"), int):
             raise FlowError("created pull request response has no number")
         return created["number"]
@@ -212,11 +338,13 @@ class DeliveryFlow:
         reviewer: GHClient,
         expected_author: str,
         expected_reviewer: str,
+        git_runner: Runner | None = None,
     ) -> None:
         self.author = author
         self.reviewer = reviewer
         self.expected_author = expected_author
         self.expected_reviewer = expected_reviewer
+        self._git_runner = git_runner or _system_runner
 
     def preflight(self) -> tuple[str, str]:
         author, reviewer = self.author.login(), self.reviewer.login()
@@ -232,8 +360,116 @@ class DeliveryFlow:
         self.preflight()
         self.reviewer.submit_review(repo, number, verdict)
 
+    def push_branch(self, workdir: Path, remote: str, refspec: str) -> None:
+        """Push through the configured author identity, never an ambient credential."""
+        self.preflight()
+        if not workdir.is_dir():
+            raise FlowError(f"Git worktree does not exist: {workdir}")
+        if not remote or not refspec:
+            raise FlowError("remote and refspec are required for an author push")
+        env = self.author.environment()
+        remote_url = self._author_push_url(workdir, remote)
+        command = [
+            "git",
+            "-C",
+            str(workdir.resolve()),
+            "-c",
+            "credential.helper=",
+        ]
+        for setting in self._author_push_clears(remote_url):
+            command.extend(("-c", f"{setting}="))
+        command.extend(
+            (
+                "-c",
+                f"{self._author_push_helper(remote_url)}=!gh auth git-credential",
+            )
+        )
+        command.extend(("push", remote_url, refspec))
+        completed = self._git_runner(tuple(command), env)
+        if completed.returncode:
+            detail = completed.stderr.strip() or "Git push failed"
+            raise FlowError(detail)
+
+    def _author_push_url(self, workdir: Path, remote: str) -> str:
+        """Return a credential-free HTTPS GitHub push URL for the author helper."""
+        completed = self._git_runner(
+            (
+                "git",
+                "-C",
+                str(workdir.resolve()),
+                "config",
+                "--local",
+                "--no-includes",
+                "--get-all",
+                f"remote.{remote}.pushurl",
+            ),
+            _local_config_environment(),
+        )
+        if completed.returncode == 1:
+            completed = self._git_runner(
+                (
+                    "git",
+                    "-C",
+                    str(workdir.resolve()),
+                    "config",
+                    "--local",
+                    "--no-includes",
+                    "--get-all",
+                    f"remote.{remote}.url",
+                ),
+                _local_config_environment(),
+            )
+        if completed.returncode:
+            detail = completed.stderr.strip() or "cannot resolve Git push remote"
+            raise FlowError(detail)
+        urls = [value for value in completed.stdout.splitlines() if value]
+        if len(urls) != 1:
+            raise FlowError("author push requires exactly one raw local push URL")
+        remote_url = urls[0]
+        parsed = urlsplit(remote_url)
+        if (
+            parsed.scheme != "https"
+            or parsed.hostname is None
+            or parsed.hostname.casefold() != "github.com"
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise FlowError("author push requires a credential-free HTTPS github.com remote")
+        return remote_url
+
+    @staticmethod
+    def _author_push_clears(remote_url: str) -> tuple[str, ...]:
+        """Clear generic, host, owner, and exact-remote credential overrides."""
+        parsed = urlsplit(remote_url)
+        parts = [part for part in parsed.path.split("/") if part]
+        if len(parts) < 2:
+            raise FlowError("author push URL must identify a GitHub repository")
+        host = "https://github.com"
+        owner = f"{host}/{parts[0]}"
+        exact = f"{host}/{'/'.join(parts)}"
+        return (
+            "credential.helper",
+            f"credential.{host}.helper",
+            f"credential.{owner}.helper",
+            f"credential.{exact}.helper",
+            "http.extraHeader",
+            f"http.{host}/.extraHeader",
+            f"http.{owner}/.extraHeader",
+            f"http.{exact}.extraHeader",
+        )
+
+    @staticmethod
+    def _author_push_helper(remote_url: str) -> str:
+        """Return the host-level helper key that works without credential paths."""
+        parsed = urlsplit(remote_url)
+        if parsed.hostname is None or parsed.hostname.casefold() != "github.com":
+            raise FlowError("author push requires a GitHub hostname")
+        return "credential.https://github.com.helper"
+
     def merge_if_ready(self, repo: str, number: int, reviewed_sha: str) -> None:
-        author, reviewer = self.preflight()
+        _author, reviewer = self.preflight()
         current = self.author.current_head(repo, number)
         if current != reviewed_sha:
             raise FlowError(f"pull request head changed: expected {reviewed_sha}, found {current}")
@@ -246,14 +482,24 @@ class DeliveryFlow:
         if self.author.current_head(repo, number) != reviewed_sha:
             raise FlowError("pull request head changed before merge")
         self.author._run(
-            "gh", "pr", "merge", str(number), "--repo", repo, "--merge",
-            "--match-head-commit", reviewed_sha, allow_empty=True,
+            "gh",
+            "pr",
+            "merge",
+            str(number),
+            "--repo",
+            repo,
+            "--merge",
+            "--match-head-commit",
+            reviewed_sha,
+            allow_empty=True,
         )
 
 
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("preflight", "ensure-pr", "publish-review", "merge"))
+    parser.add_argument(
+        "command", choices=("preflight", "push", "ensure-pr", "publish-review", "merge")
+    )
     parser.add_argument("--author-config", type=Path, required=True)
     parser.add_argument("--reviewer-config", type=Path, required=True)
     parser.add_argument("--author-login", required=True)
@@ -263,8 +509,13 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--sha")
     parser.add_argument("--branch")
     parser.add_argument("--base")
+    parser.add_argument("--workdir", type=Path)
+    parser.add_argument("--remote", default="origin")
+    parser.add_argument("--refspec")
     parser.add_argument("--title")
-    parser.add_argument("--event", choices=("APPROVE", "REQUEST_CHANGES", "COMMENT"), default="APPROVE")
+    parser.add_argument(
+        "--event", choices=("APPROVE", "REQUEST_CHANGES", "COMMENT"), default="APPROVE"
+    )
     parser.add_argument("--body", default="Independent current-head review.")
     args = parser.parse_args(argv)
     flow = DeliveryFlow(
@@ -276,11 +527,23 @@ def main(argv: Iterable[str] | None = None) -> int:
     try:
         if args.command == "preflight":
             print(json.dumps(dict(zip(("author", "reviewer"), flow.preflight()))))
+        elif args.command == "push":
+            if not (args.workdir and args.refspec):
+                raise FlowError("--workdir and --refspec are required")
+            flow.push_branch(args.workdir, args.remote, args.refspec)
         elif args.command == "ensure-pr":
             if not (args.repo and args.branch and args.base and args.title):
                 raise FlowError("--repo, --branch, --base, and --title are required")
             flow.preflight()
-            print(json.dumps({"number": flow.author.find_or_create_pr(args.repo, args.branch, args.base, args.title, args.body)}))
+            print(
+                json.dumps(
+                    {
+                        "number": flow.author.find_or_create_pr(
+                            args.repo, args.branch, args.base, args.title, args.body
+                        )
+                    }
+                )
+            )
         elif args.command == "publish-review":
             if not (args.repo and args.pr and args.sha):
                 raise FlowError("--repo, --pr, and --sha are required")

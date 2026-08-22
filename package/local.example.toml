@@ -4,6 +4,10 @@
 [opening]
 instruction = ""
 
+[runtime]
+# Optional but recommended: an absolute Python 3.11+ path used by the prompt hook.
+python = ""
+
 [models]
 primary = ""
 primary_effort = "medium"
@@ -18,6 +22,7 @@ reviewer_login = ""
 reviewer_config_dir = ""
 
 [tools]
+# All three are required. V23 uses and health-checks each one for every new task.
 codegraph = ""
 semble = ""
 rtk = ""

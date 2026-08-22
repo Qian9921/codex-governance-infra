@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
-import subprocess
-import sys
 
 from scripts.doctor import doctor
 from scripts.install import install
-
+from scripts.task_bootstrap import ToolResult
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -40,22 +40,36 @@ reviewer = "reviewer-model"
 instruction = "Local-only opening."
 
 [tools]
-codegraph = ""
-semble = ""
-rtk = ""
+codegraph = "codegraph"
+semble = "semble"
+rtk = "rtk"
 """.lstrip(),
                 encoding="utf-8",
             )
             codex_home = root / "codex"
             install(ROOT, codex_home, local, root / "state")
 
-            report = doctor(codex_home, local, ROOT / "tests", check_github=False)
+            report = doctor(
+                codex_home,
+                local,
+                ROOT / "tests",
+                check_github=False,
+                tool_probe=lambda _cwd, _prompt, _tools: [
+                    ToolResult("CodeGraph", True, "queried"),
+                    ToolResult("Semble", True, "searched"),
+                    ToolResult("RTK", True, "inspected"),
+                ],
+            )
             checks = {check["name"]: check for check in report["checks"]}
             self.assertTrue(report["ok"])
             self.assertTrue(checks["codex_config_syntax"]["ok"])
             self.assertTrue(checks["primary_profile"]["ok"])
             self.assertTrue(checks["agent_v23_executor"]["ok"])
             self.assertTrue(checks["agent_v23_reviewer"]["ok"])
+            self.assertTrue(checks["task_bootstrap_hook"]["ok"])
+            self.assertTrue(checks["tool_codegraph"]["ok"])
+            self.assertTrue(checks["tool_semble"]["ok"])
+            self.assertTrue(checks["tool_rtk"]["ok"])
             self.assertEqual(report["project_instruction_candidates"], [str(ROOT / "AGENTS.md")])
             self.assertEqual(report["primary_profile_start"], "codex --profile v23-primary")
 

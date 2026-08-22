@@ -6,14 +6,14 @@ import unittest
 from pathlib import Path
 
 from scripts.install import (
-    InstallError,
     MARKER,
     PORTABLE_KIND,
+    InstallError,
+    block_body,
     install,
     replace_managed_block,
     uninstall,
 )
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -22,6 +22,7 @@ class InstallerTests(unittest.TestCase):
     def make_repo(self, root: Path) -> tuple[Path, Path]:
         repo = root / "repo"
         (repo / "package/agents").mkdir(parents=True)
+        (repo / "scripts").mkdir()
         (repo / "package/v23-primary.config.toml.in").write_text(
             'model = "{{primary_model}}"\nmodel_reasoning_effort = "{{primary_effort}}"\n'
             'review_model = "{{reviewer_model}}"\n',
@@ -42,6 +43,7 @@ class InstallerTests(unittest.TestCase):
         (repo / "package/global-portable.md").write_text(
             "Work identity: Principal Engineer / Research Scientist.\n", encoding="utf-8"
         )
+        (repo / "scripts/task_bootstrap.py").write_text("print('bootstrap')\n", encoding="utf-8")
         skill = repo / ".agents/skills/engineering-delivery"
         skill.mkdir(parents=True)
         (skill / "SKILL.md").write_text(
@@ -101,7 +103,10 @@ instruction = "Local-only opening."
             self.assertIn("Personal rule.", installed)
             self.assertIn("Principal Engineer / Research Scientist", installed)
             self.assertIn("Local-only opening.", installed)
-            self.assertIn("user_setting = true", (codex_home / "config.toml").read_text())
+            config_text = (codex_home / "config.toml").read_text()
+            self.assertIn("user_setting = true", config_text)
+            self.assertIn("[[hooks.UserPromptSubmit]]", config_text)
+            self.assertTrue((codex_home / "harness/v23/task_bootstrap.py").is_file())
 
             uninstall(codex_home, state_dir)
             self.assertEqual(agents.read_text(encoding="utf-8"), "Personal rule.\n")
@@ -149,7 +154,10 @@ instruction = "Local-only opening."
             codex_home, state_dir = root / "codex", root / "state"
             install(repo, codex_home, local, state_dir)
             config = codex_home / "config.toml"
-            config.write_text(config.read_text(encoding="utf-8").replace("V23 scoped", "Edited V23"), encoding="utf-8")
+            config.write_text(
+                config.read_text(encoding="utf-8").replace("V23 scoped", "Edited V23"),
+                encoding="utf-8",
+            )
 
             report = uninstall(codex_home, state_dir)
             self.assertTrue((codex_home / "agents/v23-executor.toml").exists())
@@ -176,7 +184,9 @@ instruction = "Local-only opening."
             codex_home = root / "codex"
             codex_home.mkdir()
             config = codex_home / "config.toml"
-            original = "[agents.v23_executor]\ndescription = \"personal\"\nconfig_file = \"personal.toml\"\n"
+            original = (
+                '[agents.v23_executor]\ndescription = "personal"\nconfig_file = "personal.toml"\n'
+            )
             config.write_text(original, encoding="utf-8")
 
             with self.assertRaises(InstallError):
@@ -194,7 +204,9 @@ instruction = "Local-only opening."
             with self.assertRaisesRegex(InstallError, "path changed"):
                 install(repo, codex_home, local, state_dir)
             self.assertIn(MARKER, (codex_home / "AGENTS.md").read_text(encoding="utf-8"))
-            self.assertNotIn(MARKER, (codex_home / "AGENTS.override.md").read_text(encoding="utf-8"))
+            self.assertNotIn(
+                MARKER, (codex_home / "AGENTS.override.md").read_text(encoding="utf-8")
+            )
 
     def test_uninstall_allows_reinstall_after_global_override_is_created(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -235,7 +247,9 @@ instruction = "Local-only opening."
 
             with self.assertRaises(InstallError):
                 install(repo, codex_home, local, state_dir)
-            self.assertEqual((codex_home / "AGENTS.md").read_text(encoding="utf-8"), "Personal rule.\n")
+            self.assertEqual(
+                (codex_home / "AGENTS.md").read_text(encoding="utf-8"), "Personal rule.\n"
+            )
             self.assertFalse((codex_home / "config.toml").exists())
 
     def test_install_rejects_state_symlink_before_mutating_codex_files(self) -> None:
@@ -280,6 +294,19 @@ instruction = "Local-only opening."
                 install(repo, codex_home, local, root / "state")
             self.assertFalse((codex_home / "config.toml").exists())
 
+    def test_install_rejects_unsupported_explicit_python_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo, local = self.make_repo(root)
+            local.write_text(
+                local.read_text(encoding="utf-8")
+                + '\n[runtime]\npython = "/not-a-python-runtime"\n',
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(InstallError, "runtime"):
+                install(repo, root / "codex", local, root / "state")
+
     def test_real_repository_blank_home_smoke(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -305,7 +332,9 @@ instruction = "Local-only opening."
             self.assertTrue((codex_home / "agents/v23-executor.toml").is_file())
             self.assertTrue((codex_home / "agents/v23-reviewer.toml").is_file())
             self.assertTrue((codex_home / "skills/engineering-delivery/SKILL.md").is_file())
-            self.assertIn("[agents.\"v23_executor\"]", (codex_home / "config.toml").read_text())
+            self.assertTrue((codex_home / "harness/v23/task_bootstrap.py").is_file())
+            self.assertIn('[agents."v23_executor"]', (codex_home / "config.toml").read_text())
+            self.assertIn("[[hooks.UserPromptSubmit]]", (codex_home / "config.toml").read_text())
             tomllib.loads((codex_home / "config.toml").read_text())
             primary = tomllib.loads((codex_home / "v23-primary.config.toml").read_text())
             self.assertEqual(primary["model"], "primary-model")
@@ -324,6 +353,34 @@ instruction = "Local-only opening."
             self.assertFalse((codex_home / "v23-primary.config.toml").exists())
             self.assertFalse((codex_home / "agents/v23-executor.toml").exists())
             self.assertFalse((codex_home / "skills/engineering-delivery").exists())
+            self.assertFalse((codex_home / "harness/v23/task_bootstrap.py").exists())
+
+    def test_install_preserves_unowned_hook_trust_sections(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo, local = self.make_repo(root)
+            codex_home = root / "codex"
+            codex_home.mkdir()
+            old_hook = codex_home.resolve() / "hooks.json"
+            config = codex_home / "config.toml"
+            config.write_text(
+                (
+                    "[hooks.state]\n"
+                    f'[hooks.state."{old_hook}:stop:0:0"]\n'
+                    'trusted_hash = "old"\n'
+                    '[hooks.state."/user-owned/hooks.json:stop:0:0"]\n'
+                    'trusted_hash = "keep"\n'
+                ),
+                encoding="utf-8",
+            )
+
+            install(repo, codex_home, local, root / "state")
+
+            rendered = config.read_text(encoding="utf-8")
+            self.assertIn(f"{old_hook}:stop:0:0", rendered)
+            self.assertIn("/user-owned/hooks.json:stop:0:0", rendered)
+            self.assertIsNotNone(block_body(rendered, "CONFIG"))
+            self.assertIn("UserPromptSubmit", tomllib.loads(rendered)["hooks"])
 
 
 if __name__ == "__main__":

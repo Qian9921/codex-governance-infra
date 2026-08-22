@@ -42,11 +42,11 @@ Every new commit changes the review target. Merge requires a valid approval for 
 
 ## Installation boundary
 
-The installer changes only explicitly owned files and marked blocks. It preserves unrelated personal configuration, tools, credentials, and user-authored rules. An unmarked file containing user content is not overwritten. It does not install background services, hooks, or indexes as a default, and uninstallation removes only content owned by this project.
+The installer changes only explicitly owned files and marked blocks. It preserves unrelated personal configuration, tools, credentials, and user-authored rules. An unmarked file containing user content is not overwritten. It installs exactly one UserPromptSubmit hook because this V23 requires CodeGraph, Semble, and RTK to be health-checked and used for every new task; it installs no Stop hook, background service, daemon, or project-tracked index. Uninstallation removes only content owned by this project.
 
 ## Local activation
 
-Copy `package/local.example.toml` to a local-only path, fill its model, opening, GitHub, and optional tool fields, then run `python scripts/install.py install --local-config <local-file>`. Start the primary V23 profile with `codex --profile v23-primary`; it selects the local primary model and maps native `/review` to the local review model. The V23 executor and reviewer remain separately registered custom agents.
+Copy `package/local.example.toml` to a local-only path, fill its model, opening, GitHub, Python runtime, and all three tool fields, then run `python scripts/install.py install --local-config <local-file>`. Start the primary V23 profile with `codex --profile v23-primary`; it selects the local primary model and maps native `/review` to the local review model. Review and trust the one V23 UserPromptSubmit hook in Codex's hook browser before relying on task bootstrap. The V23 executor and reviewer remain separately registered custom agents.
 
 ## Start here
 

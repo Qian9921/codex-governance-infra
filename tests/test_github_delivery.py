@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+import os
 import subprocess
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from scripts.github_delivery import DeliveryFlow, FlowError, GHClient, ReviewVerdict
 
@@ -12,9 +15,13 @@ class FakeRunner:
     def __init__(self, responses: list[tuple[int, str, str]]) -> None:
         self.responses = list(responses)
         self.calls: list[tuple[tuple[str, ...], str]] = []
+        self.environments: list[dict[str, str]] = []
 
-    def __call__(self, command: tuple[str, ...], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-        self.calls.append((tuple(command), env["GH_CONFIG_DIR"]))
+    def __call__(
+        self, command: tuple[str, ...], env: dict[str, str]
+    ) -> subprocess.CompletedProcess[str]:
+        self.calls.append((tuple(command), env.get("GH_CONFIG_DIR", "")))
+        self.environments.append(dict(env))
         if not self.responses:
             raise AssertionError(f"unexpected command: {command}")
         code, stdout, stderr = self.responses.pop(0)
@@ -36,7 +43,13 @@ class GithubDeliveryTests(unittest.TestCase):
 
     def test_preflight_uses_distinct_config_directories_and_accounts(self) -> None:
         runner = FakeRunner([user("author-one"), user("reviewer-two")])
-        flow = self.client_pair(runner)
+        flow = DeliveryFlow(
+            GHClient(Path("/profiles/author"), runner),
+            GHClient(Path("/profiles/reviewer"), runner),
+            "author-one",
+            "reviewer-two",
+            git_runner=runner,
+        )
 
         self.assertEqual(flow.preflight(), ("author-one", "reviewer-two"))
         self.assertEqual(
@@ -74,7 +87,19 @@ class GithubDeliveryTests(unittest.TestCase):
             client.find_or_create_pr("owner/repo", "feature/v23", "main", "V23", "body"),
             23,
         )
-        self.assertIn(("gh", "pr", "view", "https://github.com/owner/repo/pull/23", "--repo", "owner/repo", "--json", "number"), [call for call, _ in runner.calls])
+        self.assertIn(
+            (
+                "gh",
+                "pr",
+                "view",
+                "https://github.com/owner/repo/pull/23",
+                "--repo",
+                "owner/repo",
+                "--json",
+                "number",
+            ),
+            [call for call, _ in runner.calls],
+        )
 
     def test_latest_reviewer_approval_is_required_for_current_head(self) -> None:
         reviews = json.dumps(
@@ -92,7 +117,11 @@ class GithubDeliveryTests(unittest.TestCase):
         reviews = json.dumps(
             [
                 {"state": "APPROVED", "commit_id": "head-23", "user": {"login": "reviewer-two"}},
-                {"state": "CHANGES_REQUESTED", "commit_id": "head-23", "user": {"login": "reviewer-two"}},
+                {
+                    "state": "CHANGES_REQUESTED",
+                    "commit_id": "head-23",
+                    "user": {"login": "reviewer-two"},
+                },
             ]
         )
         runner = FakeRunner([(0, reviews, "")])
@@ -120,7 +149,11 @@ class GithubDeliveryTests(unittest.TestCase):
                 (0, '{"head":{"sha":"head-23"}}', ""),
                 (0, '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}', ""),
                 (0, "", ""),
-                (0, '[{"state":"APPROVED","commit_id":"head-23","user":{"login":"reviewer-two"}}]', ""),
+                (
+                    0,
+                    '[{"state":"APPROVED","commit_id":"head-23","user":{"login":"reviewer-two"}}]',
+                    "",
+                ),
                 (0, '{"head":{"sha":"head-23"}}', ""),
                 (0, "", ""),
             ]
@@ -154,6 +187,142 @@ class GithubDeliveryTests(unittest.TestCase):
 
         with self.assertRaisesRegex(FlowError, "does not match"):
             flow.preflight()
+
+    def test_push_uses_author_credential_helper_not_ambient_identity(self) -> None:
+        runner = FakeRunner(
+            [
+                user("author-one"),
+                user("reviewer-two"),
+                (1, "", ""),
+                (0, "https://github.com/owner/repo.git\n", ""),
+                (0, "", ""),
+            ]
+        )
+        flow = DeliveryFlow(
+            GHClient(Path("/profiles/author"), runner),
+            GHClient(Path("/profiles/reviewer"), runner),
+            "author-one",
+            "reviewer-two",
+            git_runner=runner,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            flow.push_branch(Path(directory), "origin", "HEAD:refs/heads/feature/v23")
+
+        command, config_dir = runner.calls[-1]
+        self.assertEqual(config_dir, "/profiles/author")
+        self.assertEqual(command[:3], ("git", "-C", str(Path(command[2]))))
+        self.assertIn("credential.helper=", command)
+        self.assertIn("credential.https://github.com.helper=!gh auth git-credential", command)
+        self.assertIn("credential.https://github.com.helper=", command)
+        self.assertIn("credential.https://github.com/owner.helper=", command)
+        self.assertIn("credential.https://github.com/owner/repo.git.helper=", command)
+        self.assertIn("http.extraHeader=", command)
+        self.assertIn("http.https://github.com/.extraHeader=", command)
+        self.assertIn("http.https://github.com/owner/.extraHeader=", command)
+        self.assertIn("http.https://github.com/owner/repo.git.extraHeader=", command)
+        self.assertEqual(
+            command[-3:],
+            ("push", "https://github.com/owner/repo.git", "HEAD:refs/heads/feature/v23"),
+        )
+
+    def test_push_rejects_non_https_or_credentialed_remote(self) -> None:
+        for remote_url in (
+            "git@github.com:owner/repo.git\n",
+            "https://token@github.com/owner/repo.git\n",
+        ):
+            runner = FakeRunner(
+                [
+                    user("author-one"),
+                    user("reviewer-two"),
+                    (1, "", ""),
+                    (0, remote_url, ""),
+                ]
+            )
+            flow = DeliveryFlow(
+                GHClient(Path("/profiles/author"), runner),
+                GHClient(Path("/profiles/reviewer"), runner),
+                "author-one",
+                "reviewer-two",
+                git_runner=runner,
+            )
+            with (
+                tempfile.TemporaryDirectory() as directory,
+                self.assertRaisesRegex(FlowError, "credential-free HTTPS"),
+            ):
+                flow.push_branch(Path(directory), "origin", "HEAD:refs/heads/feature/v23")
+            self.assertFalse(any("push" in call for call, _ in runner.calls))
+
+    def test_github_identity_ignores_ambient_tokens_and_askpass(self) -> None:
+        runner = FakeRunner([user("author-one"), user("reviewer-two")])
+        flow = self.client_pair(runner)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "GH_TOKEN": "ambient-token",
+                "GITHUB_TOKEN": "ambient-token",
+                "GIT_ASKPASS": "/tmp/askpass",
+                "SSH_ASKPASS": "/tmp/ssh-askpass",
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "credential.https://github.com.helper",
+                "GIT_CONFIG_VALUE_0": "ambient-helper",
+                "GIT_CONFIG_PARAMETERS": "http.extraHeader=ambient-header",
+                "GIT_CONFIG_GLOBAL": "/tmp/ambient-config",
+                "GIT_CONFIG": "/tmp/ambient-repository-config",
+            },
+        ):
+            flow.preflight()
+
+        for environment in runner.environments:
+            self.assertEqual(environment["GIT_TERMINAL_PROMPT"], "0")
+            for variable in (
+                "GH_TOKEN",
+                "GITHUB_TOKEN",
+                "GIT_ASKPASS",
+                "SSH_ASKPASS",
+                "GIT_CONFIG_COUNT",
+                "GIT_CONFIG_KEY_0",
+                "GIT_CONFIG_VALUE_0",
+                "GIT_CONFIG_PARAMETERS",
+            ):
+                self.assertNotIn(variable, environment)
+            self.assertEqual(environment["GIT_CONFIG"], os.devnull)
+            self.assertEqual(environment["GIT_CONFIG_GLOBAL"], os.devnull)
+            self.assertEqual(environment["GIT_CONFIG_NOSYSTEM"], "1")
+
+    def test_push_reads_raw_remote_then_isolates_git_config_sources(self) -> None:
+        runner = FakeRunner(
+            [
+                user("author-one"),
+                user("reviewer-two"),
+                (1, "", ""),
+                (0, "https://github.com/owner/repo.git\n", ""),
+                (0, "", ""),
+            ]
+        )
+        flow = DeliveryFlow(
+            GHClient(Path("/profiles/author"), runner),
+            GHClient(Path("/profiles/reviewer"), runner),
+            "author-one",
+            "reviewer-two",
+            git_runner=runner,
+        )
+
+        with (
+            patch.dict("os.environ", {"GIT_CONFIG": "/tmp/rewrite-config"}),
+            tempfile.TemporaryDirectory() as directory,
+        ):
+            flow.push_branch(Path(directory), "origin", "HEAD:refs/heads/feature/v23")
+
+        raw_remote_call, raw_remote_config = runner.calls[3]
+        self.assertEqual(raw_remote_call[-1], "remote.origin.url")
+        self.assertEqual(raw_remote_config, "")
+        raw_remote_env = runner.environments[3]
+        self.assertNotIn("GIT_CONFIG", raw_remote_env)
+        push_env = runner.environments[-1]
+        self.assertEqual(push_env["GIT_CONFIG"], os.devnull)
+        self.assertEqual(push_env["GIT_CONFIG_GLOBAL"], os.devnull)
+        self.assertEqual(push_env["GIT_CONFIG_NOSYSTEM"], "1")
 
 
 if __name__ == "__main__":

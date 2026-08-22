@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 import unittest
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -22,6 +21,8 @@ REQUIRED_FILES = {
     "scripts/install.py",
     "scripts/doctor.py",
     "scripts/github_delivery.py",
+    "scripts/runtime.py",
+    "scripts/task_bootstrap.py",
 }
 
 
@@ -98,6 +99,18 @@ class RepositoryContractTests(unittest.TestCase):
             "references/tool-routing.md",
         ):
             self.assertIn(reference, skill)
+
+    def test_required_tool_bootstrap_is_portable_and_stop_hook_free(self) -> None:
+        bootstrap = (ROOT / "scripts/task_bootstrap.py").read_text(encoding="utf-8")
+        installer = (ROOT / "scripts/install.py").read_text(encoding="utf-8")
+        portable = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertIn("UserPromptSubmit", installer)
+        self.assertIn("CodeGraph", portable)
+        self.assertIn("Semble", portable)
+        self.assertIn("RTK", portable)
+        self.assertNotIn("[[hooks.Stop]]", installer)
+        self.assertNotIn("/Users/", bootstrap)
+        self.assertNotIn("/home/", bootstrap)
 
 
 if __name__ == "__main__":

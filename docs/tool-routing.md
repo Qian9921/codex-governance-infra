@@ -1,16 +1,29 @@
-# Tool routing
+# Required tool bootstrap and routing
 
-Tool selection is a short decision, not a mandatory ceremony. Use the smallest available tool that materially improves the current task. A task does not require calling every listed tool.
+V23 runs one small, real operation through CodeGraph, Semble, and RTK when each
+new user task is submitted. This is an explicit local operating requirement,
+not a generic recommendation. The native UserPromptSubmit hook supplies the
+bootstrap; it uses no Stop hook, scheduler, daemon, or task database.
 
 | Situation | Preferred tool |
 | --- | --- |
-| Unknown implementation, similar patterns, or semantic exploration | Semble |
-| Known symbols, callers, dependencies, or impact | CodeGraph |
-| Shell execution and compact command output | RTK |
-| Unrelated, unavailable, or unnecessary | `N/A` |
+| Every task: source index/query | CodeGraph |
+| Every task: semantic search | Semble |
+| Every task: compact workspace command | RTK |
+| Follow-on investigation | The tool whose result best changes the decision |
 
-Normal repository tools such as `rg`, `git`, and the project's own test commands remain available. Choose directly when they are clearer or more reliable.
+For a Git checkout, the bootstrap keeps a V23-marked .codegraph/ cache
+exclusion in that checkout's Git-local info/exclude; it never changes the
+repository's .gitignore or enables a CodeGraph daemon. The first use may
+create the local cache, then later tasks sync and query it. In a non-Git
+directory, CodeGraph performs a version probe because there is no repository
+source graph to initialize.
 
-When a selected tool fails, diagnose the integration only if the current task depends on it. Continue with an equivalent direct operation when possible. Repair only project-owned setup; do not replace, upgrade, or reconfigure unrelated user tools as a side effect of a task.
+Normal repository tools such as `rg`, `git`, and the project's own test
+commands remain available for the actual task. The bootstrap does not replace
+their use.
 
-Tool output is evidence for the current question, not a reason to create a permanent cache or background process. Report only the result that changes the decision.
+When a required tool fails, repair only V23-owned setup automatically. Do not
+silently reinstall, upgrade, or reconfigure an independent user tool. Report
+the specific blocker and repair it before unrelated implementation. Tool output
+is evidence, not a conclusion.
