@@ -205,8 +205,13 @@ class GithubDeliveryTests(unittest.TestCase):
         self.assertEqual(command[:3], ("git", "-C", str(Path(command[2]))))
         self.assertIn("credential.helper=", command)
         self.assertIn("credential.helper=!gh auth git-credential", command)
+        self.assertIn("credential.https://github.com.helper=", command)
+        self.assertIn("credential.https://github.com/owner.helper=", command)
+        self.assertIn("credential.https://github.com/owner/repo.git.helper=", command)
         self.assertIn("http.extraHeader=", command)
         self.assertIn("http.https://github.com/.extraHeader=", command)
+        self.assertIn("http.https://github.com/owner/.extraHeader=", command)
+        self.assertIn("http.https://github.com/owner/repo.git.extraHeader=", command)
         self.assertEqual(
             command[-3:],
             ("push", "https://github.com/owner/repo.git", "HEAD:refs/heads/feature/v23"),
@@ -243,13 +248,28 @@ class GithubDeliveryTests(unittest.TestCase):
                 "GITHUB_TOKEN": "ambient-token",
                 "GIT_ASKPASS": "/tmp/askpass",
                 "SSH_ASKPASS": "/tmp/ssh-askpass",
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "credential.https://github.com.helper",
+                "GIT_CONFIG_VALUE_0": "ambient-helper",
+                "GIT_CONFIG_PARAMETERS": "http.extraHeader=ambient-header",
+                "GIT_CONFIG_GLOBAL": "/tmp/ambient-config",
             },
         ):
             flow.preflight()
 
         for environment in runner.environments:
             self.assertEqual(environment["GIT_TERMINAL_PROMPT"], "0")
-            for variable in ("GH_TOKEN", "GITHUB_TOKEN", "GIT_ASKPASS", "SSH_ASKPASS"):
+            for variable in (
+                "GH_TOKEN",
+                "GITHUB_TOKEN",
+                "GIT_ASKPASS",
+                "SSH_ASKPASS",
+                "GIT_CONFIG_COUNT",
+                "GIT_CONFIG_KEY_0",
+                "GIT_CONFIG_VALUE_0",
+                "GIT_CONFIG_PARAMETERS",
+                "GIT_CONFIG_GLOBAL",
+            ):
                 self.assertNotIn(variable, environment)
 
 

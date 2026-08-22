@@ -53,6 +53,12 @@ _AMBIENT_AUTH_VARIABLES = (
     "GIT_ASKPASS",
     "SSH_ASKPASS",
 )
+_GIT_CONFIG_INJECTION_VARIABLES = (
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
+)
 
 
 def _system_runner(
@@ -66,6 +72,11 @@ def _github_environment(config_dir: Path) -> dict[str, str]:
     env = os.environ.copy()
     for variable in _AMBIENT_AUTH_VARIABLES:
         env.pop(variable, None)
+    for variable in tuple(env):
+        if variable in _GIT_CONFIG_INJECTION_VARIABLES or variable.startswith(
+            ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")
+        ):
+            env.pop(variable)
     env["GH_CONFIG_DIR"] = str(config_dir)
     env["GIT_TERMINAL_PROMPT"] = "0"
     return env
@@ -336,7 +347,7 @@ class DeliveryFlow:
             raise FlowError("remote and refspec are required for an author push")
         env = self.author.environment()
         remote_url = self._author_push_url(workdir, remote, env)
-        command = (
+        command = [
             "git",
             "-C",
             str(workdir.resolve()),
@@ -344,15 +355,11 @@ class DeliveryFlow:
             "credential.helper=",
             "-c",
             "credential.helper=!gh auth git-credential",
-            "-c",
-            "http.extraHeader=",
-            "-c",
-            "http.https://github.com/.extraHeader=",
-            "push",
-            remote_url,
-            refspec,
-        )
-        completed = self._git_runner(command, env)
+        ]
+        for setting in self._author_push_clears(remote_url):
+            command.extend(("-c", f"{setting}="))
+        command.extend(("push", remote_url, refspec))
+        completed = self._git_runner(tuple(command), env)
         if completed.returncode:
             detail = completed.stderr.strip() or "Git push failed"
             raise FlowError(detail)
@@ -378,6 +385,27 @@ class DeliveryFlow:
         ):
             raise FlowError("author push requires a credential-free HTTPS github.com remote")
         return remote_url
+
+    @staticmethod
+    def _author_push_clears(remote_url: str) -> tuple[str, ...]:
+        """Clear generic, host, owner, and exact-remote credential overrides."""
+        parsed = urlsplit(remote_url)
+        parts = [part for part in parsed.path.split("/") if part]
+        if len(parts) < 2:
+            raise FlowError("author push URL must identify a GitHub repository")
+        host = "https://github.com"
+        owner = f"{host}/{parts[0]}"
+        exact = f"{host}/{'/'.join(parts)}"
+        return (
+            "credential.helper",
+            f"credential.{host}.helper",
+            f"credential.{owner}.helper",
+            f"credential.{exact}.helper",
+            "http.extraHeader",
+            f"http.{host}/.extraHeader",
+            f"http.{owner}/.extraHeader",
+            f"http.{exact}.extraHeader",
+        )
 
     def merge_if_ready(self, repo: str, number: int, reviewed_sha: str) -> None:
         _author, reviewer = self.preflight()

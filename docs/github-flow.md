@@ -17,10 +17,12 @@ The author and reviewer use separate GitHub identities on the same machine. This
 
 Use the delivery adapter's author push operation for every branch push. It
 preflights both configured identities, resolves the remote to a credential-free
-HTTPS `github.com` URL, clears inherited Git HTTP headers, and invokes Git with
-the author's isolated GH_CONFIG_DIR credential helper. A reviewer's ambient Git
-credential cannot accidentally publish the change. Commit authorship remains
-the checkout's normal Git concern; the branch pusher is the GitHub audit actor.
+HTTPS `github.com` URL, clears inherited generic/URL-scoped Git credential and
+HTTP-header configuration plus environment configuration injection, and invokes
+Git with the author's isolated GH_CONFIG_DIR credential helper. A reviewer's
+ambient Git credential cannot accidentally publish the change. Commit
+authorship remains the checkout's normal Git concern; the branch pusher is the
+GitHub audit actor.
 
 ## Review validity
 
