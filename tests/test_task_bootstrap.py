@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.task_bootstrap import CODEGRAPH_BEGIN, ToolResult, probe_tools
+from scripts.task_bootstrap import CODEGRAPH_BEGIN, ToolResult, _semble_health_scope, probe_tools
 
 
 class FakeRunner:
@@ -67,6 +67,10 @@ class TaskBootstrapTests(unittest.TestCase):
                     command[0] == tools["semble"] and command[1] == "search" for command in commands
                 )
             )
+            semble_command = next(command for command in commands if command[0] == tools["semble"])
+            self.assertEqual(semble_command[3], "code")
+            self.assertEqual(semble_command[7], "0")
+            self.assertEqual(semble_command[-1], str(_semble_health_scope()))
             self.assertTrue(
                 any(command[0] == tools["rtk"] and command[1] == "git" for command in commands)
             )

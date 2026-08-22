@@ -206,26 +206,29 @@ def _prompt_query(prompt: str) -> str:
     return " ".join(words[:12]) or "task"
 
 
-def _semble_result(
-    executable: str | None, root: Path | None, cwd: Path, prompt: str, runner: CommandRunner
-) -> ToolResult:
-    """Search the current task scope through Semble."""
+def _semble_health_scope() -> Path:
+    """Return the small V23-owned source directory for mandatory Semble use."""
+    return Path(__file__).resolve().parent
+
+
+def _semble_result(executable: str | None, prompt: str, runner: CommandRunner) -> ToolResult:
+    """Run a real, bounded semantic search without indexing an umbrella workspace."""
     if not executable:
         return ToolResult("Semble", False, "not configured or unavailable")
-    target = root or cwd
+    target = _semble_health_scope()
     command = (
         executable,
         "search",
         "--content",
-        "all",
+        "code",
         "--top-k",
         "1",
         "--max-snippet-lines",
-        "4",
+        "0",
         _prompt_query(prompt),
         str(target),
     )
-    ok, detail = _run(command, target, runner, SEMBLE_TIMEOUT_SECONDS, root)
+    ok, detail = _run(command, target, runner, SEMBLE_TIMEOUT_SECONDS, target)
     return ToolResult("Semble", ok, detail)
 
 
@@ -259,7 +262,7 @@ def probe_tools(
     codegraph = _codegraph_result(
         _resolve_executable(tools.get("codegraph")), root, runner, initialize_codegraph
     )
-    semble = _semble_result(_resolve_executable(tools.get("semble")), root, cwd, prompt, runner)
+    semble = _semble_result(_resolve_executable(tools.get("semble")), prompt, runner)
     rtk = _rtk_result(_resolve_executable(tools.get("rtk")), root, cwd, runner)
     return [codegraph, semble, rtk]
 
