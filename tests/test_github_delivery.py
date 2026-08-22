@@ -204,7 +204,7 @@ class GithubDeliveryTests(unittest.TestCase):
         self.assertEqual(config_dir, "/profiles/author")
         self.assertEqual(command[:3], ("git", "-C", str(Path(command[2]))))
         self.assertIn("credential.helper=", command)
-        self.assertIn("credential.helper=!gh auth git-credential", command)
+        self.assertIn("credential.https://github.com.helper=!gh auth git-credential", command)
         self.assertIn("credential.https://github.com.helper=", command)
         self.assertIn("credential.https://github.com/owner.helper=", command)
         self.assertIn("credential.https://github.com/owner/repo.git.helper=", command)

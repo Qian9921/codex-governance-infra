@@ -353,11 +353,15 @@ class DeliveryFlow:
             str(workdir.resolve()),
             "-c",
             "credential.helper=",
-            "-c",
-            "credential.helper=!gh auth git-credential",
         ]
         for setting in self._author_push_clears(remote_url):
             command.extend(("-c", f"{setting}="))
+        command.extend(
+            (
+                "-c",
+                f"{self._author_push_helper(remote_url)}=!gh auth git-credential",
+            )
+        )
         command.extend(("push", remote_url, refspec))
         completed = self._git_runner(tuple(command), env)
         if completed.returncode:
@@ -406,6 +410,14 @@ class DeliveryFlow:
             f"http.{owner}/.extraHeader",
             f"http.{exact}.extraHeader",
         )
+
+    @staticmethod
+    def _author_push_helper(remote_url: str) -> str:
+        """Return the host-level helper key that works without credential paths."""
+        parsed = urlsplit(remote_url)
+        if parsed.hostname is None or parsed.hostname.casefold() != "github.com":
+            raise FlowError("author push requires a GitHub hostname")
+        return "credential.https://github.com.helper"
 
     def merge_if_ready(self, repo: str, number: int, reviewed_sha: str) -> None:
         _author, reviewer = self.preflight()
