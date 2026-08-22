@@ -2,6 +2,8 @@
 
 Use this card for repository changes delivered through a pull request. It complements, and does not replace, repository branch protection.
 
+Under V23, this is the default for normal repository changes; skip it only when the user explicitly requests local-only work.
+
 ## Flow
 
 ```text

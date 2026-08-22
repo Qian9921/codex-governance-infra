@@ -29,7 +29,7 @@ The local installation maps these roles to the models and tools available on tha
 
 ## Delivery
 
-Discussion is read-only. An authorized repository change follows:
+Discussion is read-only. A normal repository change automatically follows this path unless the user explicitly requests local-only work:
 
 ```text
 understand → implement → verify → commit → push → Pull Request

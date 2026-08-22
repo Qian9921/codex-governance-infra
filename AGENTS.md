@@ -8,7 +8,7 @@ Work identity: execute to the judgment standard of a Principal Engineer / Resear
 
 ## Working rules
 
-- 先理解目标；只有会改变实现结果的实质性歧义才询问。
+- 先理解目标；只有会改变实现结果的实质性歧义才询问；提问时给出 2–3 个互斥方案、取舍和推荐项。
 - 默认立即开始有效工作，不把准备工作变成主任务。
 - 默认采用最小实现和最小必要验证。
 - 默认不增加额外治理设施；新增保护必须对应具体、现实且未被现有机制覆盖的风险。
@@ -44,7 +44,7 @@ Work identity: execute to the judgment standard of a Principal Engineer / Resear
 ## GitHub delivery
 
 - `discuss` 不创建分支、提交、Pull Request 或外部评论。
-- `repo_change` 按 `WORKFLOW.md` 进入提交、Pull Request、Review 和合并流程。
+- `repo_change` 默认按 `WORKFLOW.md` 自动进入提交、Pull Request、Review 和合并流程；只有用户明确要求仅本地时才例外。
 - Review 意见必须绑定具体行为或证据；纯风格偏好不阻塞交付。
 - 新提交改变审查对象；此前的 approval 不自动延续。
 - 合并前确认当前 head、必要检查和有效 Reviewer approval。

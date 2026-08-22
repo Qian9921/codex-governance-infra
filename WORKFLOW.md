@@ -9,11 +9,11 @@ Classify the task on two independent axes:
 | Work kind | Capability | Meaning |
 | --- | --- | --- |
 | `discuss` | `read_only` | Explain, investigate, or review without repository or GitHub writes. |
-| `repo_change` | `local_write` | Modify a checkout and run the relevant local checks. |
-| `repo_change` | `github_write` | Deliver a requested repository change through a Pull Request. |
+| `repo_change` | `local_write` | Explicitly local-only change and relevant local checks. |
+| `repo_change` | `github_write` | Default delivery of a normal repository change through a Pull Request. |
 | any | `consequential_external` | Affect production, accounts, data, releases, or another irreversible external system. |
 
-`repo_change + github_write` is used only when the user explicitly requests delivery or has already given standing authorization for this repository. It does not authorize unrelated external actions.
+`repo_change + github_write` is the default under V23 standing authorization; use `local_write` only when the user explicitly requests local-only work. Neither authorizes unrelated external actions.
 
 ## DISCUSS
 
@@ -21,7 +21,7 @@ For `discuss`, inspect only what is needed and answer directly. Do not create a 
 
 ## REPO_CHANGE
 
-For an authorized repository change:
+For every repository change unless the user explicitly requests local-only work:
 
 ```text
 understand → implement → verify → commit → push → Pull Request
@@ -29,6 +29,8 @@ understand → implement → verify → commit → push → Pull Request
 ```
 
 The primary role owns the request, scope, decisions, and final result. The executor performs bounded implementation and verification. The reviewer receives the request, current diff, relevant evidence, and current head SHA in fresh read-only context.
+
+Ask before implementation only when a material ambiguity would change the result. Offer 2–3 mutually exclusive choices with tradeoffs and a recommendation; do not ask routine process questions.
 
 The author and reviewer are different GitHub identities. The author must be the GitHub actor that pushes the branch; on a shared machine, explicitly select the author's isolated Git credential helper instead of inheriting the default credential. The reviewer model's verdict, the GitHub approval, and GitHub's branch rules are separate facts. A review is valid only for the head SHA it inspected. Any later commit requires a new review.
 
