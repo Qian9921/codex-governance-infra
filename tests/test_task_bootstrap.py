@@ -88,6 +88,27 @@ class TaskBootstrapTests(unittest.TestCase):
                 ],
             )
 
+    def test_probe_rejects_a_modified_v23_codegraph_exclude_block(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            exclude = root / ".git/info/exclude"
+            exclude.parent.mkdir(parents=True)
+            exclude.write_text(
+                f"{CODEGRAPH_BEGIN}\nuser-owned-pattern/\n# END CODEX-HARNESS-INFRA V23 CODEGRAPH\n",
+                encoding="utf-8",
+            )
+            executable = root / "codegraph"
+            executable.write_text("", encoding="utf-8")
+            runner = FakeRunner(root)
+
+            results = probe_tools(
+                root, "Check CodeGraph.", {"codegraph": str(executable)}, runner=runner
+            )
+
+            self.assertFalse(results[0].ok)
+            self.assertIn("modified", results[0].detail)
+            self.assertFalse(any(call[0][0] == str(executable) for call in runner.calls))
+
 
 if __name__ == "__main__":
     unittest.main()

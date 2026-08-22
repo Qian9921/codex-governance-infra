@@ -179,7 +179,14 @@ class GithubDeliveryTests(unittest.TestCase):
             flow.preflight()
 
     def test_push_uses_author_credential_helper_not_ambient_identity(self) -> None:
-        runner = FakeRunner([user("author-one"), user("reviewer-two"), (0, "", "")])
+        runner = FakeRunner(
+            [
+                user("author-one"),
+                user("reviewer-two"),
+                (0, "https://github.com/owner/repo.git\n", ""),
+                (0, "", ""),
+            ]
+        )
         flow = DeliveryFlow(
             GHClient(Path("/profiles/author"), runner),
             GHClient(Path("/profiles/reviewer"), runner),
@@ -195,7 +202,32 @@ class GithubDeliveryTests(unittest.TestCase):
         self.assertEqual(command[:3], ("git", "-C", str(Path(command[2]))))
         self.assertIn("credential.helper=", command)
         self.assertIn("credential.helper=!gh auth git-credential", command)
-        self.assertEqual(command[-3:], ("push", "origin", "HEAD:refs/heads/feature/v23"))
+        self.assertIn("http.extraHeader=", command)
+        self.assertIn("http.https://github.com/.extraHeader=", command)
+        self.assertEqual(
+            command[-3:],
+            ("push", "https://github.com/owner/repo.git", "HEAD:refs/heads/feature/v23"),
+        )
+
+    def test_push_rejects_non_https_or_credentialed_remote(self) -> None:
+        for remote_url in (
+            "git@github.com:owner/repo.git\n",
+            "https://token@github.com/owner/repo.git\n",
+        ):
+            runner = FakeRunner([user("author-one"), user("reviewer-two"), (0, remote_url, "")])
+            flow = DeliveryFlow(
+                GHClient(Path("/profiles/author"), runner),
+                GHClient(Path("/profiles/reviewer"), runner),
+                "author-one",
+                "reviewer-two",
+                git_runner=runner,
+            )
+            with (
+                tempfile.TemporaryDirectory() as directory,
+                self.assertRaisesRegex(FlowError, "credential-free HTTPS"),
+            ):
+                flow.push_branch(Path(directory), "origin", "HEAD:refs/heads/feature/v23")
+            self.assertFalse(any("push" in call for call, _ in runner.calls))
 
 
 if __name__ == "__main__":

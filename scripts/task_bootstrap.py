@@ -130,6 +130,10 @@ def _ensure_codegraph_exclude(root: Path, runner: CommandRunner) -> tuple[bool, 
     if begins != ends or begins > 1:
         return False, "V23 CodeGraph exclude marker is partial or duplicated"
     if begins == 1:
+        start = existing.index(CODEGRAPH_BEGIN) + len(CODEGRAPH_BEGIN)
+        finish = existing.index(CODEGRAPH_END)
+        if existing[start:finish].strip() != ".codegraph/":
+            return False, "V23 CodeGraph exclude block was modified"
         return True, "Git-local cache exclusion already present"
     rendered = existing.rstrip("\n")
     if rendered:

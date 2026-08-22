@@ -394,32 +394,6 @@ statusMessage = \"Running required V23 tool bootstrap\"
 additionalContextLimit = 1000"""
 
 
-def _remove_legacy_hook_state(config_text: str, codex_home: Path) -> tuple[str, int]:
-    """Remove only stale V21 trust sections for its removed user hook file."""
-    prefix = f'[hooks.state."{codex_home / "hooks.json"}:'
-    lines = config_text.splitlines(keepends=True)
-    kept: list[str] = []
-    removed = 0
-    index = 0
-    while index < len(lines):
-        if lines[index].startswith(prefix) and lines[index].rstrip().endswith('"]'):
-            removed += 1
-            index += 1
-            while (
-                index < len(lines)
-                and not lines[index].startswith("[")
-                and not lines[index].startswith(_marker(CONFIG_KIND, "BEGIN"))
-            ):
-                index += 1
-            continue
-        kept.append(lines[index])
-        index += 1
-    rendered = "".join(kept)
-    if removed and not re.search(r"(?m)^\[hooks\.state\.", rendered):
-        rendered = re.sub(r"(?m)^\[hooks\.state\]\n?", "", rendered)
-    return rendered, removed
-
-
 def _prepare_state_dir(state_dir: Path) -> None:
     """Prove the manifest location is writable before mutating Codex files."""
     if state_dir.is_symlink():
@@ -486,7 +460,6 @@ def install(repo_root: Path, codex_home: Path, local_config: Path, state_dir: Pa
             raise InstallError(f"refusing symlink managed file: {path}")
     agent_text = agents_path.read_text() if agents_path.exists() else ""
     config_text = codex_config.read_text() if codex_config.exists() else ""
-    config_text, _ = _remove_legacy_hook_state(config_text, codex_home)
     block_body(agent_text, PORTABLE_KIND)
     block_body(agent_text, LOCAL_KIND)
     block_body(config_text, CONFIG_KIND)

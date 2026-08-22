@@ -16,8 +16,9 @@ The primary role owns scope and decisions. The executor performs bounded impleme
 The author and reviewer use separate GitHub identities on the same machine. This provides an auditable author/reviewer split and supports GitHub's review rules. It is not a claim that one operating-system account is an unbreakable credential boundary. Credentials remain in the local authentication store and never in repository files, arguments, logs, or Pull Requests.
 
 Use the delivery adapter's author push operation for every branch push. It
-preflights both configured identities and invokes Git with the author's
-isolated GH_CONFIG_DIR credential helper, so a reviewer's ambient Git
+preflights both configured identities, resolves the remote to a credential-free
+HTTPS `github.com` URL, clears inherited Git HTTP headers, and invokes Git with
+the author's isolated GH_CONFIG_DIR credential helper. A reviewer's ambient Git
 credential cannot accidentally publish the change. Commit authorship remains
 the checkout's normal Git concern; the branch pusher is the GitHub audit actor.
 

@@ -22,6 +22,7 @@ import sys
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 class FlowError(RuntimeError):
@@ -307,7 +308,7 @@ class DeliveryFlow:
         self.reviewer.submit_review(repo, number, verdict)
 
     def push_branch(self, workdir: Path, remote: str, refspec: str) -> None:
-        """Push through the configured author identity, never the ambient helper."""
+        """Push through the configured author identity, never an ambient credential."""
         self.preflight()
         if not workdir.is_dir():
             raise FlowError(f"Git worktree does not exist: {workdir}")
@@ -315,6 +316,7 @@ class DeliveryFlow:
             raise FlowError("remote and refspec are required for an author push")
         env = os.environ.copy()
         env["GH_CONFIG_DIR"] = str(self.author.config_dir)
+        remote_url = self._author_push_url(workdir, remote, env)
         command = (
             "git",
             "-C",
@@ -323,14 +325,40 @@ class DeliveryFlow:
             "credential.helper=",
             "-c",
             "credential.helper=!gh auth git-credential",
+            "-c",
+            "http.extraHeader=",
+            "-c",
+            "http.https://github.com/.extraHeader=",
             "push",
-            remote,
+            remote_url,
             refspec,
         )
         completed = self._git_runner(command, env)
         if completed.returncode:
             detail = completed.stderr.strip() or "Git push failed"
             raise FlowError(detail)
+
+    def _author_push_url(self, workdir: Path, remote: str, env: dict[str, str]) -> str:
+        """Return a credential-free HTTPS GitHub push URL for the author helper."""
+        completed = self._git_runner(
+            ("git", "-C", str(workdir.resolve()), "remote", "get-url", "--push", remote), env
+        )
+        if completed.returncode:
+            detail = completed.stderr.strip() or "cannot resolve Git push remote"
+            raise FlowError(detail)
+        remote_url = completed.stdout.strip()
+        parsed = urlsplit(remote_url)
+        if (
+            parsed.scheme != "https"
+            or parsed.hostname is None
+            or parsed.hostname.casefold() != "github.com"
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise FlowError("author push requires a credential-free HTTPS github.com remote")
+        return remote_url
 
     def merge_if_ready(self, repo: str, number: int, reviewed_sha: str) -> None:
         _author, reviewer = self.preflight()

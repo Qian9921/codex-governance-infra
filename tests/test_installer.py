@@ -355,7 +355,7 @@ instruction = "Local-only opening."
             self.assertFalse((codex_home / "skills/engineering-delivery").exists())
             self.assertFalse((codex_home / "harness/v23/task_bootstrap.py").exists())
 
-    def test_install_removes_only_owned_legacy_hook_trust_sections(self) -> None:
+    def test_install_preserves_unowned_hook_trust_sections(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             repo, local = self.make_repo(root)
@@ -377,7 +377,7 @@ instruction = "Local-only opening."
             install(repo, codex_home, local, root / "state")
 
             rendered = config.read_text(encoding="utf-8")
-            self.assertNotIn(f"{old_hook}:stop:0:0", rendered)
+            self.assertIn(f"{old_hook}:stop:0:0", rendered)
             self.assertIn("/user-owned/hooks.json:stop:0:0", rendered)
             self.assertIsNotNone(block_body(rendered, "CONFIG"))
             self.assertIn("UserPromptSubmit", tomllib.loads(rendered)["hooks"])
