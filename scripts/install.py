@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Install or remove only Codex Harness Infra V23-owned local assets.
 
 The installer deliberately has a small ownership model: it writes V23-specific
@@ -8,20 +7,29 @@ assets. It never restores a whole Codex configuration backup.
 
 from __future__ import annotations
 
+try:
+    from scripts.runtime import ensure_supported_python
+except ModuleNotFoundError:  # Support the documented `python scripts/install.py` entrypoint.
+    from runtime import ensure_supported_python
+
+ensure_supported_python(__file__)
+
 import argparse
 import hashlib
 import json
 import os
+import re
+import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
 import tomllib
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
-
-VERSION = "23.0.0"
+VERSION = "23.1.0"
 MARKER = "CODEX-HARNESS-INFRA V23"
 PORTABLE_KIND = "PORTABLE"
 LOCAL_KIND = "LOCAL"
@@ -139,6 +147,60 @@ def read_toml(path: Path) -> dict:
         raise InstallError(f"invalid local configuration {path}: {error}") from error
 
 
+def _python_version(executable: Path) -> tuple[int, int] | None:
+    """Return a Python executable's major/minor version without importing it."""
+    try:
+        completed = subprocess.run(
+            [
+                str(executable),
+                "-c",
+                "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}')",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    match = re.fullmatch(r"(\d+)\.(\d+)", completed.stdout.strip())
+    if completed.returncode or not match:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
+def resolve_python_runtime(config: dict) -> Path:
+    """Choose a stable Python 3.11+ runtime for the installed prompt hook."""
+    runtime = config.get("runtime", {})
+    if runtime and not isinstance(runtime, dict):
+        raise InstallError("[runtime] must be a TOML table")
+    configured = runtime.get("python", "") if isinstance(runtime, dict) else ""
+    candidates: list[str]
+    if configured:
+        if not isinstance(configured, str):
+            raise InstallError("[runtime].python must be a command or absolute path")
+        candidates = [configured]
+    else:
+        candidates = [sys.executable, "python3.14", "python3.13", "python3.12", "python3.11"]
+    seen: set[Path] = set()
+    for candidate in candidates:
+        path = Path(candidate).expanduser()
+        if not path.is_file():
+            found = shutil.which(candidate)
+            if not found:
+                continue
+            path = Path(found)
+        resolved = path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        version = _python_version(resolved)
+        if version and version >= (3, 11):
+            return resolved
+    if configured:
+        raise InstallError("[runtime].python must resolve to Python 3.11 or newer")
+    raise InstallError("V23 requires a discoverable Python 3.11+ runtime")
+
+
 def active_global_agents(codex_home: Path) -> Path:
     """Respect Codex's global override precedence instead of creating a shadow file."""
     override = codex_home / "AGENTS.override.md"
@@ -158,7 +220,11 @@ def render_template(path: Path, **values: str) -> str:
         raise InstallError(f"refusing symlink template: {path}")
     result = path.read_text()
     for key, value in values.items():
-        if not isinstance(value, str) or not value or any(char in value for char in ("\n", "\r", '"')):
+        if (
+            not isinstance(value, str)
+            or not value
+            or any(char in value for char in ("\n", "\r", '"'))
+        ):
             raise InstallError(f"invalid value for {key}")
         result = result.replace("{{" + key + "}}", value)
     if "{{" in result:
@@ -236,7 +302,14 @@ def _assets(repo_root: Path, codex_home: Path, config: dict) -> list[Asset]:
     executor_template = repo_root / "package/agents/v23-executor.toml.in"
     reviewer_template = repo_root / "package/agents/v23-reviewer.toml.in"
     skill_source = repo_root / ".agents/skills/engineering-delivery"
-    for source in (primary_template, executor_template, reviewer_template, skill_source):
+    bootstrap_source = repo_root / "scripts/task_bootstrap.py"
+    for source in (
+        primary_template,
+        executor_template,
+        reviewer_template,
+        skill_source,
+        bootstrap_source,
+    ):
         if not source.exists() or source.is_symlink():
             raise InstallError(f"invalid V23 source asset: {source}")
     primary = render_template(
@@ -261,7 +334,9 @@ def _assets(repo_root: Path, codex_home: Path, config: dict) -> list[Asset]:
         or primary_profile.get("review_model") != models["reviewer"]
     ):
         raise InstallError("rendered V23 primary profile does not match local configuration")
-    _validate_agent_content(executor, "v23_executor", models["executor"], models.get("executor_effort", "medium"))
+    _validate_agent_content(
+        executor, "v23_executor", models["executor"], models.get("executor_effort", "medium")
+    )
     _validate_agent_content(reviewer, "v23_reviewer", models["reviewer"], "high")
     return [
         Asset(
@@ -287,17 +362,62 @@ def _assets(repo_root: Path, codex_home: Path, config: dict) -> list[Asset]:
             skill_source,
             "directory",
         ),
+        Asset(
+            ensure_within(codex_home, codex_home / "harness/v23/task_bootstrap.py"),
+            bootstrap_source,
+            "file",
+        ),
     ]
 
 
-def _config_block() -> str:
-    return """[agents.\"v23_executor\"]
+def _config_block(runtime_python: Path, bootstrap_path: Path, local_config: Path) -> str:
+    """Render the one native V23 prompt hook and agent registrations."""
+    command = " ".join(
+        shlex.quote(str(part))
+        for part in (runtime_python, bootstrap_path, "--local-config", local_config)
+    )
+    return f"""[agents.\"v23_executor\"]
 description = \"V23 scoped implementation executor.\"
 config_file = \"agents/v23-executor.toml\"
 
 [agents.\"v23_reviewer\"]
 description = \"V23 independent current-head reviewer.\"
-config_file = \"agents/v23-reviewer.toml\""""
+config_file = \"agents/v23-reviewer.toml\"
+
+[[hooks.UserPromptSubmit]]
+
+[[hooks.UserPromptSubmit.hooks]]
+type = \"command\"
+command = {json.dumps(command)}
+timeout = 90
+statusMessage = \"Running required V23 tool bootstrap\"
+additionalContextLimit = 1000"""
+
+
+def _remove_legacy_hook_state(config_text: str, codex_home: Path) -> tuple[str, int]:
+    """Remove only stale V21 trust sections for its removed user hook file."""
+    prefix = f'[hooks.state."{codex_home / "hooks.json"}:'
+    lines = config_text.splitlines(keepends=True)
+    kept: list[str] = []
+    removed = 0
+    index = 0
+    while index < len(lines):
+        if lines[index].startswith(prefix) and lines[index].rstrip().endswith('"]'):
+            removed += 1
+            index += 1
+            while (
+                index < len(lines)
+                and not lines[index].startswith("[")
+                and not lines[index].startswith(_marker(CONFIG_KIND, "BEGIN"))
+            ):
+                index += 1
+            continue
+        kept.append(lines[index])
+        index += 1
+    rendered = "".join(kept)
+    if removed and not re.search(r"(?m)^\[hooks\.state\.", rendered):
+        rendered = re.sub(r"(?m)^\[hooks\.state\]\n?", "", rendered)
+    return rendered, removed
 
 
 def _prepare_state_dir(state_dir: Path) -> None:
@@ -346,6 +466,7 @@ def install(repo_root: Path, codex_home: Path, local_config: Path, state_dir: Pa
     state_dir = _safe_state_dir(state_dir)
     _prepare_state_dir(state_dir)
     config = read_toml(local_config)
+    runtime_python = resolve_python_runtime(config)
     manifest = _load_manifest(state_dir)
     agents_path, codex_config = active_global_agents(codex_home), codex_home / "config.toml"
     if manifest is not None and manifest.get("agents_path") != str(agents_path):
@@ -365,17 +486,22 @@ def install(repo_root: Path, codex_home: Path, local_config: Path, state_dir: Pa
             raise InstallError(f"refusing symlink managed file: {path}")
     agent_text = agents_path.read_text() if agents_path.exists() else ""
     config_text = codex_config.read_text() if codex_config.exists() else ""
+    config_text, _ = _remove_legacy_hook_state(config_text, codex_home)
     block_body(agent_text, PORTABLE_KIND)
     block_body(agent_text, LOCAL_KIND)
     block_body(config_text, CONFIG_KIND)
     assets = _assets(repo_root, codex_home, config)
+    bootstrap_path = codex_home / "harness/v23/task_bootstrap.py"
+    config_block = _config_block(runtime_python, bootstrap_path, local_config.resolve())
     old_assets = _old_assets(manifest)
     for asset in assets:
         _check_asset_parents(codex_home, asset)
         _check_asset_target(asset, old_assets)
     # Complete all safe checks before making a single local mutation.
-    rendered_agents = replace_managed_block(replace_managed_block(agent_text, PORTABLE_KIND, portable), LOCAL_KIND, local)
-    rendered_config = replace_managed_block(config_text, CONFIG_KIND, _config_block())
+    rendered_agents = replace_managed_block(
+        replace_managed_block(agent_text, PORTABLE_KIND, portable), LOCAL_KIND, local
+    )
+    rendered_config = replace_managed_block(config_text, CONFIG_KIND, config_block)
     try:
         tomllib.loads(rendered_config)
     except tomllib.TOMLDecodeError as error:
@@ -390,8 +516,11 @@ def install(repo_root: Path, codex_home: Path, local_config: Path, state_dir: Pa
         "agents_path": str(agents_path),
         "portable_digest": sha256_bytes(portable.encode()),
         "local_digest": sha256_bytes(local.encode()),
-        "config_digest": sha256_bytes(_config_block().encode()),
-        "assets": [{"path": str(asset.path), "digest": digest_path(asset.path), "kind": asset.kind} for asset in assets],
+        "config_digest": sha256_bytes(config_block.encode()),
+        "assets": [
+            {"path": str(asset.path), "digest": digest_path(asset.path), "kind": asset.kind}
+            for asset in assets
+        ],
     }
     atomic_write(state_dir / MANIFEST_NAME, json.dumps(record, indent=2, sort_keys=True) + "\n")
 
@@ -411,8 +540,14 @@ def uninstall(codex_home: Path, state_dir: Path) -> list[str]:
         agent_text = ""
     else:
         agent_text = agents_path.read_text()
-        for kind, digest in ((PORTABLE_KIND, manifest["portable_digest"]), (LOCAL_KIND, manifest["local_digest"])):
-            if block_body(agent_text, kind) is None or sha256_bytes(block_body(agent_text, kind).encode()) != digest:
+        for kind, digest in (
+            (PORTABLE_KIND, manifest["portable_digest"]),
+            (LOCAL_KIND, manifest["local_digest"]),
+        ):
+            if (
+                block_body(agent_text, kind) is None
+                or sha256_bytes(block_body(agent_text, kind).encode()) != digest
+            ):
                 blockers.append(f"managed {kind.lower()} block was edited or is absent")
     if not config_path.is_file() or config_path.is_symlink():
         blockers.append(f"managed Codex config is absent or unsafe: {config_path}")
@@ -453,8 +588,12 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("command", choices=("install", "uninstall"))
     result.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
     result.add_argument("--codex-home", type=Path, default=Path.home() / ".codex")
-    result.add_argument("--local-config", type=Path, default=Path.home() / ".config/codex-harness/local.toml")
-    result.add_argument("--state-dir", type=Path, default=Path.home() / ".local/state/codex-harness")
+    result.add_argument(
+        "--local-config", type=Path, default=Path.home() / ".config/codex-harness/local.toml"
+    )
+    result.add_argument(
+        "--state-dir", type=Path, default=Path.home() / ".local/state/codex-harness"
+    )
     return result
 
 

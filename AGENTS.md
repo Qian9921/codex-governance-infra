@@ -23,7 +23,7 @@ Work identity: execute to the judgment standard of a Principal Engineer / Resear
 
 1. 安装器只能修改自己写入的 ownership marker 区块或明确拥有的文件；遇到无标记的用户内容必须停止，不得覆盖、猜测或恢复旧快照。
 2. GitHub approval 必须对应当前 head SHA，并且 Author 与 Reviewer 必须是不同的 GitHub 身份；任何新的提交都需要重新审查。
-3. 没有明确、现实的风险和用户要求，不安装或启用 hook、daemon、index；不得把它们作为默认治理手段。
+3. 不安装或启用 daemon、后台索引或额外 hook。唯一例外是本机 V23 的 UserPromptSubmit 工具启动 Hook：它在每个新任务中真实检查并使用 CodeGraph、Semble 和 RTK，不使用 Stop Hook。
 
 ## Delegation
 
@@ -36,8 +36,8 @@ Work identity: execute to the judgment standard of a Principal Engineer / Resear
 
 - 先查当前仓库事实、分支和已有实现，再决定改动范围。
 - 直接使用项目已有的构建、测试和格式化工具。
-- 只在工具会改变当前判断时调用它；不为形式完整而调用全部工具。
-- 失败时先处理当前任务真正依赖的故障；无关工具不阻塞工作。
+- 每个新任务开始时，V23 原生启动 Hook 必须真实检查并使用 CodeGraph、Semble 和 RTK 一次；这是用户明确要求，不属于可选路由。
+- 若任一必需工具失败，先修复该工具或说明其明确阻塞原因，再进行无关的任务实现；只自动修复 V23 自己拥有的 Git-local CodeGraph 缓存排除项。
 - 不把一次成功的局部检查描述成整个系统已证明正确。
 - 对数据、数值和研究结论说明输入范围、比较对象和限制。
 

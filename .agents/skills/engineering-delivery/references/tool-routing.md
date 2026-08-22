@@ -1,15 +1,25 @@
-# Tool routing
+# Required tool bootstrap and routing
 
-Choose the least expensive tool that answers the current question. Routing is a decision, not a requirement to call every installed tool.
+Before task work, V23's native UserPromptSubmit hook must health-check and
+actually use CodeGraph, Semble, and RTK once. This is a user-specific hard
+requirement, not general defensive process. The hook is intentionally the only
+V23 hook and is never a Stop hook.
 
-| Need | Preferred tool | Use it for |
+| Need | Required tool | Use it for |
 | --- | --- | --- |
-| Unknown implementation, similar patterns, broad discovery | Semble | Semantic exploration and analogous code |
-| Known symbols, callers, dependencies, impact | CodeGraph | Symbol and relationship queries |
-| Shell commands or large output | RTK | Running or compressing terminal output |
+| Every new task | CodeGraph | Index status/sync plus a real file query |
+| Every new task | Semble | A bounded semantic search using the user prompt |
+| Every new task | RTK | A compact Git workspace status or directory inspection |
 | Straightforward file or text work | `rg`, `git`, project tools | Direct local operations |
-| None of the above | N/A | Do not force a call |
+| Follow-on investigation | Best-fit tool | Expand only if it changes the decision |
 
-Select the route before acting, then use the selected tool when available and relevant. Do not run ceremonial health checks for unrelated tools. Investigate a first-use failure only when the tool is a real dependency of the task. Automatically repair only paths and registrations owned by this harness; do not silently reinstall, upgrade, or alter an independent user tool.
+The CodeGraph cache is Git-local and ignored through a V23-marked
+info/exclude block; it is not committed and no daemon is started. In a non-Git
+directory, CodeGraph can only perform an executable probe because no project
+graph exists.
 
-Tool output is evidence, not a conclusion. Cross-check source, build, test, or runtime results when the task depends on them. Never put credentials or private machine paths in PR evidence.
+If any required tool fails, repair the named tool before unrelated task work.
+Only repair V23-owned setup automatically; never silently reinstall, upgrade,
+or alter independent user tools. Tool output is evidence, not a conclusion.
+Cross-check source, build, test, or runtime results when the task depends on
+them. Never put credentials or private machine paths in PR evidence.

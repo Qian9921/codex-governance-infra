@@ -18,9 +18,9 @@ Codex Harness Infra adds only the durable policy and local-to-GitHub integration
 
 `.agents/skills/engineering-delivery/` contains the delivery skill and focused references for GitHub, tools, C++, Python, and research work. The references are loaded when relevant; they are not copied into the permanent context.
 
-### Small helpers
+### Small helpers and one native task hook
 
-`scripts/install.py`, `scripts/doctor.py`, and `scripts/github_delivery.py` support local installation, actionable setup checks, and the GitHub delivery adapter. They do not run a replacement agent loop, scheduler, background service, or permission system. The Pull Request and current head remain the durable workflow record.
+`scripts/install.py`, `scripts/doctor.py`, `scripts/task_bootstrap.py`, and `scripts/github_delivery.py` support local installation, actionable setup checks, the required three-tool bootstrap, and the GitHub delivery adapter. The installer registers one UserPromptSubmit command hook that calls the installed bootstrap script. It does not run a replacement agent loop, scheduler, background service, Stop hook, or permission system. The Pull Request and current head remain the durable workflow record.
 
 ## Work and capability
 
@@ -45,13 +45,14 @@ Independent read-heavy work can run in parallel. A worktree has one writer. Para
 
 - Keep the permanent context short and load detail progressively.
 - Prefer one coherent change that a reviewer can understand in one sitting.
+- On every new task, health-check and actually use CodeGraph, Semble, and RTK once through the single native prompt hook.
 - Use project-native tools and checks before adding a new dependency.
 - Add a mechanism only when a concrete failure is identified and the existing mechanism cannot address it with less complexity.
 - Preserve user-authored local state outside the marked ownership boundary.
 
 ## Non-goals
 
-This project does not create a second agent runtime, a task database, a background coordinator, or a parallel source of GitHub truth. It does not turn every task into a ceremony or require every available tool on every task.
+This project does not create a second agent runtime, a task database, a background coordinator, a Stop-hook loop, or a parallel source of GitHub truth. Apart from the three explicitly required tools, it does not turn every task into a ceremony or require every available tool on every task.
 
 ## Sources
 
@@ -62,3 +63,4 @@ The design follows the public Google code-review guidance on code health, cohere
 - [OpenAI AGENTS.md guidance](https://developers.openai.com/codex/guides/agents-md)
 - [OpenAI Codex Skills](https://developers.openai.com/codex/skills)
 - [OpenAI Codex Subagents](https://developers.openai.com/codex/subagents)
+- [OpenAI Codex Hooks](https://learn.chatgpt.com/docs/hooks)

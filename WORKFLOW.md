@@ -32,6 +32,10 @@ The primary role owns the request, scope, decisions, and final result. The execu
 
 The author and reviewer are different GitHub identities. The author must be the GitHub actor that pushes the branch; on a shared machine, explicitly select the author's isolated Git credential helper instead of inheriting the default credential. The reviewer model's verdict, the GitHub approval, and GitHub's branch rules are separate facts. A review is valid only for the head SHA it inspected. Any later commit requires a new review.
 
+Use the V23 delivery adapter for branch push, PR creation, GitHub review, and
+merge checks. Its push operation requires an explicit worktree and refspec and
+uses the configured author's GH_CONFIG_DIR credential helper.
+
 Merge only after the current head has the required checks, no blocking unresolved feedback, and a valid approval from the configured reviewer identity. Let GitHub enforce repository rules; do not imitate them with a local process.
 
 Commits should be small, complete, and understandable in one sitting. Keep related tests with the behavior they protect. Do not create noisy commits merely to increase the count.
