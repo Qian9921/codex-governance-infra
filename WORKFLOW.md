@@ -30,7 +30,7 @@ understand → implement → verify → commit → push → Pull Request
 
 The primary role owns the request, scope, decisions, and final result. The executor performs bounded implementation and verification. The reviewer receives the request, current diff, relevant evidence, and current head SHA in fresh read-only context.
 
-The author and reviewer are different GitHub identities. The reviewer model's verdict, the GitHub approval, and GitHub's branch rules are separate facts. A review is valid only for the head SHA it inspected. Any later commit requires a new review.
+The author and reviewer are different GitHub identities. The author must be the GitHub actor that pushes the branch; on a shared machine, explicitly select the author's isolated Git credential helper instead of inheriting the default credential. The reviewer model's verdict, the GitHub approval, and GitHub's branch rules are separate facts. A review is valid only for the head SHA it inspected. Any later commit requires a new review.
 
 Merge only after the current head has the required checks, no blocking unresolved feedback, and a valid approval from the configured reviewer identity. Let GitHub enforce repository rules; do not imitate them with a local process.
 

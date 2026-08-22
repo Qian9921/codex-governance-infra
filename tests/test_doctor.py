@@ -3,6 +3,8 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+import subprocess
+import sys
 
 from scripts.doctor import doctor
 from scripts.install import install
@@ -12,6 +14,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DoctorTests(unittest.TestCase):
+    def test_direct_script_entrypoint(self) -> None:
+        completed = subprocess.run(
+            [sys.executable, str(ROOT / "scripts/doctor.py"), "--help"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
     def test_blank_home_reports_effective_profiles_and_project_rules(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

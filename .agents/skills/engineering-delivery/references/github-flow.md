@@ -17,7 +17,7 @@ understand request
 → merge
 ```
 
-The local configuration maps author and reviewer roles to separate accounts on the same machine. This is an audit-identity separation, not a claim of a separate security boundary. Do not put account names, tokens, `GH_CONFIG_DIR` values, or machine paths in the repository.
+The local configuration maps author and reviewer roles to separate accounts on the same machine. This is an audit-identity separation, not a claim of a separate security boundary. The author must also be the GitHub actor that pushes the branch: select that author's isolated Git credential helper before pushing, rather than relying on the machine's default Git credential. Do not put account names, tokens, `GH_CONFIG_DIR` values, or machine paths in the repository.
 
 ## Invariants
 
