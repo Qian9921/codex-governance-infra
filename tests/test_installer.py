@@ -1,287 +1,330 @@
-import hashlib, pathlib, shutil, subprocess, sys, tempfile, unittest, json
-ROOT=pathlib.Path(__file__).parents[1]
-class Installer(unittest.TestCase):
- def test_dry_run(self):
-  with tempfile.TemporaryDirectory() as d:
-   out=subprocess.check_output([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',d+'/home','--dry-run'],text=True)
-   result=json.loads(out)
-   self.assertEqual(result['status'],'DRY_RUN')
-   self.assertEqual(result['mode'],'managed-overlay')
-   self.assertEqual(result['package'],'Codex Governance Infra')
-   self.assertEqual(result['version'],'21.3.0')
-   self.assertIn('AGENTS.md',result['hashes'])
-   self.assertIn('hooks.json',result['hashes'])
-   self.assertIn('hooks/hooks.json',result['hashes'])
-   self.assertIn('agents/luna-execution.toml',result['hashes'])
-   self.assertIn('rules/v19-safety.rules',result['hashes'])
-   self.assertIn('@agents/skills/v19-engineering/SKILL.md',result['hashes'])
-   self.assertEqual(result['agents_destination'],'$HOME/.agents')
-   self.assertNotIn('codex/AGENTS.md',result['hashes'])
+from __future__ import annotations
 
- def test_install_layout_and_rollback(self):
-  with tempfile.TemporaryDirectory() as d:
-   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); agents_home=parent/'.agents'
-   agents_home.mkdir(); (agents_home/'sentinel').write_text('keep',encoding='utf-8')
-   (home/'sentinel').write_text('before',encoding='utf-8')
-   (home/'AGENTS.md').write_text('previous-agents',encoding='utf-8')
-   subprocess.check_call([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home)])
-   self.assertTrue((home/'AGENTS.md').is_file())
-   self.assertNotEqual((home/'AGENTS.md').read_text(encoding='utf-8'),'previous-agents')
-   self.assertTrue((home/'hooks.json').is_file())
-   self.assertTrue((home/'hooks'/'hooks.json').is_file())
-   self.assertTrue((home/'agents'/'luna-execution.toml').is_file())
-   self.assertTrue((home/'rules'/'v19-safety.rules').is_file())
-   self.assertTrue((home/'governance-strict.config.toml').is_file())
-   self.assertTrue((agents_home/'skills'/'v19-engineering'/'SKILL.md').is_file())
-   self.assertTrue((home/'v16'/'contracts.py').is_file())
-   self.assertFalse((home/'codex').exists())
-   self.assertFalse(any('__pycache__' in p.parts or p.suffix in {'.pyc','.pyo'} for p in home.rglob('*')))
-   self.assertEqual((home/'sentinel').read_text(encoding='utf-8'),'before')
-   self.assertEqual((agents_home/'sentinel').read_text(encoding='utf-8'),'keep')
-   self.assertTrue((home/'.governance-v16-backup'/'metadata.json').is_file())
-   subprocess.check_call([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home),'--rollback'])
-   self.assertEqual((home/'sentinel').read_text(encoding='utf-8'),'before')
-   self.assertEqual((home/'AGENTS.md').read_text(encoding='utf-8'),'previous-agents')
-   self.assertFalse((home/'hooks.json').exists())
-   self.assertFalse((home/'agents'/'luna-execution.toml').exists())
-   self.assertFalse((home/'rules'/'v19-safety.rules').exists())
-   self.assertFalse((agents_home/'skills'/'v19-engineering'/'SKILL.md').exists())
-   self.assertEqual((agents_home/'sentinel').read_text(encoding='utf-8'),'keep')
-   self.assertFalse((home/'.governance-v16-backup').exists())
+import tempfile
+import tomllib
+import unittest
+from pathlib import Path
 
- def test_manifest_mismatch_rejected(self):
-  with tempfile.TemporaryDirectory() as d:
-   source=pathlib.Path(d)/'source'
-   shutil.copytree(ROOT,source,ignore=shutil.ignore_patterns('.git','__pycache__','*.pyc','*.pyo'))
-   (source/'codex'/'AGENTS.md').write_text('tampered',encoding='utf-8')
-   result=subprocess.run([sys.executable,str(source/'scripts/install-governance.py'),'--source',str(source),'--codex-home',str(pathlib.Path(d)/'home'),'--dry-run'],capture_output=True,text=True)
-   self.assertNotEqual(result.returncode,0)
-   self.assertIn('manifest mismatch:codex/AGENTS.md',result.stderr)
+from scripts.install import (
+    InstallError,
+    MARKER,
+    PORTABLE_KIND,
+    install,
+    replace_managed_block,
+    uninstall,
+)
 
- def test_personal_skill_upgrade_and_rollback_restore_previous_file(self):
-  with tempfile.TemporaryDirectory() as d:
-   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); agents_home=parent/'.agents'
-   skill=agents_home/'skills'/'v19-engineering'/'SKILL.md'; skill.parent.mkdir(parents=True)
-   skill.write_text('previous-personal-skill',encoding='utf-8')
-   command=[sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home)]
-   subprocess.check_call(command)
-   self.assertNotEqual(skill.read_text(encoding='utf-8'),'previous-personal-skill')
-   subprocess.check_call(command+['--rollback'])
-   self.assertEqual(skill.read_text(encoding='utf-8'),'previous-personal-skill')
 
- def test_custom_agents_home_root_drift_preserves_both_roots_and_backup(self):
-  with tempfile.TemporaryDirectory() as d:
-   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); custom=parent/'custom-agents'; default=parent/'.agents'
-   custom_skill=custom/'skills'/'v19-engineering'/'SKILL.md'; custom_skill.parent.mkdir(parents=True); custom_skill.write_text('custom-before',encoding='utf-8')
-   default_skill=default/'skills'/'v19-engineering'/'SKILL.md'; default_skill.parent.mkdir(parents=True); default_skill.write_text('default-unrelated',encoding='utf-8')
-   command=[sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home),'--agents-home',str(custom)]
-   subprocess.check_call(command)
-   installed=custom_skill.read_text(encoding='utf-8')
-   self.assertNotEqual(installed,'custom-before')
-   result=subprocess.run(command[:-2]+['--rollback'],capture_output=True,text=True)
-   self.assertNotEqual(result.returncode,0)
-   self.assertIn('backup root mismatch',result.stderr)
-   self.assertEqual(custom_skill.read_text(encoding='utf-8'),installed)
-   self.assertEqual(default_skill.read_text(encoding='utf-8'),'default-unrelated')
-   self.assertTrue((home/'.governance-v16-backup').is_dir())
-   subprocess.check_call(command+['--rollback'])
-   self.assertEqual(custom_skill.read_text(encoding='utf-8'),'custom-before')
-   self.assertEqual(default_skill.read_text(encoding='utf-8'),'default-unrelated')
+ROOT = Path(__file__).resolve().parents[1]
 
- def test_personal_skill_parent_symlink_escape_is_rejected(self):
-  with tempfile.TemporaryDirectory() as d:
-   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); agents_home=parent/'.agents'
-   unrelated=agents_home/'unrelated-personal-state'; unrelated.mkdir(parents=True)
-   sentinel=unrelated/'SKILL.md'; sentinel.write_text('keep',encoding='utf-8')
-   skills=agents_home/'skills'; skills.mkdir(); (skills/'v19-engineering').symlink_to(unrelated,target_is_directory=True)
-   result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home)],capture_output=True,text=True)
-   self.assertNotEqual(result.returncode,0)
-   self.assertIn('destination escape:@agents/skills/v19-engineering/SKILL.md',result.stderr)
-   self.assertEqual(sentinel.read_text(encoding='utf-8'),'keep')
-   self.assertFalse((home/'.governance-v16-backup').exists())
 
- def test_personal_skills_root_symlink_escape_is_rejected(self):
-  with tempfile.TemporaryDirectory() as d:
-   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); agents_home=parent/'.agents'; agents_home.mkdir()
-   unrelated=parent/'unrelated-outside-agents'; unrelated.mkdir()
-   sentinel=unrelated/'sentinel'; sentinel.write_text('keep',encoding='utf-8')
-   (agents_home/'skills').symlink_to(unrelated,target_is_directory=True)
-   result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home)],capture_output=True,text=True)
-   self.assertNotEqual(result.returncode,0)
-   self.assertIn('unsafe agents skills root',result.stderr)
-   self.assertEqual(sentinel.read_text(encoding='utf-8'),'keep')
-   self.assertFalse((unrelated/'v19-engineering').exists())
-   self.assertFalse((home/'.governance-v16-backup').exists())
+class InstallerTests(unittest.TestCase):
+    def make_repo(self, root: Path) -> tuple[Path, Path]:
+        repo = root / "repo"
+        (repo / "package/agents").mkdir(parents=True)
+        (repo / "package/v23-primary.config.toml.in").write_text(
+            'model = "{{primary_model}}"\nmodel_reasoning_effort = "{{primary_effort}}"\n'
+            'review_model = "{{reviewer_model}}"\n',
+            encoding="utf-8",
+        )
+        (repo / "package/agents/v23-executor.toml.in").write_text(
+            'name = "v23_executor"\ndescription = "Test executor."\n'
+            'model = "{{executor_model}}"\nmodel_reasoning_effort = "{{executor_effort}}"\n'
+            'developer_instructions = "Test executor instructions."\n',
+            encoding="utf-8",
+        )
+        (repo / "package/agents/v23-reviewer.toml.in").write_text(
+            'name = "v23_reviewer"\ndescription = "Test reviewer."\n'
+            'model = "{{reviewer_model}}"\nmodel_reasoning_effort = "high"\n'
+            'developer_instructions = "Test reviewer instructions."\n',
+            encoding="utf-8",
+        )
+        (repo / "package/global-portable.md").write_text(
+            "Work identity: Principal Engineer / Research Scientist.\n", encoding="utf-8"
+        )
+        skill = repo / ".agents/skills/engineering-delivery"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text(
+            "---\nname: engineering-delivery\ndescription: Test.\n---\n", encoding="utf-8"
+        )
+        local = root / "local.toml"
+        local.write_text(
+            """
+[models]
+primary = "primary-model"
+primary_effort = "medium"
+executor = "executor-model"
+executor_effort = "medium"
+reviewer = "reviewer-model"
 
- def test_interrupted_recovery_rejects_agents_root_drift(self):
-  with tempfile.TemporaryDirectory() as d:
-   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); custom=parent/'custom-agents'; default=parent/'.agents'
-   custom.mkdir(); default.mkdir()
-   backup=home/'.governance-v16-backup'; backup.mkdir()
-   key='@agents/skills/v19-engineering/SKILL.md'
-   (backup/'metadata.json').write_text(json.dumps({'schema':'governance-overlay-backup.v19','roots':{'codex_home':str(home.resolve()),'agents_home':str(custom.resolve())},'managed':[key],'previous':[],'installed':{key:'0'*64},'committed':False}),encoding='utf-8')
-   result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home)],capture_output=True,text=True)
-   self.assertNotEqual(result.returncode,0)
-   self.assertIn('backup root mismatch',result.stderr)
-   self.assertTrue(backup.is_dir())
+[opening]
+instruction = "Local-only opening."
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        return repo, local
 
- def test_agents_home_symlink_into_codex_home_is_rejected(self):
-  with tempfile.TemporaryDirectory() as d:
-   parent=pathlib.Path(d); home=parent/'home'; home.mkdir()
-   (parent/'.agents').symlink_to(home,target_is_directory=True)
-   result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home),'--dry-run'],capture_output=True,text=True)
-   self.assertNotEqual(result.returncode,0)
-   self.assertIn('must be disjoint',result.stderr)
+    def test_replace_managed_block_preserves_unmanaged_content(self) -> None:
+        before = (
+            "Personal rule.\n\n"
+            f"<!-- BEGIN {MARKER} {PORTABLE_KIND} -->\nold\n"
+            f"<!-- END {MARKER} {PORTABLE_KIND} -->\n\nTail.\n"
+        )
+        after = replace_managed_block(before, PORTABLE_KIND, "new")
+        self.assertIn("Personal rule.", after)
+        self.assertIn("Tail.", after)
+        self.assertIn("new", after)
+        self.assertNotIn("old", after)
 
- def test_rollback_rejects_agents_scope_outside_skills(self):
-  with tempfile.TemporaryDirectory() as d:
-   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); agents_home=parent/'.agents'; agents_home.mkdir()
-   backup=home/'.governance-v16-backup'; backup.mkdir()
-   (backup/'metadata.json').write_text(json.dumps({'schema':'governance-overlay-backup.v19','roots':{'codex_home':str(home.resolve()),'agents_home':str(agents_home.resolve())},'managed':['@agents/sentinel'],'previous':[],'installed':{'@agents/sentinel':'0'*64},'committed':True}),encoding='utf-8')
-   sentinel=agents_home/'sentinel'; sentinel.write_text('keep',encoding='utf-8')
-   result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home),'--rollback'],capture_output=True,text=True)
-   self.assertNotEqual(result.returncode,0)
-   self.assertIn('invalid agents-home target',result.stderr)
-   self.assertEqual(sentinel.read_text(encoding='utf-8'),'keep')
+    def test_replace_managed_block_rejects_partial_marker(self) -> None:
+        begin = f"<!-- BEGIN {MARKER} {PORTABLE_KIND} -->"
+        end = f"<!-- END {MARKER} {PORTABLE_KIND} -->"
+        with self.assertRaises(InstallError):
+            replace_managed_block(f"before\n{begin}\nbody\n", PORTABLE_KIND, "new")
+        with self.assertRaises(InstallError):
+            replace_managed_block(f"before\n{end}\n", PORTABLE_KIND, "new")
 
- def test_rollback_rejects_backup_source_symlink_escape(self):
-  with tempfile.TemporaryDirectory() as d:
-   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); agents_home=parent/'.agents'; agents_home.mkdir()
-   outside=parent/'outside'; outside.mkdir(); (outside/'SKILL.md').write_text('outside',encoding='utf-8')
-   backup=home/'.governance-v16-backup'; files=backup/'files'/'@agents'; files.mkdir(parents=True)
-   (files/'skills').symlink_to(outside,target_is_directory=True)
-   key='@agents/skills/SKILL.md'
-   (backup/'metadata.json').write_text(json.dumps({'schema':'governance-overlay-backup.v19','roots':{'codex_home':str(home.resolve()),'agents_home':str(agents_home.resolve())},'managed':[key],'previous':[key],'installed':{key:'0'*64},'committed':True}),encoding='utf-8')
-   result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home),'--rollback'],capture_output=True,text=True)
-   self.assertNotEqual(result.returncode,0)
-   self.assertIn('backup source escape',result.stderr)
-   self.assertEqual((outside/'SKILL.md').read_text(encoding='utf-8'),'outside')
+    def test_install_and_uninstall_preserve_unmanaged_agents_content(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo, local = self.make_repo(root)
+            codex_home = root / "codex"
+            state_dir = root / "state"
+            agents = codex_home / "AGENTS.md"
+            codex_home.mkdir()
+            agents.write_text("Personal rule.\n", encoding="utf-8")
+            (codex_home / "config.toml").write_text("user_setting = true\n", encoding="utf-8")
 
- def test_rollback_rejects_personal_skill_parent_symlink_escape(self):
-  with tempfile.TemporaryDirectory() as d:
-   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); agents_home=parent/'.agents'
-   unrelated=agents_home/'unrelated-personal-state'; unrelated.mkdir(parents=True)
-   sentinel=unrelated/'SKILL.md'; sentinel.write_text('keep',encoding='utf-8')
-   skills=agents_home/'skills'; skills.mkdir(); (skills/'demo').symlink_to(unrelated,target_is_directory=True)
-   backup=home/'.governance-v16-backup'; backup.mkdir()
-   key='@agents/skills/demo/SKILL.md'
-   (backup/'metadata.json').write_text(json.dumps({'schema':'governance-overlay-backup.v19','roots':{'codex_home':str(home.resolve()),'agents_home':str(agents_home.resolve())},'managed':[key],'previous':[],'installed':{key:'0'*64},'committed':True}),encoding='utf-8')
-   result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home),'--rollback'],capture_output=True,text=True)
-   self.assertNotEqual(result.returncode,0)
-   self.assertIn('destination escape:'+key,result.stderr)
-   self.assertEqual(sentinel.read_text(encoding='utf-8'),'keep')
-   self.assertTrue(backup.is_dir())
+            install(repo, codex_home, local, state_dir)
+            installed = agents.read_text(encoding="utf-8")
+            self.assertIn("Personal rule.", installed)
+            self.assertIn("Principal Engineer / Research Scientist", installed)
+            self.assertIn("Local-only opening.", installed)
+            self.assertIn("user_setting = true", (codex_home / "config.toml").read_text())
 
- def test_interrupted_recovery_rejects_personal_skill_parent_symlink_escape(self):
-  with tempfile.TemporaryDirectory() as d:
-   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); agents_home=parent/'.agents'
-   unrelated=agents_home/'unrelated-personal-state'; unrelated.mkdir(parents=True)
-   sentinel=unrelated/'SKILL.md'; sentinel.write_text('keep',encoding='utf-8')
-   skills=agents_home/'skills'; skills.mkdir(); (skills/'demo').symlink_to(unrelated,target_is_directory=True)
-   backup=home/'.governance-v16-backup'; backup.mkdir()
-   key='@agents/skills/demo/SKILL.md'
-   (backup/'metadata.json').write_text(json.dumps({'schema':'governance-overlay-backup.v19','roots':{'codex_home':str(home.resolve()),'agents_home':str(agents_home.resolve())},'managed':[key],'previous':[],'installed':{key:'0'*64},'committed':False}),encoding='utf-8')
-   result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home)],capture_output=True,text=True)
-   self.assertNotEqual(result.returncode,0)
-   self.assertIn('destination escape:'+key,result.stderr)
-   self.assertEqual(sentinel.read_text(encoding='utf-8'),'keep')
-   self.assertTrue(backup.is_dir())
+            uninstall(codex_home, state_dir)
+            self.assertEqual(agents.read_text(encoding="utf-8"), "Personal rule.\n")
+            self.assertEqual((codex_home / "config.toml").read_text(), "user_setting = true\n")
+            self.assertFalse((state_dir / "install.json").exists())
 
- def test_rollback_rejects_personal_skills_root_symlink_escape(self):
-  with tempfile.TemporaryDirectory() as d:
-   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); agents_home=parent/'.agents'; agents_home.mkdir()
-   unrelated=parent/'unrelated-outside-agents'; unrelated.mkdir()
-   sentinel=unrelated/'SKILL.md'; sentinel.write_text('keep',encoding='utf-8')
-   (agents_home/'skills').symlink_to(unrelated,target_is_directory=True)
-   backup=home/'.governance-v16-backup'; backup.mkdir()
-   key='@agents/skills/SKILL.md'
-   (backup/'metadata.json').write_text(json.dumps({'schema':'governance-overlay-backup.v19','roots':{'codex_home':str(home.resolve()),'agents_home':str(agents_home.resolve())},'managed':[key],'previous':[],'installed':{key:'0'*64},'committed':True}),encoding='utf-8')
-   result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home),'--rollback'],capture_output=True,text=True)
-   self.assertNotEqual(result.returncode,0)
-   self.assertIn('unsafe agents skills root',result.stderr)
-   self.assertEqual(sentinel.read_text(encoding='utf-8'),'keep')
-   self.assertTrue(backup.is_dir())
+    def test_install_refuses_unowned_collision(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo, local = self.make_repo(root)
+            codex_home = root / "codex"
+            state_dir = root / "state"
+            collision = codex_home / "agents" / "v23-executor.toml"
+            collision.parent.mkdir(parents=True)
+            collision.write_text("user-owned = true\n", encoding="utf-8")
 
- def test_interrupted_recovery_rejects_personal_skills_root_symlink_escape(self):
-  with tempfile.TemporaryDirectory() as d:
-   parent=pathlib.Path(d); home=parent/'home'; home.mkdir(); agents_home=parent/'.agents'; agents_home.mkdir()
-   unrelated=parent/'unrelated-outside-agents'; unrelated.mkdir()
-   sentinel=unrelated/'SKILL.md'; sentinel.write_text('keep',encoding='utf-8')
-   (agents_home/'skills').symlink_to(unrelated,target_is_directory=True)
-   backup=home/'.governance-v16-backup'; backup.mkdir()
-   key='@agents/skills/SKILL.md'
-   (backup/'metadata.json').write_text(json.dumps({'schema':'governance-overlay-backup.v19','roots':{'codex_home':str(home.resolve()),'agents_home':str(agents_home.resolve())},'managed':[key],'previous':[],'installed':{key:'0'*64},'committed':False}),encoding='utf-8')
-   result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home)],capture_output=True,text=True)
-   self.assertNotEqual(result.returncode,0)
-   self.assertIn('unsafe agents skills root',result.stderr)
-   self.assertEqual(sentinel.read_text(encoding='utf-8'),'keep')
-   self.assertTrue(backup.is_dir())
+            with self.assertRaises(InstallError):
+                install(repo, codex_home, local, state_dir)
+            self.assertEqual(collision.read_text(encoding="utf-8"), "user-owned = true\n")
 
- def test_manifest_hash_matching_forbidden_content_is_rejected(self):
-  with tempfile.TemporaryDirectory() as d:
-   source=pathlib.Path(d)/'source'
-   shutil.copytree(ROOT,source,ignore=shutil.ignore_patterns('.git','__pycache__','*.pyc','*.pyo'))
-   payload='synthetic_demo=true task_id=' + '/' + 'root/real-task\n'
-   target=source/'codex'/'AGENTS.md'; target.write_text(payload,encoding='utf-8')
-   manifest=json.loads((source/'manifest.json').read_text(encoding='utf-8'))
-   manifest['files']['codex/AGENTS.md']=hashlib.sha256(payload.encode()).hexdigest()
-   (source/'manifest.json').write_text(json.dumps(manifest,separators=(',',':')),encoding='utf-8')
-   result=subprocess.run([sys.executable,str(source/'scripts/install-governance.py'),'--source',str(source),'--codex-home',str(pathlib.Path(d)/'home'),'--dry-run'],capture_output=True,text=True)
-   self.assertNotEqual(result.returncode,0)
-   self.assertIn('forbidden content:',result.stderr)
- def test_manifest_unknown_metadata_is_rejected(self):
-  with tempfile.TemporaryDirectory() as d:
-   source=pathlib.Path(d)/'source'
-   shutil.copytree(ROOT,source,ignore=shutil.ignore_patterns('.git','__pycache__','*.pyc','*.pyo'))
-   manifest=json.loads((source/'manifest.json').read_text(encoding='utf-8'))
-   manifest['synthetic_forbidden'] = '/' + 'home/' + 'not-public'
-   (source/'manifest.json').write_text(json.dumps(manifest,separators=(',',':')),encoding='utf-8')
-   result=subprocess.run([sys.executable,str(source/'scripts/install-governance.py'),'--source',str(source),'--codex-home',str(pathlib.Path(d)/'home'),'--dry-run'],capture_output=True,text=True)
-   self.assertNotEqual(result.returncode,0)
-   self.assertIn('invalid manifest metadata:',result.stderr)
+    def test_uninstall_keeps_user_modified_installed_assets(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo, local = self.make_repo(root)
+            codex_home = root / "codex"
+            state_dir = root / "state"
+            install(repo, codex_home, local, state_dir)
 
- def test_manifest_traversal_cannot_escape_destination(self):
-  with tempfile.TemporaryDirectory() as d:
-   root=pathlib.Path(d); source=root/'source'
-   shutil.copytree(ROOT,source,ignore=shutil.ignore_patterns('.git','__pycache__','*.pyc','*.pyo'))
-   payload=source/'outside.txt'; payload.write_text('attacker payload',encoding='utf-8')
-   manifest=json.loads((source/'manifest.json').read_text(encoding='utf-8'))
-   manifest['files']['codex/../outside.txt']=hashlib.sha256(payload.read_bytes()).hexdigest()
-   (source/'manifest.json').write_text(json.dumps(manifest,separators=(',',':')),encoding='utf-8')
-   target=root/'target'; target.mkdir()
-   sentinel=target/'outside.txt'; sentinel.write_text('keep',encoding='utf-8')
-   result=subprocess.run([sys.executable,str(source/'scripts/install-governance.py'),'--source',str(source),'--codex-home',str(target/'.codex')],capture_output=True,text=True)
-   self.assertNotEqual(result.returncode,0)
-   self.assertIn('noncanonical manifest path:codex/../outside.txt',result.stderr)
-   self.assertEqual(sentinel.read_text(encoding='utf-8'),'keep')
-   self.assertFalse((target/'.codex').exists())
+            agent = codex_home / "agents" / "v23-executor.toml"
+            skill = codex_home / "skills/engineering-delivery/SKILL.md"
+            agent.write_text(agent.read_text(encoding="utf-8") + "user edit\n", encoding="utf-8")
+            skill.write_text(skill.read_text(encoding="utf-8") + "user edit\n", encoding="utf-8")
 
- def test_mid_install_failure_rolls_back_managed_files(self):
-  with tempfile.TemporaryDirectory() as d:
-   home=pathlib.Path(d)/'home'; home.mkdir()
-   agents=home/'AGENTS.md'; agents.write_text('previous-agents',encoding='utf-8')
-   staged_collision=home/'hooks.json.governance-v16.tmp'; staged_collision.mkdir()
-   result=subprocess.run([sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home)],capture_output=True,text=True)
-   self.assertNotEqual(result.returncode,0)
-   self.assertEqual(agents.read_text(encoding='utf-8'),'previous-agents')
-   self.assertFalse((home/'.governance-v16-backup').exists())
-   self.assertTrue(staged_collision.is_dir())
+            report = uninstall(codex_home, state_dir)
+            self.assertTrue(agent.exists())
+            self.assertTrue(skill.exists())
+            self.assertIn("user edit", agent.read_text(encoding="utf-8"))
+            self.assertIn("user edit", skill.read_text(encoding="utf-8"))
+            self.assertTrue(any("preserved entire" in line for line in report))
 
- def test_failed_upgrade_preserves_prior_rollback_generation(self):
-  with tempfile.TemporaryDirectory() as d:
-   home=pathlib.Path(d)/'home'; home.mkdir()
-   agents=home/'AGENTS.md'; agents.write_text('original-agents',encoding='utf-8')
-   command=[sys.executable,str(ROOT/'scripts/install-governance.py'),'--source',str(ROOT),'--codex-home',str(home)]
-   subprocess.check_call(command)
-   self.assertTrue((home/'.governance-v16-backup'/'metadata.json').is_file())
-   agents.write_text('active-before-failed-upgrade',encoding='utf-8')
-   staged_collision=home/'hooks.json.governance-v16.tmp'; staged_collision.mkdir()
-   result=subprocess.run(command,capture_output=True,text=True)
-   self.assertNotEqual(result.returncode,0)
-   self.assertEqual(agents.read_text(encoding='utf-8'),'active-before-failed-upgrade')
-   self.assertTrue((home/'.governance-v16-backup'/'metadata.json').is_file())
-   self.assertFalse((home/'.governance-v16-backup.previous').exists())
-   staged_collision.rmdir()
-   subprocess.check_call(command+['--rollback'])
-   self.assertEqual(agents.read_text(encoding='utf-8'),'original-agents')
-if __name__=='__main__': unittest.main()
+    def test_uninstall_preserves_agent_assets_when_config_block_was_edited(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo, local = self.make_repo(root)
+            codex_home, state_dir = root / "codex", root / "state"
+            install(repo, codex_home, local, state_dir)
+            config = codex_home / "config.toml"
+            config.write_text(config.read_text(encoding="utf-8").replace("V23 scoped", "Edited V23"), encoding="utf-8")
+
+            report = uninstall(codex_home, state_dir)
+            self.assertTrue((codex_home / "agents/v23-executor.toml").exists())
+            self.assertTrue((codex_home / "skills/engineering-delivery/SKILL.md").exists())
+            self.assertTrue(any("preserved entire" in line for line in report))
+
+    def test_install_refuses_partial_global_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo, local = self.make_repo(root)
+            codex_home = root / "codex"
+            state_dir = root / "state"
+            codex_home.mkdir()
+            begin = f"<!-- BEGIN {MARKER} {PORTABLE_KIND} -->"
+            (codex_home / "AGENTS.md").write_text(f"{begin}\nleftover\n", encoding="utf-8")
+
+            with self.assertRaises(InstallError):
+                install(repo, codex_home, local, state_dir)
+
+    def test_install_refuses_unmarked_duplicate_agent_registration(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo, local = self.make_repo(root)
+            codex_home = root / "codex"
+            codex_home.mkdir()
+            config = codex_home / "config.toml"
+            original = "[agents.v23_executor]\ndescription = \"personal\"\nconfig_file = \"personal.toml\"\n"
+            config.write_text(original, encoding="utf-8")
+
+            with self.assertRaises(InstallError):
+                install(repo, codex_home, local, root / "state")
+            self.assertEqual(config.read_text(encoding="utf-8"), original)
+
+    def test_install_refuses_active_global_path_transition(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo, local = self.make_repo(root)
+            codex_home, state_dir = root / "codex", root / "state"
+            install(repo, codex_home, local, state_dir)
+            (codex_home / "AGENTS.override.md").write_text("Personal override.\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(InstallError, "path changed"):
+                install(repo, codex_home, local, state_dir)
+            self.assertIn(MARKER, (codex_home / "AGENTS.md").read_text(encoding="utf-8"))
+            self.assertNotIn(MARKER, (codex_home / "AGENTS.override.md").read_text(encoding="utf-8"))
+
+    def test_uninstall_allows_reinstall_after_global_override_is_created(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo, local = self.make_repo(root)
+            codex_home, state_dir = root / "codex", root / "state"
+            install(repo, codex_home, local, state_dir)
+            uninstall(codex_home, state_dir)
+            (codex_home / "AGENTS.override.md").write_text("Personal override.\n", encoding="utf-8")
+
+            install(repo, codex_home, local, state_dir)
+            self.assertIn(MARKER, (codex_home / "AGENTS.override.md").read_text(encoding="utf-8"))
+
+    def test_install_refuses_symlink_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo, local = self.make_repo(root)
+            codex_home = root / "codex"
+            state_dir = root / "state"
+            target = root / "personal.toml"
+            target.write_text("personal = true\n", encoding="utf-8")
+            collision = codex_home / "agents" / "v23-executor.toml"
+            collision.parent.mkdir(parents=True)
+            collision.symlink_to(target)
+
+            with self.assertRaises(InstallError):
+                install(repo, codex_home, local, state_dir)
+            self.assertEqual(target.read_text(encoding="utf-8"), "personal = true\n")
+
+    def test_install_checks_state_directory_before_mutating_codex_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo, local = self.make_repo(root)
+            codex_home, state_dir = root / "codex", root / "state"
+            codex_home.mkdir()
+            (codex_home / "AGENTS.md").write_text("Personal rule.\n", encoding="utf-8")
+            state_dir.write_text("not a directory\n", encoding="utf-8")
+
+            with self.assertRaises(InstallError):
+                install(repo, codex_home, local, state_dir)
+            self.assertEqual((codex_home / "AGENTS.md").read_text(encoding="utf-8"), "Personal rule.\n")
+            self.assertFalse((codex_home / "config.toml").exists())
+
+    def test_install_rejects_state_symlink_before_mutating_codex_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo, local = self.make_repo(root)
+            codex_home, target = root / "codex", root / "personal-state"
+            target.mkdir()
+            state_link = root / "state-link"
+            state_link.symlink_to(target)
+
+            with self.assertRaises(InstallError):
+                install(repo, codex_home, local, state_link)
+            self.assertFalse((codex_home / "config.toml").exists())
+            self.assertFalse((target / "install.json").exists())
+
+    def test_uninstall_rejects_state_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo, local = self.make_repo(root)
+            codex_home, state_dir = root / "codex", root / "state"
+            install(repo, codex_home, local, state_dir)
+            state_link = root / "state-link"
+            state_link.symlink_to(state_dir)
+
+            with self.assertRaises(InstallError):
+                uninstall(codex_home, state_link)
+            self.assertTrue((codex_home / "v23-primary.config.toml").exists())
+
+    def test_install_rejects_invalid_rendered_agent_toml(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo, local = self.make_repo(root)
+            text = local.read_text(encoding="utf-8")
+            local.write_text(
+                text.replace('primary = "primary-model"', "primary = 'bad\\q'"),
+                encoding="utf-8",
+            )
+            codex_home = root / "codex"
+
+            with self.assertRaises(InstallError):
+                install(repo, codex_home, local, root / "state")
+            self.assertFalse((codex_home / "config.toml").exists())
+
+    def test_real_repository_blank_home_smoke(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            local = root / "local.toml"
+            local.write_text(
+                """
+[models]
+primary = "primary-model"
+primary_effort = "medium"
+executor = "executor-model"
+executor_effort = "medium"
+reviewer = "reviewer-model"
+
+[opening]
+instruction = "Local-only opening."
+""".lstrip(),
+                encoding="utf-8",
+            )
+            codex_home, state_dir = root / "codex", root / "state"
+
+            install(ROOT, codex_home, local, state_dir)
+            self.assertTrue((codex_home / "v23-primary.config.toml").is_file())
+            self.assertTrue((codex_home / "agents/v23-executor.toml").is_file())
+            self.assertTrue((codex_home / "agents/v23-reviewer.toml").is_file())
+            self.assertTrue((codex_home / "skills/engineering-delivery/SKILL.md").is_file())
+            self.assertIn("[agents.\"v23_executor\"]", (codex_home / "config.toml").read_text())
+            tomllib.loads((codex_home / "config.toml").read_text())
+            primary = tomllib.loads((codex_home / "v23-primary.config.toml").read_text())
+            self.assertEqual(primary["model"], "primary-model")
+            self.assertEqual(primary["model_reasoning_effort"], "medium")
+            self.assertEqual(primary["review_model"], "reviewer-model")
+            for path, expected_name in (
+                (codex_home / "agents/v23-executor.toml", "v23_executor"),
+                (codex_home / "agents/v23-reviewer.toml", "v23_reviewer"),
+            ):
+                agent = tomllib.loads(path.read_text(encoding="utf-8"))
+                self.assertEqual(agent["name"], expected_name)
+                self.assertTrue(agent["description"])
+                self.assertTrue(agent["developer_instructions"])
+
+            uninstall(codex_home, state_dir)
+            self.assertFalse((codex_home / "v23-primary.config.toml").exists())
+            self.assertFalse((codex_home / "agents/v23-executor.toml").exists())
+            self.assertFalse((codex_home / "skills/engineering-delivery").exists())
+
+
+if __name__ == "__main__":
+    unittest.main()

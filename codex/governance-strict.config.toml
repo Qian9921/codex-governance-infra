@@ -1,9 +1,0 @@
-# Opt-in with: CODEX_GOVERNANCE_MODE=strict codex --profile governance-strict
-# This layer deliberately does not replace the user's model or provider.
-model_reasoning_effort = "high"
-approval_policy = "on-request"
-sandbox_mode = "workspace-write"
-
-[features]
-hooks = true
-multi_agent = true

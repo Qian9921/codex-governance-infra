@@ -1,5 +1,26 @@
+# Python artifacts
 __pycache__/
-*.pyc
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+
+# Local environments and build output
 .venv/
+venv/
+env/
+build/
+dist/
+*.egg-info/
 .DS_Store
-.codegraph/
+.idea/
+.vscode/
+
+# Local harness state and credentials
+.codex-harness-local/
+.codex-harness-state/
+*.local.toml
+*.secret
+*.token

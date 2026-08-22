@@ -1,0 +1,3 @@
+model = "{{primary_model}}"
+model_reasoning_effort = "{{primary_effort}}"
+review_model = "{{reviewer_model}}"
