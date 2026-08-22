@@ -24,7 +24,12 @@ from pathlib import Path
 CODEGRAPH_BEGIN = "# BEGIN CODEX-HARNESS-INFRA V23 CODEGRAPH"
 CODEGRAPH_END = "# END CODEX-HARNESS-INFRA V23 CODEGRAPH"
 REQUIRED_TOOLS = ("codegraph", "semble", "rtk")
-DEFAULT_TIMEOUT_SECONDS = 90
+# Keep the worst-case synchronous sequence below the 90-second native Hook
+# timeout: Git discovery 4 + 4, CodeGraph 14 * 4, Semble 12, RTK 8 = 84.
+GIT_DISCOVERY_TIMEOUT_SECONDS = 4
+CODEGRAPH_TIMEOUT_SECONDS = 14
+SEMBLE_TIMEOUT_SECONDS = 12
+RTK_TIMEOUT_SECONDS = 8
 
 
 @dataclass(frozen=True)
@@ -64,11 +69,12 @@ def _run(
     command: tuple[str, ...],
     cwd: Path | None,
     runner: CommandRunner,
+    timeout_seconds: int,
     root: Path | None = None,
 ) -> tuple[bool, str]:
     """Run one bounded command and retain only a short diagnostic."""
     try:
-        completed = runner(command, cwd, DEFAULT_TIMEOUT_SECONDS)
+        completed = runner(command, cwd, timeout_seconds)
     except FileNotFoundError:
         return False, f"executable unavailable: {command[0]}"
     except subprocess.TimeoutExpired:
@@ -93,7 +99,12 @@ def _resolve_executable(value: object) -> str | None:
 
 
 def _git_root(cwd: Path, runner: CommandRunner) -> Path | None:
-    ok, output = _run(("git", "-C", str(cwd), "rev-parse", "--show-toplevel"), None, runner)
+    ok, output = _run(
+        ("git", "-C", str(cwd), "rev-parse", "--show-toplevel"),
+        None,
+        runner,
+        GIT_DISCOVERY_TIMEOUT_SECONDS,
+    )
     if not ok or not output:
         return None
     root = Path(output)
@@ -116,7 +127,11 @@ def _atomic_write(path: Path, content: str) -> None:
 def _ensure_codegraph_exclude(root: Path, runner: CommandRunner) -> tuple[bool, str]:
     """Ignore the V23-created CodeGraph cache using only a marked Git-local block."""
     ok, output = _run(
-        ("git", "-C", str(root), "rev-parse", "--git-path", "info/exclude"), None, runner, root
+        ("git", "-C", str(root), "rev-parse", "--git-path", "info/exclude"),
+        None,
+        runner,
+        GIT_DISCOVERY_TIMEOUT_SECONDS,
+        root,
     )
     if not ok:
         return False, f"cannot locate Git exclude file: {output}"
@@ -153,29 +168,35 @@ def _codegraph_result(
     if not executable:
         return ToolResult("CodeGraph", False, "not configured or unavailable")
     if root is None:
-        ok, detail = _run((executable, "--version"), None, runner)
+        ok, detail = _run((executable, "--version"), None, runner, CODEGRAPH_TIMEOUT_SECONDS)
         suffix = "non-Git directory; version probe" if ok else detail
         return ToolResult("CodeGraph", ok, suffix)
     if initialize:
         excluded, detail = _ensure_codegraph_exclude(root, runner)
         if not excluded:
             return ToolResult("CodeGraph", False, detail)
-    status_ok, status = _run((executable, "status", str(root)), root, runner, root)
+    status_ok, status = _run(
+        (executable, "status", str(root)), root, runner, CODEGRAPH_TIMEOUT_SECONDS, root
+    )
     # CodeGraph 1.5 reports an uninitialized project in stdout with exit 0.
     # Treat the declared state, not only the process code, as authoritative.
     if "not initialized" in status.casefold():
         status_ok = False
     if not status_ok and initialize:
-        status_ok, status = _run((executable, "init", str(root)), root, runner, root)
+        status_ok, status = _run(
+            (executable, "init", str(root)), root, runner, CODEGRAPH_TIMEOUT_SECONDS, root
+        )
         if not status_ok:
             return ToolResult("CodeGraph", False, f"init failed: {status}")
     if not status_ok:
         return ToolResult("CodeGraph", False, f"status failed: {status}")
     if initialize:
-        synced, sync_detail = _run((executable, "sync", str(root)), root, runner, root)
+        synced, sync_detail = _run(
+            (executable, "sync", str(root)), root, runner, CODEGRAPH_TIMEOUT_SECONDS, root
+        )
         if not synced:
             return ToolResult("CodeGraph", False, f"sync failed: {sync_detail}")
-    queried, detail = _run((executable, "files"), root, runner, root)
+    queried, detail = _run((executable, "files"), root, runner, CODEGRAPH_TIMEOUT_SECONDS, root)
     return ToolResult("CodeGraph", queried, detail if queried else f"files query failed: {detail}")
 
 
@@ -204,7 +225,7 @@ def _semble_result(
         _prompt_query(prompt),
         str(target),
     )
-    ok, detail = _run(command, target, runner, root)
+    ok, detail = _run(command, target, runner, SEMBLE_TIMEOUT_SECONDS, root)
     return ToolResult("Semble", ok, detail)
 
 
@@ -219,7 +240,7 @@ def _rtk_result(
         if root
         else (executable, "ls", str(cwd))
     )
-    ok, detail = _run(command, cwd, runner, root)
+    ok, detail = _run(command, cwd, runner, RTK_TIMEOUT_SECONDS, root)
     return ToolResult("RTK", ok, detail)
 
 

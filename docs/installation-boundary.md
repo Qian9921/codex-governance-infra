@@ -16,7 +16,7 @@ If a target exists without the expected marker and contains user content, instal
 
 User-authored rules, unrelated agents, credentials, personal tools, existing integrations, and unrelated configuration remain untouched. Local account mappings, model mappings, tool paths, and the local greeting are environment data; they are not part of the portable repository.
 
-The project does not manage or automatically start external tools that happen to be available on the machine. The sole exception is one UserPromptSubmit hook, installed as a marked inline config block, which runs a bounded CodeGraph, Semble, and RTK bootstrap for each new user task. It does not use a Stop hook, daemon, background service, or project-tracked index. CodeGraph's cache exclusion is Git-local and marked before a V23-created cache is initialized.
+The project does not manage or automatically start external tools that happen to be available on the machine. The sole exception is one UserPromptSubmit hook, installed as a marked inline config block, which runs a bounded CodeGraph, Semble, and RTK bootstrap for each new user task. Each operation has a small fixed budget whose worst-case sequence stays inside the Hook budget, so a stalled CodeGraph probe still leaves time for Semble and RTK. It does not use a Stop hook, daemon, background service, or project-tracked index. CodeGraph's cache exclusion is Git-local and marked before a V23-created cache is initialized.
 
 ## Upgrade and uninstall
 

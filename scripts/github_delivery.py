@@ -45,12 +45,30 @@ class ReviewVerdict:
 
 
 Runner = Callable[[tuple[str, ...], dict[str, str]], subprocess.CompletedProcess[str]]
+_AMBIENT_AUTH_VARIABLES = (
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+    "GH_ENTERPRISE_TOKEN",
+    "GITHUB_ENTERPRISE_TOKEN",
+    "GIT_ASKPASS",
+    "SSH_ASKPASS",
+)
 
 
 def _system_runner(
     command: tuple[str, ...], env: dict[str, str]
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, env=env, text=True, capture_output=True, check=False)
+
+
+def _github_environment(config_dir: Path) -> dict[str, str]:
+    """Select one GH identity without accepting ambient token or askpass overrides."""
+    env = os.environ.copy()
+    for variable in _AMBIENT_AUTH_VARIABLES:
+        env.pop(variable, None)
+    env["GH_CONFIG_DIR"] = str(config_dir)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    return env
 
 
 class GHClient:
@@ -61,9 +79,7 @@ class GHClient:
         self._runner = runner or _system_runner
 
     def _run(self, *parts: str, allow_empty: bool = False) -> str:
-        env = os.environ.copy()
-        env["GH_CONFIG_DIR"] = str(self.config_dir)
-        completed = self._runner(tuple(parts), env)
+        completed = self._runner(tuple(parts), self.environment())
         if completed.returncode:
             detail = completed.stderr.strip() or "GitHub CLI command failed"
             raise FlowError(detail)
@@ -71,6 +87,10 @@ class GHClient:
         if not output and not allow_empty:
             raise FlowError("GitHub CLI returned no data")
         return output
+
+    def environment(self) -> dict[str, str]:
+        """Return the isolated environment used for this GitHub identity."""
+        return _github_environment(self.config_dir)
 
     @staticmethod
     def _json(output: str) -> object:
@@ -314,8 +334,7 @@ class DeliveryFlow:
             raise FlowError(f"Git worktree does not exist: {workdir}")
         if not remote or not refspec:
             raise FlowError("remote and refspec are required for an author push")
-        env = os.environ.copy()
-        env["GH_CONFIG_DIR"] = str(self.author.config_dir)
+        env = self.author.environment()
         remote_url = self._author_push_url(workdir, remote, env)
         command = (
             "git",

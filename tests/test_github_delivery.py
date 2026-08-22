@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from scripts.github_delivery import DeliveryFlow, FlowError, GHClient, ReviewVerdict
 
@@ -13,11 +14,13 @@ class FakeRunner:
     def __init__(self, responses: list[tuple[int, str, str]]) -> None:
         self.responses = list(responses)
         self.calls: list[tuple[tuple[str, ...], str]] = []
+        self.environments: list[dict[str, str]] = []
 
     def __call__(
         self, command: tuple[str, ...], env: dict[str, str]
     ) -> subprocess.CompletedProcess[str]:
         self.calls.append((tuple(command), env["GH_CONFIG_DIR"]))
+        self.environments.append(dict(env))
         if not self.responses:
             raise AssertionError(f"unexpected command: {command}")
         code, stdout, stderr = self.responses.pop(0)
@@ -228,6 +231,26 @@ class GithubDeliveryTests(unittest.TestCase):
             ):
                 flow.push_branch(Path(directory), "origin", "HEAD:refs/heads/feature/v23")
             self.assertFalse(any("push" in call for call, _ in runner.calls))
+
+    def test_github_identity_ignores_ambient_tokens_and_askpass(self) -> None:
+        runner = FakeRunner([user("author-one"), user("reviewer-two")])
+        flow = self.client_pair(runner)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "GH_TOKEN": "ambient-token",
+                "GITHUB_TOKEN": "ambient-token",
+                "GIT_ASKPASS": "/tmp/askpass",
+                "SSH_ASKPASS": "/tmp/ssh-askpass",
+            },
+        ):
+            flow.preflight()
+
+        for environment in runner.environments:
+            self.assertEqual(environment["GIT_TERMINAL_PROMPT"], "0")
+            for variable in ("GH_TOKEN", "GITHUB_TOKEN", "GIT_ASKPASS", "SSH_ASKPASS"):
+                self.assertNotIn(variable, environment)
 
 
 if __name__ == "__main__":
