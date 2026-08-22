@@ -54,6 +54,7 @@ _AMBIENT_AUTH_VARIABLES = (
     "SSH_ASKPASS",
 )
 _GIT_CONFIG_INJECTION_VARIABLES = (
+    "GIT_CONFIG",
     "GIT_CONFIG_COUNT",
     "GIT_CONFIG_PARAMETERS",
     "GIT_CONFIG_GLOBAL",
@@ -78,6 +79,27 @@ def _github_environment(config_dir: Path) -> dict[str, str]:
         ):
             env.pop(variable)
     env["GH_CONFIG_DIR"] = str(config_dir)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    # The author push uses a prevalidated literal URL, so it does not need
+    # repository, global, or system Git configuration. Keeping those sources
+    # out prevents a later URL rewrite or scoped credential override.
+    env["GIT_CONFIG"] = os.devnull
+    env["GIT_CONFIG_GLOBAL"] = os.devnull
+    env["GIT_CONFIG_NOSYSTEM"] = "1"
+    return env
+
+
+def _local_config_environment() -> dict[str, str]:
+    """Read raw local remote configuration without inherited injection."""
+    env = os.environ.copy()
+    env.pop("GH_CONFIG_DIR", None)
+    for variable in _AMBIENT_AUTH_VARIABLES:
+        env.pop(variable, None)
+    for variable in tuple(env):
+        if variable in _GIT_CONFIG_INJECTION_VARIABLES or variable.startswith(
+            ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")
+        ):
+            env.pop(variable)
     env["GIT_TERMINAL_PROMPT"] = "0"
     return env
 
@@ -346,7 +368,7 @@ class DeliveryFlow:
         if not remote or not refspec:
             raise FlowError("remote and refspec are required for an author push")
         env = self.author.environment()
-        remote_url = self._author_push_url(workdir, remote, env)
+        remote_url = self._author_push_url(workdir, remote)
         command = [
             "git",
             "-C",
@@ -368,15 +390,42 @@ class DeliveryFlow:
             detail = completed.stderr.strip() or "Git push failed"
             raise FlowError(detail)
 
-    def _author_push_url(self, workdir: Path, remote: str, env: dict[str, str]) -> str:
+    def _author_push_url(self, workdir: Path, remote: str) -> str:
         """Return a credential-free HTTPS GitHub push URL for the author helper."""
         completed = self._git_runner(
-            ("git", "-C", str(workdir.resolve()), "remote", "get-url", "--push", remote), env
+            (
+                "git",
+                "-C",
+                str(workdir.resolve()),
+                "config",
+                "--local",
+                "--no-includes",
+                "--get-all",
+                f"remote.{remote}.pushurl",
+            ),
+            _local_config_environment(),
         )
+        if completed.returncode == 1:
+            completed = self._git_runner(
+                (
+                    "git",
+                    "-C",
+                    str(workdir.resolve()),
+                    "config",
+                    "--local",
+                    "--no-includes",
+                    "--get-all",
+                    f"remote.{remote}.url",
+                ),
+                _local_config_environment(),
+            )
         if completed.returncode:
             detail = completed.stderr.strip() or "cannot resolve Git push remote"
             raise FlowError(detail)
-        remote_url = completed.stdout.strip()
+        urls = [value for value in completed.stdout.splitlines() if value]
+        if len(urls) != 1:
+            raise FlowError("author push requires exactly one raw local push URL")
+        remote_url = urls[0]
         parsed = urlsplit(remote_url)
         if (
             parsed.scheme != "https"

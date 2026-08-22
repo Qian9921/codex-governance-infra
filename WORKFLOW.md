@@ -34,9 +34,10 @@ The author and reviewer are different GitHub identities. The author must be the 
 
 Use the V23 delivery adapter for branch push, PR creation, GitHub review, and
 merge checks. Its push operation requires an explicit worktree and refspec and
-resolves an explicit credential-free HTTPS `github.com` push URL, clears
-ambient Git credential/header configuration and its environment injection
-variables, and uses the configured author's GH_CONFIG_DIR credential helper.
+reads one raw local credential-free HTTPS `github.com` URL, then starts an
+otherwise config-isolated Git push with the configured author's GH_CONFIG_DIR
+credential helper. That excludes ambient Git credential/header configuration,
+environment injection variables, and URL rewrites.
 
 Merge only after the current head has the required checks, no blocking unresolved feedback, and a valid approval from the configured reviewer identity. Let GitHub enforce repository rules; do not imitate them with a local process.
 

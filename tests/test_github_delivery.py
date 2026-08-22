@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -19,7 +20,7 @@ class FakeRunner:
     def __call__(
         self, command: tuple[str, ...], env: dict[str, str]
     ) -> subprocess.CompletedProcess[str]:
-        self.calls.append((tuple(command), env["GH_CONFIG_DIR"]))
+        self.calls.append((tuple(command), env.get("GH_CONFIG_DIR", "")))
         self.environments.append(dict(env))
         if not self.responses:
             raise AssertionError(f"unexpected command: {command}")
@@ -42,7 +43,13 @@ class GithubDeliveryTests(unittest.TestCase):
 
     def test_preflight_uses_distinct_config_directories_and_accounts(self) -> None:
         runner = FakeRunner([user("author-one"), user("reviewer-two")])
-        flow = self.client_pair(runner)
+        flow = DeliveryFlow(
+            GHClient(Path("/profiles/author"), runner),
+            GHClient(Path("/profiles/reviewer"), runner),
+            "author-one",
+            "reviewer-two",
+            git_runner=runner,
+        )
 
         self.assertEqual(flow.preflight(), ("author-one", "reviewer-two"))
         self.assertEqual(
@@ -186,6 +193,7 @@ class GithubDeliveryTests(unittest.TestCase):
             [
                 user("author-one"),
                 user("reviewer-two"),
+                (1, "", ""),
                 (0, "https://github.com/owner/repo.git\n", ""),
                 (0, "", ""),
             ]
@@ -222,7 +230,14 @@ class GithubDeliveryTests(unittest.TestCase):
             "git@github.com:owner/repo.git\n",
             "https://token@github.com/owner/repo.git\n",
         ):
-            runner = FakeRunner([user("author-one"), user("reviewer-two"), (0, remote_url, "")])
+            runner = FakeRunner(
+                [
+                    user("author-one"),
+                    user("reviewer-two"),
+                    (1, "", ""),
+                    (0, remote_url, ""),
+                ]
+            )
             flow = DeliveryFlow(
                 GHClient(Path("/profiles/author"), runner),
                 GHClient(Path("/profiles/reviewer"), runner),
@@ -253,6 +268,7 @@ class GithubDeliveryTests(unittest.TestCase):
                 "GIT_CONFIG_VALUE_0": "ambient-helper",
                 "GIT_CONFIG_PARAMETERS": "http.extraHeader=ambient-header",
                 "GIT_CONFIG_GLOBAL": "/tmp/ambient-config",
+                "GIT_CONFIG": "/tmp/ambient-repository-config",
             },
         ):
             flow.preflight()
@@ -268,9 +284,45 @@ class GithubDeliveryTests(unittest.TestCase):
                 "GIT_CONFIG_KEY_0",
                 "GIT_CONFIG_VALUE_0",
                 "GIT_CONFIG_PARAMETERS",
-                "GIT_CONFIG_GLOBAL",
             ):
                 self.assertNotIn(variable, environment)
+            self.assertEqual(environment["GIT_CONFIG"], os.devnull)
+            self.assertEqual(environment["GIT_CONFIG_GLOBAL"], os.devnull)
+            self.assertEqual(environment["GIT_CONFIG_NOSYSTEM"], "1")
+
+    def test_push_reads_raw_remote_then_isolates_git_config_sources(self) -> None:
+        runner = FakeRunner(
+            [
+                user("author-one"),
+                user("reviewer-two"),
+                (1, "", ""),
+                (0, "https://github.com/owner/repo.git\n", ""),
+                (0, "", ""),
+            ]
+        )
+        flow = DeliveryFlow(
+            GHClient(Path("/profiles/author"), runner),
+            GHClient(Path("/profiles/reviewer"), runner),
+            "author-one",
+            "reviewer-two",
+            git_runner=runner,
+        )
+
+        with (
+            patch.dict("os.environ", {"GIT_CONFIG": "/tmp/rewrite-config"}),
+            tempfile.TemporaryDirectory() as directory,
+        ):
+            flow.push_branch(Path(directory), "origin", "HEAD:refs/heads/feature/v23")
+
+        raw_remote_call, raw_remote_config = runner.calls[3]
+        self.assertEqual(raw_remote_call[-1], "remote.origin.url")
+        self.assertEqual(raw_remote_config, "")
+        raw_remote_env = runner.environments[3]
+        self.assertNotIn("GIT_CONFIG", raw_remote_env)
+        push_env = runner.environments[-1]
+        self.assertEqual(push_env["GIT_CONFIG"], os.devnull)
+        self.assertEqual(push_env["GIT_CONFIG_GLOBAL"], os.devnull)
+        self.assertEqual(push_env["GIT_CONFIG_NOSYSTEM"], "1")
 
 
 if __name__ == "__main__":
