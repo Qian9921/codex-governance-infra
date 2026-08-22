@@ -8,10 +8,15 @@ V23 hook and is never a Stop hook.
 | Need | Required tool | Use it for |
 | --- | --- | --- |
 | Every new task | CodeGraph | Index status/sync plus a real file query |
-| Every new task | Semble | A bounded semantic search using the user prompt |
+| Every new task | Semble | A bounded semantic health search using the user prompt |
 | Every new task | RTK | A compact Git workspace status or directory inspection |
 | Straightforward file or text work | `rg`, `git`, project tools | Direct local operations |
 | Follow-on investigation | Best-fit tool | Expand only if it changes the decision |
+
+The mandatory Semble search is deliberately scoped to V23's small bootstrap
+source. This makes every-task use reliable without indexing a potentially huge
+umbrella workspace before the task scope is known. Perform a second Semble
+search against the actual task scope when it would change the decision.
 
 The CodeGraph cache is Git-local and ignored through a V23-marked
 info/exclude block; it is not committed and no daemon is started. In a non-Git
